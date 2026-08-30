@@ -22,3 +22,7 @@ sentry.properties
 **/sentry.properties
 /composeApp/kcef-bundle/
 **/composeApp/kcef-bundle/
+test/
+**/test/
+scripts/
+**/scripts/

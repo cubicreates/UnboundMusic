@@ -90,7 +90,7 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 │  │  - Animated Canvas Apple Music-Style Kinetic Lyrics Renderer          │  │
 │  │  - Battery Exemption & Autostart Onboarding Wizard                    │  │
 │  └───────────────────────────────────┬───────────────────────────────────┘  │
-│                                      │ IPC / JNI / Local REST (127.0.0.1)    │
+│                                      │ IPC / JNI / Local REST (127.0.0.1)   │
 │  ┌───────────────────────────────────▼───────────────────────────────────┐  │
 │  │                   EMBEDDED GO ENGINE (Daemon / JNI)                   │  │
 │  │                                                                       │  │

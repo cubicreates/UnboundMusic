@@ -32,8 +32,8 @@ var (
 	// regexMultipleNewlines cleans up excess empty lines
 	regexMultipleNewlines = regexp.MustCompile(`\n{3,}`)
 
-	// regexSectionHeader identifies bracketed structural song tags like [Verse 1], [Chorus]
-	regexSectionHeader = regexp.MustCompile(`^\[.*\]$`)
+	// regexHeaderArtifacts matches Genius UI junk like "666 ContributorsTranslations..." or "Embed"
+	regexHeaderArtifacts = regexp.MustCompile(`(?i)^\d+\s*Contributors.*Translations.*$`)
 )
 
 // FetchLyrics parses the lyrics and annotation metadata for a given Genius song hit.
@@ -70,7 +70,7 @@ func (c *Client) FetchLyrics(ctx context.Context, hit *SongHit) (*models.LyricsP
 		PlainLyrics:  plainLyrics,
 		Lines:        lines,
 		IsWordSynced: false,
-		Source:       "Genius FOSS Web Scraper",
+		Source:       "Genius FOSS Web Scraper (Uncensored)",
 	}, nil
 }
 
@@ -107,7 +107,7 @@ func extractLyricsFromHTML(rawHTML string) (string, error) {
 	return result, nil
 }
 
-// parsePlainLyricsToLines transforms a plain text lyrics block into structured LyricLine models.
+// parsePlainLyricsToLines transforms a plain text lyrics block into structured LyricLine models, filtering Genius UI junk.
 func parsePlainLyricsToLines(plainText string) []models.LyricLine {
 	rawLines := strings.Split(plainText, "\n")
 	var result []models.LyricLine
@@ -115,6 +115,11 @@ func parsePlainLyricsToLines(plainText string) []models.LyricLine {
 	for _, line := range rawLines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
+			continue
+		}
+
+		// Filter out Genius page header metadata artifacts
+		if regexHeaderArtifacts.MatchString(trimmed) || strings.HasSuffix(trimmed, "Contributors") || trimmed == "Embed" || strings.HasPrefix(trimmed, "You might also like") {
 			continue
 		}
 

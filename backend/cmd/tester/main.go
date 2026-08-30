@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/genius"
@@ -24,13 +25,14 @@ func main() {
 	streamID := flag.String("stream", "", "YouTube Video ID to extract audio stream for")
 	lyricsQuery := flag.String("lyrics", "", "Song title to scrape Genius and LRCLIB lyrics for")
 	artistQuery := flag.String("artist", "", "Optional artist filter for lyrics search")
+	sourceFlag := flag.String("source", "all", "Lyrics source: 'all', 'genius', or 'lrclib'")
 	flag.Parse()
 
 	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
-		fmt.Println("  tester -lyrics <title> [-artist <artist>]")
+		fmt.Println("  tester -lyrics <title> [-artist <artist>] [-source genius|lrclib|all]")
 		os.Exit(1)
 	}
 
@@ -82,49 +84,71 @@ func main() {
 
 	if *lyricsQuery != "" {
 		geniusClient := genius.NewClient()
-		fmt.Printf("\n[UNBOUND ENGINE] Searching Genius Lyrics for: %q (Artist: %q)\n", *lyricsQuery, *artistQuery)
-		start := time.Now()
+		fmt.Printf("\n[UNBOUND ENGINE] Resolving Lyrics for: %q (Artist: %q)\n", *lyricsQuery, *artistQuery)
 
-		// Step 1: Try LRCLIB first for pre-synced timestamps
-		lrclibPayload, err := geniusClient.FetchLRCLIBSynced(ctx, *lyricsQuery, *artistQuery, 0)
-		if err == nil && len(lrclibPayload.Lines) > 0 {
-			elapsed := time.Since(start)
-			fmt.Printf("LRCLIB Synced Lyrics Resolved in %v (%d lines):\n", elapsed, len(lrclibPayload.Lines))
-			for i, line := range lrclibPayload.Lines {
-				if i >= 8 {
-					fmt.Printf("  ... and %d more synced lines\n", len(lrclibPayload.Lines)-8)
-					break
+		// 1. Fetch Genius Verified Uncensored Lyrics
+		if *sourceFlag == "all" || *sourceFlag == "genius" {
+			startGenius := time.Now()
+			hit, err := geniusClient.SearchSong(ctx, *lyricsQuery, *artistQuery)
+			if err == nil {
+				fmt.Printf("[GENIUS] Found Official Song Page: %s by %s\n", hit.Title, hit.Artist)
+				payload, err := geniusClient.FetchLyrics(ctx, hit)
+				elapsedGenius := time.Since(startGenius)
+
+				if err == nil {
+					fmt.Printf("[GENIUS] Verified Uncensored Lyrics Scraped in %v (%d lines):\n", elapsedGenius, len(payload.Lines))
+					for i, line := range payload.Lines {
+						if i >= 12 {
+							fmt.Printf("  ... and %d more lines\n", len(payload.Lines)-12)
+							break
+						}
+						fmt.Printf("  %s\n", line.Text)
+					}
+				} else {
+					fmt.Printf("[GENIUS] Scrape error: %v\n", err)
 				}
-				fmt.Printf("  [%02d:%02d.%03d] %s\n", line.StartMs/60000, (line.StartMs%60000)/1000, line.StartMs%1000, line.Text)
+			} else {
+				fmt.Printf("[GENIUS] Search error: %v\n", err)
 			}
-			return
 		}
 
-		// Step 2: Fallback to scraping verified lyrics from Genius HTML
-		hit, err := geniusClient.SearchSong(ctx, *lyricsQuery, *artistQuery)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Genius search failed: %v\n", err)
-			os.Exit(1)
-		}
+		// 2. Fetch LRCLIB Community Synced Lyrics
+		if *sourceFlag == "all" || *sourceFlag == "lrclib" {
+			startLRC := time.Now()
+			lrclibPayload, err := geniusClient.FetchLRCLIBSynced(ctx, *lyricsQuery, *artistQuery, 0)
+			elapsedLRC := time.Since(startLRC)
 
-		fmt.Printf("Found Genius Song Page: %s by %s\n", hit.Title, hit.Artist)
-		payload, err := geniusClient.FetchLyrics(ctx, hit)
-		elapsed := time.Since(start)
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Genius lyrics scrape failed: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Genius Verified Lyrics Scraped in %v (%d lines):\n", elapsed, len(payload.Lines))
-		for i, line := range payload.Lines {
-			if i >= 12 {
-				fmt.Printf("  ... and %d more lines\n", len(payload.Lines)-12)
-				break
+			if err == nil && len(lrclibPayload.Lines) > 0 {
+				isCensored := detectCensorship(lrclibPayload.PlainLyrics)
+				censorStatus := "Uncensored"
+				if isCensored {
+					censorStatus = "Contains Radio-Edit / Censored Tokens"
+				}
+				fmt.Printf("\n[LRCLIB] Synced Lyrics Resolved in %v (%d lines) [%s]:\n", elapsedLRC, len(lrclibPayload.Lines), censorStatus)
+				for i, line := range lrclibPayload.Lines {
+					if i >= 8 {
+						fmt.Printf("  ... and %d more synced lines\n", len(lrclibPayload.Lines)-8)
+						break
+					}
+					fmt.Printf("  [%02d:%02d.%03d] %s\n", line.StartMs/60000, (line.StartMs%60000)/1000, line.StartMs%1000, line.Text)
+				}
+			} else {
+				fmt.Printf("\n[LRCLIB] No synced lyrics available: %v\n", err)
 			}
-			fmt.Printf("  %s\n", line.Text)
 		}
 	}
+}
+
+// detectCensorship scans text for typical radio-edit censorship markers like dashes or asterisks in profanity.
+func detectCensorship(text string) bool {
+	lower := strings.ToLower(text)
+	censorMarkers := []string{"wh-", "f***", "b****", "n***", "s***", "p****", "wet and gushy"}
+	for _, m := range censorMarkers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // truncate shortens a string with ellipsis if it exceeds max length.

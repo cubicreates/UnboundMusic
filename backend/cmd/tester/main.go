@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, and storage ingestion scanning.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, and SQLite persistence.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -13,8 +13,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/aligner"
+	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
@@ -26,19 +29,30 @@ func main() {
 	lyricsQuery := flag.String("lyrics", "", "Song title to scrape Genius lyrics for")
 	artistQuery := flag.String("artist", "", "Optional artist filter for lyrics search")
 	scanDir := flag.String("scan", "", "Directory path to scan and inspect for local audio files")
+	alignQuery := flag.String("align", "", "Song title to test on-device forced CTC lyrics alignment")
 	flag.Parse()
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
 		fmt.Println("  tester -lyrics <title> [-artist <artist>]")
 		fmt.Println("  tester -scan <directory_path>")
+		fmt.Println("  tester -align <title> [-artist <artist>]")
 		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// Initialize SQLite Database in temp directory for testing
+	dbPath := filepath.Join(os.TempDir(), "unbound_music_test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: SQLite init failed: %v\n", err)
+	} else {
+		defer db.Close()
+	}
 
 	if *searchQuery != "" {
 		ytClient := ytmusic.NewClient()
@@ -59,6 +73,12 @@ func main() {
 			}
 			fmt.Printf("  [%d] ID: %-11s | Title: %-30s | Artist: %-20s | Duration: %ds\n",
 				i+1, t.ID, truncate(t.Title, 30), truncate(t.Artist, 20), t.DurationMs/1000)
+
+			// Persist search tracks into SQLite memory bank
+			if db != nil {
+				repo := database.NewRepository(db)
+				_ = repo.SaveTrack(ctx, &t)
+			}
 		}
 	}
 
@@ -101,6 +121,11 @@ func main() {
 					}
 					fmt.Printf("  %s\n", line.Text)
 				}
+
+				if db != nil {
+					repo := database.NewRepository(db)
+					_ = repo.SaveLyrics(ctx, payload)
+				}
 				return
 			}
 		}
@@ -121,6 +146,60 @@ func main() {
 				break
 			}
 			fmt.Printf("  [%02d:%02d.%03d] %s\n", line.StartMs/60000, (line.StartMs%60000)/1000, line.StartMs%1000, line.Text)
+		}
+
+		if db != nil {
+			repo := database.NewRepository(db)
+			_ = repo.SaveLyrics(ctx, lrclibPayload)
+		}
+	}
+
+	if *alignQuery != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Running On-Device Forced Aligner for: %q (Artist: %q)\n", *alignQuery, *artistQuery)
+		start := time.Now()
+
+		geniusClient := genius.NewClient()
+		hit, err := geniusClient.SearchSong(ctx, *alignQuery, *artistQuery)
+		if err != nil || hit == nil {
+			fmt.Fprintf(os.Stderr, "Genius song lookup failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		plainPayload, err := geniusClient.FetchLyrics(ctx, hit)
+		if err != nil || len(plainPayload.Lines) == 0 {
+			fmt.Fprintf(os.Stderr, "Genius lyrics scrape failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Run On-Device Forced Aligner
+		forcdAligner := aligner.NewForcedAligner()
+		alignedPayload, err := forcdAligner.AlignLyrics(fmt.Sprintf("align:%d", hit.ID), hit.Title, hit.Artist, plainPayload.PlainLyrics, 186000)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Forced alignment failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("On-Device Forced Alignment Completed in %v (%d lines timed):\n", elapsed, len(alignedPayload.Lines))
+		for i, line := range alignedPayload.Lines {
+			if i >= 10 {
+				fmt.Printf("  ... and %d more aligned kinetic lines\n", len(alignedPayload.Lines)-10)
+				break
+			}
+			fmt.Printf("  [%02d:%02d.%03d -> %02d:%02d.%03d] %-35s (Syllables: %d)\n",
+				line.StartMs/60000, (line.StartMs%60000)/1000, line.StartMs%1000,
+				line.EndMs/60000, (line.EndMs%60000)/1000, line.EndMs%1000,
+				truncate(line.Text, 35), len(line.Syllables),
+			)
+		}
+
+		// Persist aligned lyrics to SQLite database
+		if db != nil {
+			repo := database.NewRepository(db)
+			if err := repo.SaveLyrics(ctx, alignedPayload); err == nil {
+				fmt.Println("[SQLITE] Aligned lyrics successfully cached to permanent SQLite vault.")
+			}
 		}
 	}
 
@@ -158,6 +237,12 @@ func main() {
 
 			fmt.Printf("  [%d] [%-11s | Rule: %-4s | Hash: %s] %s (%.1fs)\n",
 				i+1, status, rule, track.AcousticHash, track.FilePath, float64(track.DurationMs)/1000)
+
+			// Persist fingerprint to database
+			if db != nil && class.IsMusic {
+				repo := database.NewRepository(db)
+				_ = repo.SaveFingerprint(ctx, track.AcousticHash, track.FilePath, track.DurationMs)
+			}
 		}
 	}
 }

@@ -156,6 +156,14 @@ func parsePlayerResponse(videoID string, data []byte) (*models.StreamInfo, error
 		channels = int(ch)
 	}
 
+	var durationMs int64
+	if durStr, ok := bestFormat["approxDurationMs"].(string); ok {
+		durationMs, _ = strconv.ParseInt(durStr, 10, 64)
+	}
+	if durationMs == 0 && contentLength > 0 && bestBitrate > 0 {
+		durationMs = (contentLength * 8) / int64(bestBitrate)
+	}
+
 	expiresAt := time.Now().Add(6 * time.Hour)
 
 	return &models.StreamInfo{
@@ -165,6 +173,7 @@ func parsePlayerResponse(videoID string, data []byte) (*models.StreamInfo, error
 		BitrateKbps:   bestBitrate,
 		SampleRate:    sampleRate,
 		ContentLength: contentLength,
+		DurationMs:    durationMs,
 		ExpiresAt:     expiresAt,
 		AudioChannels: channels,
 	}, nil

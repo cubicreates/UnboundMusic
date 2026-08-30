@@ -69,6 +69,9 @@ type StreamInfo struct {
 	// ContentLength is the size of the remote audio file in bytes.
 	ContentLength int64 `json:"content_length"`
 
+	// DurationMs is the duration of the audio stream in milliseconds.
+	DurationMs int64 `json:"duration_ms"`
+
 	// ExpiresAt is the timestamp after which the streaming URL becomes invalid.
 	ExpiresAt time.Time `json:"expires_at"`
 

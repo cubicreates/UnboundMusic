@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, and SQLite persistence.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, and zero-data hybrid routing.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -19,7 +19,9 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
+	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -30,15 +32,17 @@ func main() {
 	artistQuery := flag.String("artist", "", "Optional artist filter for lyrics search")
 	scanDir := flag.String("scan", "", "Directory path to scan and inspect for local audio files")
 	alignQuery := flag.String("align", "", "Song title to test on-device forced CTC lyrics alignment")
+	routerQuery := flag.String("router", "", "Song title to test Zero-Data Hybrid Playback Interception Router")
 	flag.Parse()
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
 		fmt.Println("  tester -lyrics <title> [-artist <artist>]")
 		fmt.Println("  tester -scan <directory_path>")
 		fmt.Println("  tester -align <title> [-artist <artist>]")
+		fmt.Println("  tester -router <title> [-artist <artist>]")
 		os.Exit(1)
 	}
 
@@ -54,9 +58,13 @@ func main() {
 		defer db.Close()
 	}
 
+	// Check adaptive storage gatekeeper
+	storageStatus, _ := gatekeeper.CheckStorageCapacity(os.TempDir())
+	fmt.Printf("[GATEKEEPER] Storage Mode: %s (Free Space: %.1f MB)\n", storageStatus.Mode, storageStatus.FreeMB)
+
 	if *searchQuery != "" {
 		ytClient := ytmusic.NewClient()
-		fmt.Printf("[UNBOUND ENGINE] Searching YouTube Music for: %q\n", *searchQuery)
+		fmt.Printf("\n[UNBOUND ENGINE] Searching YouTube Music for: %q\n", *searchQuery)
 		start := time.Now()
 		tracks, err := ytClient.Search(ctx, *searchQuery)
 		elapsed := time.Since(start)
@@ -74,7 +82,6 @@ func main() {
 			fmt.Printf("  [%d] ID: %-11s | Title: %-30s | Artist: %-20s | Duration: %ds\n",
 				i+1, t.ID, truncate(t.Title, 30), truncate(t.Artist, 20), t.DurationMs/1000)
 
-			// Persist search tracks into SQLite memory bank
 			if db != nil {
 				repo := database.NewRepository(db)
 				_ = repo.SaveTrack(ctx, &t)
@@ -171,7 +178,6 @@ func main() {
 			os.Exit(1)
 		}
 
-		// Run On-Device Forced Aligner
 		forcdAligner := aligner.NewForcedAligner()
 		alignedPayload, err := forcdAligner.AlignLyrics(fmt.Sprintf("align:%d", hit.ID), hit.Title, hit.Artist, plainPayload.PlainLyrics, 186000)
 		elapsed := time.Since(start)
@@ -194,13 +200,38 @@ func main() {
 			)
 		}
 
-		// Persist aligned lyrics to SQLite database
 		if db != nil {
 			repo := database.NewRepository(db)
 			if err := repo.SaveLyrics(ctx, alignedPayload); err == nil {
 				fmt.Println("[SQLITE] Aligned lyrics successfully cached to permanent SQLite vault.")
 			}
 		}
+	}
+
+	if *routerQuery != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Testing Zero-Data Hybrid Playback Router for: %q (Artist: %q)\n", *routerQuery, *artistQuery)
+		start := time.Now()
+
+		var repo *database.Repository
+		if db != nil {
+			repo = database.NewRepository(db)
+		}
+
+		playbackRouter := router.NewRouter(nil, repo)
+		resolved, err := playbackRouter.ResolvePlayback(ctx, "", *routerQuery, *artistQuery)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Router failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Hybrid Stream Resolution Completed in %v:\n", elapsed)
+		fmt.Printf("  Resolved Title:  %s by %s\n", resolved.Title, resolved.Artist)
+		fmt.Printf("  Stream Type:     %s\n", resolved.StreamType)
+		fmt.Printf("  Data Consumed:   %d bytes (%.2f MB)\n", resolved.DataConsumed, float64(resolved.DataConsumed)/(1024*1024))
+		fmt.Printf("  Codec / Bitrate: %s @ %d kbps\n", resolved.Codec, resolved.BitrateKbps)
+		fmt.Printf("  Stream URI:      %s\n", truncate(resolved.StreamURL, 80))
 	}
 
 	if *scanDir != "" {
@@ -238,7 +269,6 @@ func main() {
 			fmt.Printf("  [%d] [%-11s | Rule: %-4s | Hash: %s] %s (%.1fs)\n",
 				i+1, status, rule, track.AcousticHash, track.FilePath, float64(track.DurationMs)/1000)
 
-			// Persist fingerprint to database
 			if db != nil && class.IsMusic {
 				repo := database.NewRepository(db)
 				_ = repo.SaveFingerprint(ctx, track.AcousticHash, track.FilePath, track.DurationMs)

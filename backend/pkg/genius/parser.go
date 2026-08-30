@@ -20,9 +20,6 @@ import (
 )
 
 var (
-	// regexLyricsContainer captures DOM containers containing lyrics text
-	regexLyricsContainer = regexp.MustCompile(`(?s)<div[^>]*data-lyrics-container="true"[^>]*>(.*?)</div>`)
-
 	// regexBr matches <br> and <br/> tags
 	regexBr = regexp.MustCompile(`(?i)<br\s*/?>`)
 
@@ -32,7 +29,7 @@ var (
 	// regexMultipleNewlines cleans up excess empty lines
 	regexMultipleNewlines = regexp.MustCompile(`\n{3,}`)
 
-	// regexHeaderArtifacts matches Genius UI junk like "666 ContributorsTranslations..." or "Embed"
+	// regexHeaderArtifacts matches Genius UI junk
 	regexHeaderArtifacts = regexp.MustCompile(`(?i)^\d+\s*Contributors.*Translations.*$`)
 )
 
@@ -74,25 +71,69 @@ func (c *Client) FetchLyrics(ctx context.Context, hit *SongHit) (*models.LyricsP
 	}, nil
 }
 
-// extractLyricsFromHTML searches for data-lyrics-container divs and transforms them into clean plain text.
+// extractLyricsFromHTML locates all data-lyrics-container sections and extracts complete uncensored lyrics text in order.
 func extractLyricsFromHTML(rawHTML string) (string, error) {
-	matches := regexLyricsContainer.FindAllStringSubmatch(rawHTML, -1)
-	if len(matches) == 0 {
-		return "", fmt.Errorf("no lyrics container elements found in page HTML")
-	}
-
+	marker := `data-lyrics-container="true"`
+	idx := 0
 	var sb strings.Builder
-	for _, m := range matches {
-		if len(m) > 1 {
-			containerHTML := m[1]
-			// Replace <br> with newlines
+
+	for {
+		pos := strings.Index(rawHTML[idx:], marker)
+		if pos == -1 {
+			break
+		}
+
+		startTagIdx := idx + pos
+		// Find beginning of the <div
+		divStart := strings.LastIndex(rawHTML[:startTagIdx], "<div")
+		if divStart == -1 {
+			idx = startTagIdx + len(marker)
+			continue
+		}
+
+		// Find end of opening <div ...> tag
+		tagEnd := strings.Index(rawHTML[startTagIdx:], ">")
+		if tagEnd == -1 {
+			break
+		}
+		contentStart := startTagIdx + tagEnd + 1
+
+		// Walk through HTML tokens to find matching balanced </div>
+		depth := 1
+		scanIdx := contentStart
+		contentEnd := -1
+
+		for scanIdx < len(rawHTML) && depth > 0 {
+			nextOpen := strings.Index(rawHTML[scanIdx:], "<div")
+			nextClose := strings.Index(rawHTML[scanIdx:], "</div>")
+
+			if nextClose == -1 {
+				break
+			}
+
+			if nextOpen != -1 && nextOpen < nextClose {
+				depth++
+				scanIdx += nextOpen + 4
+			} else {
+				depth--
+				if depth == 0 {
+					contentEnd = scanIdx + nextClose
+					break
+				}
+				scanIdx += nextClose + 6
+			}
+		}
+
+		if contentEnd != -1 && contentEnd > contentStart {
+			containerHTML := rawHTML[contentStart:contentEnd]
 			withNewlines := regexBr.ReplaceAllString(containerHTML, "\n")
-			// Strip all other HTML tags
 			plainText := regexHtmlTag.ReplaceAllString(withNewlines, "")
-			// Unescape HTML entities (&amp;, &#x27;, &quot;)
 			unescaped := html.UnescapeString(plainText)
 			sb.WriteString(unescaped)
-			sb.WriteString("\n")
+			sb.WriteString("\n\n")
+			idx = contentEnd + 6
+		} else {
+			idx = contentStart
 		}
 	}
 
@@ -101,7 +142,7 @@ func extractLyricsFromHTML(rawHTML string) (string, error) {
 	result = strings.TrimSpace(result)
 
 	if result == "" {
-		return "", fmt.Errorf("extracted lyrics string is empty")
+		return "", fmt.Errorf("no lyrics extracted from HTML")
 	}
 
 	return result, nil

@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, and Genius lyrics scraping in pure Go.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, and storage ingestion scanning.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -15,6 +15,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -24,17 +25,19 @@ func main() {
 	streamID := flag.String("stream", "", "YouTube Video ID to extract audio stream for")
 	lyricsQuery := flag.String("lyrics", "", "Song title to scrape Genius lyrics for")
 	artistQuery := flag.String("artist", "", "Optional artist filter for lyrics search")
+	scanDir := flag.String("scan", "", "Directory path to scan and inspect for local audio files")
 	flag.Parse()
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
 		fmt.Println("  tester -lyrics <title> [-artist <artist>]")
+		fmt.Println("  tester -scan <directory_path>")
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if *searchQuery != "" {
@@ -85,7 +88,6 @@ func main() {
 		fmt.Printf("\n[UNBOUND ENGINE] Resolving Lyrics for: %q (Artist: %q)\n", *lyricsQuery, *artistQuery)
 		start := time.Now()
 
-		// PRIMARY: Genius FOSS Uncensored Verified Lyrics
 		hit, err := geniusClient.SearchSong(ctx, *lyricsQuery, *artistQuery)
 		if err == nil && hit != nil {
 			payload, err := geniusClient.FetchLyrics(ctx, hit)
@@ -103,7 +105,6 @@ func main() {
 			}
 		}
 
-		// SECONDARY FALLBACK: LRCLIB (Only if Genius is unavailable)
 		fmt.Printf("[GENIUS] Not found or error: %v. Falling back to LRCLIB...\n", err)
 		lrclibPayload, lrcErr := geniusClient.FetchLRCLIBSynced(ctx, *lyricsQuery, *artistQuery, 0)
 		elapsed := time.Since(start)
@@ -120,6 +121,43 @@ func main() {
 				break
 			}
 			fmt.Printf("  [%02d:%02d.%03d] %s\n", line.StartMs/60000, (line.StartMs%60000)/1000, line.StartMs%1000, line.Text)
+		}
+	}
+
+	if *scanDir != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Scanning Storage Directory: %s\n", *scanDir)
+		start := time.Now()
+		summary, err := fingerprint.ScanDirectory(ctx, *scanDir, 8)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Directory scan failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Directory Scan Completed in %v:\n", elapsed)
+		fmt.Printf("  Total Audio Files Found: %d\n", summary.TotalFilesScanned)
+		fmt.Printf("  Classified as Music:     %d\n", summary.MusicFilesCount)
+		fmt.Printf("  Classified as Voice/SFX: %d\n", summary.NoiseFilesCount)
+
+		for i, track := range summary.AudioTracks {
+			if i >= 15 {
+				fmt.Printf("  ... and %d more files\n", len(summary.AudioTracks)-15)
+				break
+			}
+			class := fingerprint.ClassifyAudio(track)
+			status := "MUSIC"
+			if !class.IsMusic {
+				status = "VOICE/NOISE"
+			}
+			isChat := fingerprint.IsProtectedChatMedia(track.FilePath)
+			rule := "MOVE"
+			if isChat {
+				rule = "COPY"
+			}
+
+			fmt.Printf("  [%d] [%-11s | Rule: %-4s | Hash: %s] %s (%.1fs)\n",
+				i+1, status, rule, track.AcousticHash, track.FilePath, float64(track.DurationMs)/1000)
 		}
 	}
 }

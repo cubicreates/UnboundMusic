@@ -2,11 +2,11 @@
   <img src="https://raw.githubusercontent.com/maxrave-dev/SimpMusic/dev/fastlane/metadata/android/en-US/images/featureGraphic.png" alt="Unbound Music Banner" width="100%">
   
   <h1>Unbound Music</h1>
-  <p><strong>A Next-Gen, Audio-Exclusive FOSS Platform with an Embedded Go Engine, On-Device Forced Lyric Alignment & Acoustic Fingerprinting.</strong></p>
+  <p><strong>A Next-Gen, Audio-Exclusive FOSS Platform with an Embedded Go Engine, Adaptive Storage Gatekeeper, On-Device Forced Lyric Alignment & Acoustic Fingerprinting.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/License-GPL--3.0-0052CC?style=flat-square" alt="License">
-    <img src="https://img.shields.io/badge/Initial%20Download-%3C%2050%20MB-brightgreen?style=flat-square" alt="Under 50MB">
+    <img src="https://img.shields.io/badge/APK%20Bundle-%3C%2050%20MB-brightgreen?style=flat-square" alt="Under 50MB">
     <img src="https://img.shields.io/badge/Frontend-Kotlin%20Multiplatform-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin Multiplatform">
     <img src="https://img.shields.io/badge/Engine-Embedded%20Go-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Backend">
     <img src="https://img.shields.io/badge/UI-Compose%20Multiplatform-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Compose Multiplatform">
@@ -34,7 +34,8 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 ├───────────────────────────────┬───────────────────────────────────────────────┤
 │ Upstream / Traditional Apps   │ Unbound Music's Custom Architecture           │
 ├───────────────────────────────┼───────────────────────────────────────────────┤
-│ Heavy initial app bundle      │ Featherweight < 50MB APK + Background AI load │
+│ Heavy initial app bundle      │ Self-contained < 50MB APK (Zero post-download)│
+│ Conversational / slow LLMs    │ Command-Only Micro-AI + 0-MB BM25 Fallback    │
 │ Relies on cloud scraper APIs  │ Embedded Go Daemon running locally on-device  │
 │ Video player wrappers         │ Pure Audio-Exclusive Player (Spotify x VLC)   │
 │ Static lyrics or paid APIs    │ Genius FOSS + On-Device CTC Forced Alignment  │
@@ -49,31 +50,39 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 
 ## Core Architectural Pillars
 
-### 1. Ultra-Lightweight Install (< 50 MB) + Post-Install AI Provisioning
-* **Instant Setup**: The base installer is **$\sim 34\text{MB}$**, containing the full Kotlin UI, embedded Go audio engine, and baseline acoustic alignment model.
-* **Silent Background AI Delivery**: Once installed, an Android WorkManager / background coroutine seamlessly downloads the quantized Micro-LLM weights ($\sim 180\text{MB}$) over Wi-Fi without interrupting playback.
+### 1. Self-Contained < 50 MB Bundle & Adaptive Storage Gatekeeper
+* **Zero Post-Install Downloads**: The complete APK bundle weighs **$\sim 36.5\text{MB}$**, packaging the Kotlin UI, embedded Go audio engine, CTC alignment acoustic model, and compressed Micro-AI payload.
+* **Storage Gatekeeper**:
+  - **$\ge 100\text{MB}$ Free Storage**: Decompresses the compressed $\sim 4.5\text{MB}$ Zstd micro-AI payload into cache in $<150\text{ms}$ for full vector taste matching.
+  - **$< 100\text{MB}$ Free Storage**: Skips model decompression and activates the **0-MB SQLite FTS5 / BM25 Heuristic Engine**, using zero extra storage.
 
-### 2. Embedded Go Engine ("Device-as-Server")
+### 2. Command-Driven Deterministic Micro-AI & Local RAG
+* **No Human-Like Text Fluff**: The AI does not generate conversational text. It acts as an instant mathematical classifier:
+  1. Computes 128-dim taste vectors for `sqlite-vec` cosine similarity mixes.
+  2. Maps playlists and songs into acoustic mood clusters.
+  3. Formulates structured search queries when acoustic fingerprinting misses an obscure track (Local RAG).
+
+### 3. Embedded Go Engine ("Device-as-Server")
 * **Zero Cloud Costs**: By compiling an embedded Go engine via JNI / local loopback, the user's phone or desktop PC acts as its own private micro-server.
 * **Immunity to IP Rate-Limiting**: Scraper requests originate from individual residential/mobile IPs rather than centralized VPS blocks that get blacklisted by streaming providers.
 
-### 3. Genius FOSS Lyrics + On-Device CTC Forced Alignment
+### 4. Genius FOSS Lyrics + On-Device CTC Forced Alignment
 * **Verified Lyrics Scraping**: Extracts complete lyrics, song trivia, and verified annotations directly from Genius without requiring proprietary developer tokens.
 * **Local Syllable Alignment**: A quantized, on-device CTC acoustic model compares the raw audio PCM waveform against the Genius transcript in $\sim 1.5\text{s}$.
 * **Apple Music-Style Kinetic Rendering**: Delivers word-by-word dynamic glowing text, fluid physics-based blurring, and millisecond tap-to-seek navigation with zero cloud AI API overhead.
 
-### 4. Acoustic Fingerprinting & Intelligent File Ingestion
+### 5. Acoustic Fingerprinting & Intelligent File Ingestion
 * **Chromaprint / AcoustID Integration**: Hashes local audio waveforms to identify exact song metadata regardless of broken file names or missing ID3 tags.
 * **Noise & Voice Memo Classifier**: Uses duration thresholds ($>30\text{s}$) and spectral bandwidth analysis to automatically exclude WhatsApp voice notes, ringtones, and notification sounds.
 * **Safe Ingestion Rules**:
   - **WhatsApp / Messaging Media**: Always **copied** to prevent breaking chat history and audio message bubbles.
   - **Downloads / Loose Files**: Safely **moved and sorted** into structured `Music/Artist/Album/Song.ext` directories.
 
-### 5. Zero-Data Hybrid Playback Router
+### 6. Zero-Data Hybrid Playback Router
 * Whenever an online album or playlist is selected, Unbound Music queries the local on-device fingerprint database first.
 * If a high-quality local copy is present, Unbound Music seamlessly plays the local `file://` URI instead of consuming cellular data or bandwidth.
 
-### 6. Sound Engineering Suite & "Reverse Play"
+### 7. Sound Engineering Suite & "Reverse Play"
 * **Spotify × VLC Hybrid UI**: A modern dark-mode aesthetic with sound engineering transparency: live sample rate badges ($44.1\text{kHz} - 192\text{kHz}$), bit depth ($16/24\text{-bit}$), and codec indicators (FLAC, Opus, AAC).
 * **10-Band Parametric EQ & Preamp**: Low Shelf ($31\text{Hz}$), Bass ($62\text{Hz}, 125\text{Hz}$), Mids ($250\text{Hz} - 2\text{kHz}$), Treble ($4\text{kHz}, 8\text{kHz}$), High Shelf ($16\text{kHz}$), plus $+12\text{dB}$ preamp boost with soft-knee limiter.
 * **Reverse Play Mode**: Inverts playlist queues ($N \to 1$) to enable playback of conceptual reverse-narrative albums (such as Kendrick Lamar's *DAMN.*) in their intended reverse sequence.
@@ -93,7 +102,7 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 │  │  - Pro Audio: 10-Band Parametric EQ, Preamp, Gain Limiter             │  │
 │  │  - Queue Engine: Normal | Loop All | Loop One | Shuffle | REVERSE     │  │
 │  │  - Animated Canvas Apple Music-Style Kinetic Lyrics Renderer          │  │
-│  │  - Background Model Manager: On-Demand Wi-Fi AI Downloader            │  │
+│  │  - Storage Gatekeeper: Adaptive Micro-AI vs. 0-MB BM25 Fallback       │  │
 │  │  - Battery Exemption & Autostart Onboarding Wizard                    │  │
 │  └───────────────────────────────────┬───────────────────────────────────┘  │
 │                                      │ IPC / JNI / Local REST (127.0.0.1)   │
@@ -111,8 +120,8 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 │  │  │   LOCAL SQLITE METADATA DB  │   │   GENIUS & LYRICS SUBSYSTEM   │  │  │
 │  │  │  - Fingerprint Hash Index   │   │  - Genius FOSS Web Scraper    │  │  │
 │  │  │  - Taste & Listening History│   │  - On-Device Forced Alignment │  │  │
-│  │  │  - Local Vector Embeddings  │   │  - LRCLIB & SimpMusic Client  │  │  │
-│  │  │  - Offline Synced Lyrics    │   │  - Background Micro-LLM RAG   │  │  │
+│  │  │  - sqlite-vec Taste Index   │   │  - LRCLIB & SimpMusic Client  │  │  │
+│  │  │  - Offline Synced Lyrics    │   │  - Deterministic Micro-AI RAG │  │  │
 │  │  └─────────────────────────────┘   └───────────────────────────────┘  │  │
 │  └───────────────────────────────────┬───────────────────────────────────┘  │
 └──────────────────────────────────────┼──────────────────────────────────────┘

@@ -24,27 +24,19 @@
 
 ---
 
-## What We Re-Engineered & Invented
+## What Makes Unbound Music Different
 
-While honoring the upstream UI inspirations, Unbound Music completely redesigns the core engine, media pipeline, data resolution, and lyric synchronization systems:
-
-```
-┌───────────────────────────────────────────────────────────────────────────────┐
-│                        WHAT MAKES UNBOUND MUSIC DIFFERENT                     │
-├───────────────────────────────┬───────────────────────────────────────────────┤
-│ Upstream / Traditional Apps   │ Unbound Music's Custom Architecture           │
-├───────────────────────────────┼───────────────────────────────────────────────┤
-│ Heavy initial app bundle      │ Self-contained < 50MB APK (Zero post-download)│
-│ Conversational / slow LLMs    │ Command-Only Micro-AI + 0-MB BM25 Fallback    │
-│ Relies on cloud scraper APIs  │ Embedded Go Daemon running locally on-device  │
-│ Video player wrappers         │ Pure Audio-Exclusive Player (Spotify x VLC)   │
-│ Static lyrics or paid APIs    │ Genius FOSS + On-Device CTC Forced Alignment  │
-│ Separate local & cloud tracks │ Unified Zero-Data Stream Interception Router  │
-│ Unsorted device audio files   │ Acoustic Fingerprint Ingestion & Noise Filter │
-│ Standard linear queue only    │ Inverted "Reverse Play" for Concept Albums    │
-│ Basic system equalizers       │ VLC-Grade 10-Band Parametric EQ + Preamp      │
-└───────────────────────────────┴───────────────────────────────────────────────┘
-```
+| Feature Domain | Upstream / Traditional FOSS Clients | Unbound Music Hybrid Architecture |
+| :--- | :--- | :--- |
+| **Download Footprint** | Heavy multi-hundred MB bundles | **$\sim 36.5\text{ MB}$ Self-Contained Bundle** ($< 50\text{MB}$) with zero extra downloads |
+| **Intelligence Engine** | Cloud LLM tokens or zero intelligence | **Command-Only Micro-AI** + 0-MB BM25 mathematical heuristic fallback |
+| **Scraper Architecture** | External cloud scraper APIs (prone to bans) | **Embedded Go Daemon** running on-device as a private micro-server |
+| **User Interface** | Cluttered video player wrappers | **Pure Audio-Exclusive UI** (Spotify × VLC) with sandbox CDN thumbnail cache |
+| **Lyrics Pipeline** | Static text walls or paid API tokens | **Genius FOSS + On-Device CTC Forced Alignment** ($\sim 1.5\text{s}$ sync, $0 cost) |
+| **Storage Ingestion** | Unorganized file dumps / broken chat links | **Acoustic Fingerprinting** + WhatsApp-Safe Copy & Downloads Move |
+| **Network Efficiency** | Duplicate network streams for local tracks | **Zero-Data Hybrid Router** (intercepts online requests to play local files) |
+| **Playback Modes** | Standard linear / shuffle queues | **Reverse Play Mode** (inverts tracklist for reverse-narrative concept albums) |
+| **Acoustic Control** | Generic system equalizers | **VLC-Grade 10-Band Parametric EQ** + $+12\text{dB}$ Preamp with soft limiter |
 
 ---
 
@@ -53,39 +45,54 @@ While honoring the upstream UI inspirations, Unbound Music completely redesigns 
 ### 1. Self-Contained < 50 MB Bundle & Adaptive Storage Gatekeeper
 * **Zero Post-Install Downloads**: The complete APK bundle weighs **$\sim 36.5\text{MB}$**, packaging the Kotlin UI, embedded Go audio engine, CTC alignment acoustic model, and compressed Micro-AI payload.
 * **Storage Gatekeeper**:
-  - **$\ge 100\text{MB}$ Free Storage**: Decompresses the compressed $\sim 4.5\text{MB}$ Zstd micro-AI payload into cache in $<150\text{ms}$ for full vector taste matching.
-  - **$< 100\text{MB}$ Free Storage**: Skips model decompression and activates the **0-MB SQLite FTS5 / BM25 Heuristic Engine**, using zero extra storage.
+
+| Device Storage State | Trigger Condition | Execution Strategy | Storage & Memory Impact |
+| :--- | :--- | :--- | :--- |
+| **Normal / High Storage** | Available space $\ge 100\text{MB}$ | Decompresses Zstd micro-AI payload ($<150\text{ms}$) | $\sim 26\text{MB}$ uncompressed RAM/cache; full vector taste search |
+| **Constrained Storage** | Available space $< 100\text{MB}$ | Activates SQLite FTS5 / BM25 Mathematical Engine | **$0\text{ MB}$ additional storage**; 0 neural weights in RAM |
+
+---
 
 ### 2. Command-Driven Deterministic Micro-AI & Local RAG
-* **No Human-Like Text Fluff**: The AI does not generate conversational text. It acts as an instant mathematical classifier:
-  1. Computes 128-dim taste vectors for `sqlite-vec` cosine similarity mixes.
-  2. Maps playlists and songs into acoustic mood clusters.
-  3. Formulates structured search queries when acoustic fingerprinting misses an obscure track (Local RAG).
+* **No Conversational Fluff**: The AI does not generate human-like text responses or chat dialog.
+* **Acoustic & Vector Operations**:
+  1. **Cosine Taste Vectors**: Computes compact 128-dimensional mathematical vectors stored in `sqlite-vec`.
+  2. **Mood & Energy Clustering**: Maps tracks into acoustic vibe clusters directly on-device.
+  3. **Local RAG on Fingerprint Misses**: When acoustic fingerprinting cannot identify an obscure local track, the reasoner extracts lyric fragments/tags to formulate structured queries and resolve metadata.
 
-### 3. Embedded Go Engine ("Device-as-Server")
-* **Zero Cloud Costs**: By compiling an embedded Go engine via JNI / local loopback, the user's phone or desktop PC acts as its own private micro-server.
-* **Immunity to IP Rate-Limiting**: Scraper requests originate from individual residential/mobile IPs rather than centralized VPS blocks that get blacklisted by streaming providers.
+---
 
-### 4. Genius FOSS Lyrics + On-Device CTC Forced Alignment
-* **Verified Lyrics Scraping**: Extracts complete lyrics, song trivia, and verified annotations directly from Genius without requiring proprietary developer tokens.
-* **Local Syllable Alignment**: A quantized, on-device CTC acoustic model compares the raw audio PCM waveform against the Genius transcript in $\sim 1.5\text{s}$.
-* **Apple Music-Style Kinetic Rendering**: Delivers word-by-word dynamic glowing text, fluid physics-based blurring, and millisecond tap-to-seek navigation with zero cloud AI API overhead.
+### 3. Safe Storage Ingestion & File Organization Rules
 
-### 5. Acoustic Fingerprinting & Intelligent File Ingestion
-* **Chromaprint / AcoustID Integration**: Hashes local audio waveforms to identify exact song metadata regardless of broken file names or missing ID3 tags.
-* **Noise & Voice Memo Classifier**: Uses duration thresholds ($>30\text{s}$) and spectral bandwidth analysis to automatically exclude WhatsApp voice notes, ringtones, and notification sounds.
-* **Safe Ingestion Rules**:
-  - **WhatsApp / Messaging Media**: Always **copied** to prevent breaking chat history and audio message bubbles.
-  - **Downloads / Loose Files**: Safely **moved and sorted** into structured `Music/Artist/Album/Song.ext` directories.
+| Audio Source / Type | Ingestion Action | Architectural Rationale |
+| :--- | :--- | :--- |
+| **WhatsApp Audio** (`WhatsApp/Media/...`) | **COPY** | Preserves WhatsApp internal database pointers and in-chat voice message bubbles. |
+| **Telegram / Messaging Media** | **COPY** | Prevents breaking media references in chat messaging applications. |
+| **Downloads / Generic Folders** (`/Download`, `/Music`) | **MOVE & ORGANIZE** | Safely tidies loose files into structured `Music/Artist/Album/Song.ext` library. |
+| **Non-Music Audio (< 30s / Voice Notes)** | **IGNORE** | Acoustic filter skips speech memos, ringtones, and notification sounds. |
 
-### 6. Zero-Data Hybrid Playback Router
-* Whenever an online album or playlist is selected, Unbound Music queries the local on-device fingerprint database first.
-* If a high-quality local copy is present, Unbound Music seamlessly plays the local `file://` URI instead of consuming cellular data or bandwidth.
+---
 
-### 7. Sound Engineering Suite & "Reverse Play"
-* **Spotify × VLC Hybrid UI**: A modern dark-mode aesthetic with sound engineering transparency: live sample rate badges ($44.1\text{kHz} - 192\text{kHz}$), bit depth ($16/24\text{-bit}$), and codec indicators (FLAC, Opus, AAC).
-* **10-Band Parametric EQ & Preamp**: Low Shelf ($31\text{Hz}$), Bass ($62\text{Hz}, 125\text{Hz}$), Mids ($250\text{Hz} - 2\text{kHz}$), Treble ($4\text{kHz}, 8\text{kHz}$), High Shelf ($16\text{kHz}$), plus $+12\text{dB}$ preamp boost with soft-knee limiter.
-* **Reverse Play Mode**: Inverts playlist queues ($N \to 1$) to enable playback of conceptual reverse-narrative albums (such as Kendrick Lamar's *DAMN.*) in their intended reverse sequence.
+### 4. Advanced Playback Modes & "Reverse Play"
+
+| Queue Mode | Playback Sequence | Primary Use Case |
+| :--- | :--- | :--- |
+| **Normal / Sequential** | $1 \to N$ (Stops at end) | Standard album / playlist listening. |
+| **Loop All** | $1 \to N \to 1 \to \dots$ | Continuous background playback. |
+| **Loop Single** | $K \to K \to K$ | Single track repeat. |
+| **Shuffle / Random** | Fisher-Yates permutation | Unbiased random playback with no immediate repeats. |
+| **Reverse Play** | $N \to 1$ (Inverted Queue) | **Concept Albums** (e.g. Kendrick Lamar's *DAMN.*) designed with reverse narratives. |
+
+---
+
+### 5. Sound Engineering Suite
+
+| Parameter | Specifications & Range | Description |
+| :--- | :--- | :--- |
+| **10-Band Parametric EQ** | $31\text{Hz}, 62\text{Hz}, 125\text{Hz}, 250\text{Hz}, 500\text{Hz}, 1\text{kHz}, 2\text{kHz}, 4\text{kHz}, 8\text{kHz}, 16\text{kHz}$ | Precision band-pass and shelving filters with headphone presets. |
+| **Preamp Gain Stage** | $0\text{dB}$ to $+12\text{dB}$ | Boosts low-mastered vintage recordings. |
+| **Soft-Knee Limiter** | Automatic dynamic threshold | Eliminates digital clipping and harsh audio distortion. |
+| **Codec Transparency** | Real-time stream & file inspection | Live badge displaying format (`FLAC`, `Opus`, `AAC`), sample rate, and bit depth. |
 
 ---
 

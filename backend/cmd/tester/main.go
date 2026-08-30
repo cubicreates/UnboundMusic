@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, and zero-data hybrid routing.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, and P2P sync.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -21,6 +21,8 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/p2p"
+	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -33,9 +35,11 @@ func main() {
 	scanDir := flag.String("scan", "", "Directory path to scan and inspect for local audio files")
 	alignQuery := flag.String("align", "", "Song title to test on-device forced CTC lyrics alignment")
 	routerQuery := flag.String("router", "", "Song title to test Zero-Data Hybrid Playback Interception Router")
+	recommendQuery := flag.String("recommend", "", "Song title or ID to generate offline smart radio mix for")
+	p2pFlag := flag.Bool("p2p", false, "Test local P2P Wi-Fi peer discovery and beacon broadcast")
 	flag.Parse()
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
@@ -43,6 +47,8 @@ func main() {
 		fmt.Println("  tester -scan <directory_path>")
 		fmt.Println("  tester -align <title> [-artist <artist>]")
 		fmt.Println("  tester -router <title> [-artist <artist>]")
+		fmt.Println("  tester -recommend <title_or_id>")
+		fmt.Println("  tester -p2p")
 		os.Exit(1)
 	}
 
@@ -232,6 +238,67 @@ func main() {
 		fmt.Printf("  Data Consumed:   %d bytes (%.2f MB)\n", resolved.DataConsumed, float64(resolved.DataConsumed)/(1024*1024))
 		fmt.Printf("  Codec / Bitrate: %s @ %d kbps\n", resolved.Codec, resolved.BitrateKbps)
 		fmt.Printf("  Stream URI:      %s\n", truncate(resolved.StreamURL, 80))
+	}
+
+	if *recommendQuery != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Generating Offline Smart Radio Mix for Seed: %q\n", *recommendQuery)
+		start := time.Now()
+
+		var repo *database.Repository
+		if db != nil {
+			repo = database.NewRepository(db)
+		}
+
+		recEngine := recommender.NewEngine(repo)
+		mix, err := recEngine.GenerateRadioMix(ctx, *recommendQuery, 8)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Recommendation failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Smart Radio Mix Generated in %v (Mode: %s):\n", elapsed, mix.Mode)
+		for i, t := range mix.Tracks {
+			fmt.Printf("  [%d] %-30s | Artist: %-18s | Duration: %ds\n",
+				i+1, truncate(t.Title, 30), truncate(t.Artist, 18), t.DurationMs/1000)
+		}
+	}
+
+	if *p2pFlag {
+		fmt.Println("\n[UNBOUND ENGINE] Testing Local P2P Wi-Fi Sync Discovery...")
+		discovery := p2p.NewDiscovery("node_test_cli", "Unbound CLI Node", 45731)
+
+		// Broadcast announcement
+		if err := discovery.BroadcastBeacon(); err != nil {
+			fmt.Printf("  UDP Broadcast Note: %v (Normal if broadcast interface restricted)\n", err)
+		} else {
+			fmt.Println("  UDP Beacon Broadcast Sent successfully.")
+		}
+
+		// Register mock peer and compute sync diff
+		mockPeer := p2p.Peer{
+			DeviceID:   "phone_galaxy_s24",
+			DeviceName: "Galaxy S24 Ultra",
+			IPAddress:  "192.168.1.105",
+			APIPort:    45731,
+			TrackCount: 140,
+			LastSeen:   time.Now(),
+		}
+		discovery.RegisterPeer(mockPeer)
+
+		active := discovery.GetActivePeers()
+		fmt.Printf("  Active Discovered Peers: %d\n", len(active))
+		for _, p := range active {
+			fmt.Printf("    - Device: %-20s | IP: %-15s | Port: %d\n", p.DeviceName, p.IPAddress, p.APIPort)
+		}
+
+		// Test diff
+		localHashes := []string{"hash_dna", "hash_wap"}
+		remoteHashes := []string{"hash_dna", "hash_wap", "hash_blinding_lights", "hash_starboy"}
+		diff, _ := p2p.CalculateSyncDiff(mockPeer.DeviceID, localHashes, remoteHashes)
+		fmt.Printf("  P2P Sync Plan: Need %d missing tracks from %s (0 MB cellular data)\n",
+			diff.TracksToReceive, mockPeer.DeviceName)
 	}
 
 	if *scanDir != "" {

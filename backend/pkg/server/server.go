@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities to Kotlin/Compose UI.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, and P2P sync to Kotlin/Compose UI.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -24,6 +24,8 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/p2p"
+	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -56,6 +58,8 @@ type Server struct {
 	geniusClient *genius.Client
 	aligner      *aligner.ForcedAligner
 	router       *router.Router
+	recommender  *recommender.Engine
+	discovery    *p2p.Discovery
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -74,6 +78,8 @@ func NewServer(cfg Config) (*Server, error) {
 	geniusClient := genius.NewClient()
 	forcdAligner := aligner.NewForcedAligner()
 	playbackRouter := router.NewRouter(ytClient, repo)
+	recEngine := recommender.NewEngine(repo)
+	p2pDiscovery := p2p.NewDiscovery("node_local", "Unbound Desktop", cfg.Port)
 
 	s := &Server{
 		cfg:          cfg,
@@ -83,6 +89,8 @@ func NewServer(cfg Config) (*Server, error) {
 		geniusClient: geniusClient,
 		aligner:      forcdAligner,
 		router:       playbackRouter,
+		recommender:  recEngine,
+		discovery:    p2pDiscovery,
 	}
 
 	mux := http.NewServeMux()
@@ -91,6 +99,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
 	mux.HandleFunc("/api/v1/lyrics", s.handleLyrics)
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
+	mux.HandleFunc("/api/v1/recommend", s.handleRecommend)
+	mux.HandleFunc("/api/v1/peers", s.handlePeers)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -124,10 +134,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	runtime.ReadMemStats(&m)
 
 	payload := map[string]interface{}{
-		"status":          "ONLINE",
-		"engine_version":  "1.0.0-FOSS",
-		"storage":         storageStatus,
-		"goroutines":      runtime.NumGoroutine(),
+		"status":           "ONLINE",
+		"engine_version":   "1.0.0-FOSS",
+		"storage":          storageStatus,
+		"goroutines":       runtime.NumGoroutine(),
 		"allocated_ram_mb": float64(m.Alloc) / (1024 * 1024),
 	}
 
@@ -148,7 +158,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist discovered tracks in background
 	go func() {
 		for _, t := range tracks {
 			_ = s.repo.SaveTrack(context.Background(), &t)
@@ -215,7 +224,6 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 	if err == nil && hit != nil {
 		plainPayload, err := s.geniusClient.FetchLyrics(r.Context(), hit)
 		if err == nil && len(plainPayload.Lines) > 0 {
-			// Run On-Device Forced Aligner
 			aligned, err := s.aligner.AlignLyrics(trackID, hit.Title, hit.Artist, plainPayload.PlainLyrics, durationMs)
 			if err == nil {
 				_ = s.repo.SaveLyrics(r.Context(), aligned)
@@ -237,11 +245,37 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "lyrics not found")
 }
 
-// handleScan initiates local storage scanning and WhatsApp copy ingestion.
-func handleScanDir(s *Server, dirPath string) (*fingerprint.ScanSummary, error) {
-	return fingerprint.ScanDirectory(context.Background(), dirPath, 8)
+// handleRecommend generates an offline smart radio mix.
+func (s *Server) handleRecommend(w http.ResponseWriter, r *http.Request) {
+	trackID := r.URL.Query().Get("id")
+	countStr := r.URL.Query().Get("limit")
+
+	count := 10
+	if countStr != "" {
+		if val, err := strconv.Atoi(countStr); err == nil && val > 0 {
+			count = val
+		}
+	}
+
+	mix, err := s.recommender.GenerateRadioMix(r.Context(), trackID, count)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, mix)
 }
 
+// handlePeers returns active P2P nodes on local Wi-Fi.
+func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
+	peers := s.discovery.GetActivePeers()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"peer_count": len(peers),
+		"peers":      peers,
+	})
+}
+
+// handleScan initiates local storage scanning.
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	type ScanRequest struct {
 		DirectoryPath string `json:"directory_path"`
@@ -259,7 +293,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		req.DirectoryPath = os.TempDir()
 	}
 
-	summary, err := handleScanDir(s, req.DirectoryPath)
+	summary, err := fingerprint.ScanDirectory(context.Background(), req.DirectoryPath, 8)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

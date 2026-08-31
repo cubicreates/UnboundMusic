@@ -47,7 +47,7 @@
 
 ---
 
-## Core Backend Subsystems (Days 1–11)
+## Core Backend Subsystems
 
 ### 1. Audio Processing & Stream Engineering
 | Package | Subsystem | Functionality & Capabilities |

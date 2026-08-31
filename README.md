@@ -42,52 +42,56 @@
 
 ## Technical Documentation & Roadmap
 
-* Detailed Roadmap & Daily Milestones: **[ROADMAP.md](file:///d:/Github/MyMusic/docs/ROADMAP.md)**
+* Detailed Roadmap & Daily Milestones: **[docs/ROADMAP.md](file:///d:/Github/MyMusic/docs/ROADMAP.md)**
 * Subsystem Architecture & REST API Reference: **[docs/README.md](file:///d:/Github/MyMusic/docs/README.md)**
 
 ---
 
 ## Core Backend Subsystems (Days 1–11)
 
-```mermaid
-graph TD
-    UI[Compose Multiplatform UI] -->|HTTP REST / IPC| Daemon[Localhost Engine Daemon :45731]
-    
-    subgraph Audio & Streams
-        Daemon --> Stream[Innertube Opus/AAC Stream Extractor]
-        Daemon --> Router[Zero-Data Hybrid Playback Interceptor]
-        Daemon --> DSP[ReplayGain / DJ Crossfade / Silence Trimmer]
-        Daemon --> AutoEq[AutoEq 4,000+ Headphone Calibration]
-    end
+### 1. Audio Processing & Stream Engineering
+| Package | Subsystem | Functionality & Capabilities |
+| :--- | :--- | :--- |
+| `backend/pkg/ytmusic` | YouTube Music Scraper | Pure-Go Innertube client, pure Opus/AAC extraction, dynamic JS cipher solver. |
+| `backend/pkg/router` | Zero-Data Playback Router | Intercepts remote stream queries and serves local matching files with 0 MB data overhead. |
+| `backend/pkg/dsp` | Pro Audio Signal Processing | EBU R128 / ReplayGain volume normalization, DJ crossfade curves, silence trimming. |
+| `backend/pkg/autoeq` | Headphone Calibration | 4,000+ calibrated headphone database with 10-band parametric EQ curves. |
 
-    subgraph Lyrics & Visuals
-        Daemon --> Lyrics[Uncensored Genius Scraper + LRCLIB Fallback]
-        Daemon --> Aligner[On-Device Phonetic Syllable Aligner]
-        Daemon --> Canvas[Spotify Canvas 8s Looping Video]
-    end
+### 2. Lyrics, Phonetics & Visual Aesthetics
+| Package | Subsystem | Functionality & Capabilities |
+| :--- | :--- | :--- |
+| `backend/pkg/genius` | Uncensored Lyrics Scraper | Scrapes complete uncensored lyrics chronologically (Intro $\to$ Outro) with LRCLIB fallback. |
+| `backend/pkg/aligner` | On-Device Forced Aligner | Phonetic and syllable tokenizer providing Apple Music-style kinetic glowing timestamps. |
+| `backend/pkg/canvas` | Spotify Canvas Video Engine | Fetches official 8-second vertical looping MP4 canvas video backgrounds. |
 
-    subgraph On-Device AI & Analytics
-        Daemon --> EdgeAI[SmolLM2-135M + MiniLM Vector Search]
-        Daemon --> Shazam[16kHz FFT Peak Constellation Shazam Subsystem]
-        Daemon --> Rec[Offline Smart Radio Recommender]
-        Daemon --> Analytics[On-Device Unbound Recap & Diversity Scoring]
-    end
+### 3. On-Device Intelligence & Audio Recognition
+| Package | Subsystem | Functionality & Capabilities |
+| :--- | :--- | :--- |
+| `backend/pkg/ai` | Edge AI & Semantic Vibe | SmolLM2-135M GGUF, MiniLM ONNX, natural language intent parser, lyric mood analyzer. |
+| `backend/pkg/shazam` | Shazam Audio Recognition | 16kHz FFT peak picker, landmark hashing, official binary signature encoder, $0.00 discovery. |
+| `backend/pkg/vector` | Vector RAG Engine | 128-dimensional cosine similarity calculator executing in $< 550\mu\text{s}$. |
+| `backend/pkg/recommender` | Offline Smart Radio | Algorithmic radio mix generator based on audio acoustic proximity and taste vectors. |
+| `backend/pkg/analytics` | Listening Analytics & Recap | On-device "Unbound Recap" with play rankings, decade distribution, and Shannon entropy. |
 
-    subgraph Storage & Ecosystem
-        Daemon --> SQLite[Pure-Go SQLite Memory Bank WAL Mode]
-        Daemon --> Ingest[Smart Storage Ingestion Rules]
-        Daemon --> P2P[Local Wi-Fi P2P Catalog Mesh Sync]
-        Daemon --> Rooms[Shared Listening Rooms Sub-ms Sync]
-        Daemon --> Discord[Discord Rich Presence IPC]
-        Daemon --> Sponsor[SponsorBlock Video Skip Filter]
-        Daemon --> LastFM[Last.fm 2.0 Scrobbler]
-        Daemon --> Podcasts[Podcasts & Episode Chapters]
-        Daemon --> Explore[Moods & Top 100 Charts]
-        Daemon --> Artist[Artist Discography & Similar Artists]
-        Daemon --> Sleep[Sleep Timer & Volume Fade-Out]
-        Daemon --> Updater[GitHub Releases Auto-Updater]
-    end
-```
+### 4. Storage, Ecosystem & Secondary Services
+| Package | Subsystem | Functionality & Capabilities |
+| :--- | :--- | :--- |
+| `backend/pkg/database` | SQLite Memory Bank | Pure-Go zero-CGO SQLite engine (`modernc.org/sqlite`) running in WAL mode. |
+| `backend/pkg/fingerprint` | Ingestion & Fingerprinting | WhatsApp COPY vs Downloads MOVE safe rules, $<30\text{s}$ voice memo filter, acoustic hasher. |
+| `backend/pkg/importer` | Playlist Portability | Spotify web playlist link scraper, M3U/M3U8 parser/exporter, CSV/JSON backup serializers. |
+| `backend/pkg/account` | YouTube Account Sync | Generates SHA1 `SAPISIDHASH` headers to sync Liked Music (LM) and playlists. |
+| `backend/pkg/explore` | Explore Feeds & Charts | 8 curated Moods & Moments categories and Top 100 regional/global charts. |
+| `backend/pkg/artist` | Artist Discography | Partitioned artist discography (Albums, Singles, EPs, Live) and Fans Also Like graph. |
+| `backend/pkg/p2p` | P2P Local Wi-Fi Mesh | UDP beacon peer discovery on port 45732 and 0-MB cellular catalog sync diff planner. |
+| `backend/pkg/rooms` | Shared Listening Rooms | Real-time listening party hub with sub-millisecond clock drift compensation. |
+| `backend/pkg/discord` | Discord Rich Presence | Native IPC named pipe (`discord-ipc-0`) desktop activity broadcaster. |
+| `backend/pkg/sponsorblock` | SponsorBlock Skip Filter | Fetches and skips non-music intervals (sponsors, offtopic chatter, intro/outro). |
+| `backend/pkg/lastfm` | Last.fm 2.0 Scrobbler | Authenticated client with MD5 `api_sig` for Now Playing, Loved Tracks, and scrobbling. |
+| `backend/pkg/podcasts` | Podcasts Browser | YouTube Music podcast show and episode scraper with exact second resume timestamps. |
+| `backend/pkg/sleeptimer` | Smart Sleep Timer | Customizable countdown timer with smooth 30-second logarithmic volume fade-out. |
+| `backend/pkg/updater` | In-App GitHub Updater | Queries GitHub Releases API for version tags, changelogs, and APK/binary assets. |
+| `backend/pkg/gatekeeper` | Storage Gatekeeper | Dynamic mode switch ($\ge 100\text{MB} \to \text{Full AI}$, $< 100\text{MB} \to \text{0-MB Heuristic}$) & Zstd-19 decompressor. |
+| `backend/pkg/server` | Localhost REST Daemon | Embedded HTTP micro-server on `http://127.0.0.1:45731` connecting frontend to all services. |
 
 ---
 

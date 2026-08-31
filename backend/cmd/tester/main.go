@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, SponsorBlock, Shazam Audio Recognition, On-Device Analytics Recap, Playlist Importer, and Audio DSP.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, SponsorBlock, Shazam Audio Recognition, On-Device Analytics Recap, Playlist Importer, Audio DSP, Spotify Canvas, Explore Feeds, Artist Discography, Sleep Timer, and In-App Auto-Updater.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -20,10 +20,13 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
+	"github.com/cubicreates/unbound-engine/pkg/artist"
 	"github.com/cubicreates/unbound-engine/pkg/autoeq"
+	"github.com/cubicreates/unbound-engine/pkg/canvas"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
+	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
@@ -33,7 +36,9 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
+	"github.com/cubicreates/unbound-engine/pkg/sleeptimer"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
+	"github.com/cubicreates/unbound-engine/pkg/updater"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -58,6 +63,11 @@ func main() {
 	importSpotify := flag.String("import-spotify", "", "Public Spotify playlist URL to parse and import")
 	scrobbleTrack := flag.String("scrobble", "", "Track title to test Last.fm scrobble dispatch")
 	audioDSPTest := flag.Bool("audio-dsp", false, "Test ReplayGain loudness normalization, DJ crossfade, and silence trimming")
+	canvasTitle := flag.String("canvas", "", "Track title to resolve Spotify Canvas video for")
+	exploreCharts := flag.Bool("explore-charts", false, "Test Moods & Moments categories and Top 100 Charts")
+	artistProfile := flag.String("artist-profile", "", "Artist name to extract full discography for")
+	sleepTimerTest := flag.Bool("sleeptimer", false, "Test sleep timer countdown and volume attenuation")
+	updateCheck := flag.Bool("update-check", false, "Query GitHub Releases API for app updates")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
@@ -172,7 +182,83 @@ func main() {
 		return
 	}
 
-	// 5. Spotify Playlist Importer Test
+	// 5. Spotify Canvas Video Test
+	if *canvasTitle != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Resolving Spotify Canvas for: %q by %q\n", *canvasTitle, *artistQuery)
+		cClient := canvas.NewClient()
+		res, err := cClient.GetCanvas(context.Background(), *canvasTitle, *artistQuery)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Canvas lookup failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Spotify Canvas Result:\n")
+		fmt.Printf("  Found:        %v\n", res.Found)
+		fmt.Printf("  Poster Image: %s\n", res.ThumbnailURL)
+		return
+	}
+
+	// 6. Explore Feeds & Charts Test
+	if *exploreCharts {
+		fmt.Println("\n[UNBOUND ENGINE] Testing Explore Moods & Moments Categories...")
+		exp := explore.NewEngine(nil)
+		moods := exp.GetMoodCategories()
+		fmt.Printf("Available Curated Moods (%d categories):\n", len(moods))
+		for _, m := range moods {
+			fmt.Printf("  - [%-10s] %-22s (Color: %s): %s\n", m.ID, m.Title, m.ColorHex, m.Description)
+		}
+		return
+	}
+
+	// 7. Artist Profile & Discography Test
+	if *artistProfile != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Fetching Full Artist Profile for: %q\n", *artistProfile)
+		artEng := artist.NewEngine(nil)
+		prof, err := artEng.GetArtistProfile(context.Background(), *artistProfile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Artist lookup failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Artist Profile: %s (%s monthly listeners)\n", prof.Name, prof.MonthlyListeners)
+		fmt.Printf("  Albums Count:  %d\n", len(prof.Albums))
+		for _, a := range prof.Albums {
+			fmt.Printf("    - %s (%d) [%s]\n", a.Title, a.Year, a.Type)
+		}
+		fmt.Printf("  Similar Artists: %d\n", len(prof.SimilarArtists))
+		return
+	}
+
+	// 8. Sleep Timer Test
+	if *sleepTimerTest {
+		fmt.Println("\n[UNBOUND ENGINE] Testing Sleep Timer & Volume Fade-Out...")
+		timer := sleeptimer.NewTimer()
+		timer.Start(15, false)
+		status := timer.GetStatus()
+		fmt.Printf("Sleep Timer Started:\n")
+		fmt.Printf("  Active:            %v\n", status.IsActive)
+		fmt.Printf("  Remaining:         %d seconds\n", status.RemainingSec)
+		fmt.Printf("  Volume Gain Scale: %.3f\n", status.CurrentVolumeGain)
+		timer.Stop()
+		fmt.Println("Sleep Timer Stopped Cleanly.")
+		return
+	}
+
+	// 9. Updater Check Test
+	if *updateCheck {
+		fmt.Println("\n[UNBOUND ENGINE] Checking GitHub Releases for App Updates...")
+		up := updater.NewUpdater("1.0.0")
+		info, err := up.CheckForUpdates(context.Background())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Update check failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("App Update Status:\n")
+		fmt.Printf("  Current Version: %s\n", info.CurrentVersion)
+		fmt.Printf("  Latest Version:  %s\n", info.LatestVersion)
+		fmt.Printf("  Update Available: %v\n", info.HasUpdate)
+		return
+	}
+
+	// 10. Spotify Playlist Importer Test
 	if *importSpotify != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Importing Public Spotify Playlist: %s\n", *importSpotify)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -196,7 +282,7 @@ func main() {
 		return
 	}
 
-	// 6. Last.fm Scrobble Test
+	// 11. Last.fm Scrobble Test
 	if *scrobbleTrack != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Testing Last.fm Scrobbler for: %q by %q\n", *scrobbleTrack, *artistQuery)
 		scrobbler := lastfm.NewScrobbler("mock_key", "mock_secret")
@@ -209,7 +295,7 @@ func main() {
 		return
 	}
 
-	// 7. Shazam Audio Recognition Mock / DSP Test
+	// 12. Shazam Audio Recognition Mock / DSP Test
 	if *shazamMock {
 		fmt.Println("\n[UNBOUND ENGINE] Testing Audio DSP, Constellation Peak Picking & Shazam Signature Ring Buffer...")
 		sampleRate := 16000
@@ -279,7 +365,7 @@ func main() {
 		return
 	}
 
-	// 8. AutoEq Profile Search
+	// 13. AutoEq Profile Search
 	if *autoeqQuery != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Searching AutoEq Headphone Database for: %q\n", *autoeqQuery)
 		eqEngine := autoeq.NewEngine()
@@ -298,7 +384,7 @@ func main() {
 		return
 	}
 
-	// 9. Discord Rich Presence
+	// 14. Discord Rich Presence
 	if *discordTitle != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Setting Discord Rich Presence: %q by %q\n", *discordTitle, *artistQuery)
 		discordClient := discord.NewClient("")
@@ -322,7 +408,7 @@ func main() {
 		return
 	}
 
-	// 10. SponsorBlock Segments
+	// 15. SponsorBlock Segments
 	if *sponsorBlockID != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Fetching SponsorBlock Segments for Video ID: %s\n", *sponsorBlockID)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -378,7 +464,7 @@ func main() {
 		return
 	}
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag && !*analyticsRecap && !*audioDSPTest {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag && !*analyticsRecap && !*audioDSPTest && !*exploreCharts && !*sleepTimerTest && !*updateCheck {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
@@ -394,6 +480,11 @@ func main() {
 		fmt.Println("  tester -analytics-recap")
 		fmt.Println("  tester -import-spotify <url>")
 		fmt.Println("  tester -audio-dsp")
+		fmt.Println("  tester -canvas <title> -artist <artist>")
+		fmt.Println("  tester -explore-charts")
+		fmt.Println("  tester -artist-profile <name>")
+		fmt.Println("  tester -sleeptimer")
+		fmt.Println("  tester -update-check")
 		fmt.Println("  tester -scrobble <track> -artist <artist>")
 		fmt.Println("  tester -p2p")
 		os.Exit(1)

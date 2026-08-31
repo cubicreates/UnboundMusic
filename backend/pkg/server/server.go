@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, Shazam Recognition, Analytics, Playlist Importer, Audio DSP, Last.fm, and Podcasts.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, Shazam Recognition, Analytics, Playlist Importer, Audio DSP, Last.fm, Podcasts, Spotify Canvas, Account Sync, Explore Feeds, Artist Discography, Sleep Timer, and In-App Auto-Updater.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -19,13 +19,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/account"
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
+	"github.com/cubicreates/unbound-engine/pkg/artist"
 	"github.com/cubicreates/unbound-engine/pkg/autoeq"
+	"github.com/cubicreates/unbound-engine/pkg/canvas"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
+	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
@@ -37,7 +41,9 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/rooms"
 	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
+	"github.com/cubicreates/unbound-engine/pkg/sleeptimer"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
+	"github.com/cubicreates/unbound-engine/pkg/updater"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -83,6 +89,12 @@ type Server struct {
 	importer     *importer.Importer
 	lastfmClient *lastfm.Scrobbler
 	podcastEng   *podcasts.Engine
+	canvasClient *canvas.Client
+	accountSync  *account.Syncer
+	exploreEng   *explore.Engine
+	artistEng    *artist.Engine
+	sleepTimer   *sleeptimer.Timer
+	updater      *updater.Updater
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -113,6 +125,12 @@ func NewServer(cfg Config) (*Server, error) {
 	playlistImporter := importer.NewImporter()
 	scrobbler := lastfm.NewScrobbler("", "")
 	podcastEngine := podcasts.NewEngine(ytClient)
+	canvasCli := canvas.NewClient()
+	accSyncer := account.NewSyncer()
+	exploreEngine := explore.NewEngine(ytClient)
+	artistEngine := artist.NewEngine(ytClient)
+	sleepTimerMgr := sleeptimer.NewTimer()
+	appUpdater := updater.NewUpdater("1.0.0")
 
 	s := &Server{
 		cfg:          cfg,
@@ -134,6 +152,12 @@ func NewServer(cfg Config) (*Server, error) {
 		importer:     playlistImporter,
 		lastfmClient: scrobbler,
 		podcastEng:   podcastEngine,
+		canvasClient: canvasCli,
+		accountSync:  accSyncer,
+		exploreEng:   exploreEngine,
+		artistEng:    artistEngine,
+		sleepTimer:   sleepTimerMgr,
+		updater:      appUpdater,
 	}
 
 	mux := http.NewServeMux()
@@ -163,6 +187,15 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/lastfm/nowplaying", s.handleLastfmNowPlaying)
 	mux.HandleFunc("/api/v1/lastfm/scrobble", s.handleLastfmScrobble)
 	mux.HandleFunc("/api/v1/podcasts/browse", s.handlePodcastBrowse)
+	mux.HandleFunc("/api/v1/canvas", s.handleCanvas)
+	mux.HandleFunc("/api/v1/account/sync", s.handleAccountSync)
+	mux.HandleFunc("/api/v1/account/liked", s.handleAccountLiked)
+	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
+	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
+	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
+	mux.HandleFunc("/api/v1/sleeptimer/start", s.handleSleepTimerStart)
+	mux.HandleFunc("/api/v1/sleeptimer/status", s.handleSleepTimerStatus)
+	mux.HandleFunc("/api/v1/updater/check", s.handleUpdaterCheck)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -662,6 +695,111 @@ func (s *Server) handlePodcastBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, show)
+}
+
+// handleCanvas resolves Spotify Canvas looping video background.
+func (s *Server) handleCanvas(w http.ResponseWriter, r *http.Request) {
+	title := r.URL.Query().Get("title")
+	artist := r.URL.Query().Get("artist")
+	if title == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'title' is required")
+		return
+	}
+
+	res, err := s.canvasClient.GetCanvas(r.Context(), title, artist)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAccountSync syncs personal YouTube library.
+func (s *Server) handleAccountSync(w http.ResponseWriter, r *http.Request) {
+	type SyncReq struct {
+		Cookie string `json:"cookie"`
+	}
+	var req SyncReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Cookie != "" {
+		s.accountSync.SetCookie(req.Cookie)
+	}
+
+	lib, err := s.accountSync.SyncLibrary(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, lib)
+}
+
+// handleAccountLiked returns synced liked tracks.
+func (s *Server) handleAccountLiked(w http.ResponseWriter, r *http.Request) {
+	lib, _ := s.accountSync.SyncLibrary(r.Context())
+	writeJSON(w, http.StatusOK, lib.LikedTracks)
+}
+
+// handleExploreMoods returns curated mood categories.
+func (s *Server) handleExploreMoods(w http.ResponseWriter, r *http.Request) {
+	moods := s.exploreEng.GetMoodCategories()
+	writeJSON(w, http.StatusOK, moods)
+}
+
+// handleExploreCharts returns regional top 100 charts.
+func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
+	country := r.URL.Query().Get("country")
+	charts, err := s.exploreEng.GetTopCharts(r.Context(), country)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, charts)
+}
+
+// handleArtistProfile returns full artist discography.
+func (s *Server) handleArtistProfile(w http.ResponseWriter, r *http.Request) {
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'name' is required")
+		return
+	}
+
+	prof, err := s.artistEng.GetArtistProfile(r.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, prof)
+}
+
+// handleSleepTimerStart starts the sleep countdown.
+func (s *Server) handleSleepTimerStart(w http.ResponseWriter, r *http.Request) {
+	type TimerReq struct {
+		Minutes       int  `json:"minutes"`
+		EndAfterTrack bool `json:"end_after_track"`
+	}
+	var req TimerReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Minutes <= 0 {
+		req.Minutes = 30
+	}
+
+	s.sleepTimer.Start(req.Minutes, req.EndAfterTrack)
+	writeJSON(w, http.StatusOK, s.sleepTimer.GetStatus())
+}
+
+// handleSleepTimerStatus returns sleep timer status and volume factor.
+func (s *Server) handleSleepTimerStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.sleepTimer.GetStatus())
+}
+
+// handleUpdaterCheck queries GitHub Releases for updates.
+func (s *Server) handleUpdaterCheck(w http.ResponseWriter, r *http.Request) {
+	info, err := s.updater.CheckForUpdates(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // handleScan initiates local storage scanning.

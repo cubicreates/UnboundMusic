@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, Shazam Recognition, Analytics, Playlist Importer, Audio DSP, Last.fm, Podcasts, Spotify Canvas, Account Sync, Explore Feeds, Artist Discography, Sleep Timer, and In-App Auto-Updater.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, Shazam Recognition, Analytics, Playlist Importer, Audio DSP, Last.fm, Podcasts, Spotify Canvas, Account Sync, Explore Feeds, Artist Discography, Sleep Timer, In-App Auto-Updater, Root Storage Provisioning, In-Place Virtual Indexer, and Physical Stream Downloader.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/canvas"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
+	"github.com/cubicreates/unbound-engine/pkg/downloader"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
 	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
@@ -42,6 +44,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/router"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
 	"github.com/cubicreates/unbound-engine/pkg/sleeptimer"
+	"github.com/cubicreates/unbound-engine/pkg/storage"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/updater"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
@@ -95,6 +98,9 @@ type Server struct {
 	artistEng    *artist.Engine
 	sleepTimer   *sleeptimer.Timer
 	updater      *updater.Updater
+	provisioner  *storage.Provisioner
+	indexer      *storage.Indexer
+	downloader   *downloader.Manager
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -103,7 +109,16 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg.Port = 45731
 	}
 
-	db, err := database.Open(cfg.DatabasePath)
+	// Initialize Storage Provisioner to ensure Unbound/.backend/ structure
+	provisioner := storage.NewProvisioner(cfg.LibraryRoot)
+	tree, _ := provisioner.ProvisionLayout()
+
+	dbPath := cfg.DatabasePath
+	if dbPath == "" && tree != nil {
+		dbPath = filepath.Join(tree.SQLitePath, "unbound.db")
+	}
+
+	db, err := database.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database for server: %w", err)
 	}
@@ -132,6 +147,13 @@ func NewServer(cfg Config) (*Server, error) {
 	sleepTimerMgr := sleeptimer.NewTimer()
 	appUpdater := updater.NewUpdater("1.0.0")
 
+	indexer := storage.NewIndexer(repo)
+	downloadDir := os.TempDir()
+	if tree != nil {
+		downloadDir = tree.DownloadPath
+	}
+	dlManager := downloader.NewManager(downloadDir, ytClient)
+
 	s := &Server{
 		cfg:          cfg,
 		db:           db,
@@ -158,6 +180,9 @@ func NewServer(cfg Config) (*Server, error) {
 		artistEng:    artistEngine,
 		sleepTimer:   sleepTimerMgr,
 		updater:      appUpdater,
+		provisioner:  provisioner,
+		indexer:      indexer,
+		downloader:   dlManager,
 	}
 
 	mux := http.NewServeMux()
@@ -196,6 +221,11 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/sleeptimer/start", s.handleSleepTimerStart)
 	mux.HandleFunc("/api/v1/sleeptimer/status", s.handleSleepTimerStatus)
 	mux.HandleFunc("/api/v1/updater/check", s.handleUpdaterCheck)
+	mux.HandleFunc("/api/v1/storage/tree", s.handleStorageTree)
+	mux.HandleFunc("/api/v1/storage/index", s.handleStorageIndex)
+	mux.HandleFunc("/api/v1/storage/consolidate", s.handleStorageConsolidate)
+	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
+	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -800,6 +830,103 @@ func (s *Server) handleUpdaterCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+// handleStorageTree inspects the Unbound/ directory structure.
+func (s *Server) handleStorageTree(w http.ResponseWriter, r *http.Request) {
+	tree, err := s.provisioner.GetTree()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, tree)
+}
+
+// handleStorageIndex runs non-destructive in-place virtual indexing on a folder.
+func (s *Server) handleStorageIndex(w http.ResponseWriter, r *http.Request) {
+	type IndexReq struct {
+		DirectoryPath string `json:"directory_path"`
+	}
+	var req IndexReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.DirectoryPath == "" {
+		req.DirectoryPath = s.cfg.LibraryRoot
+	}
+	if req.DirectoryPath == "" {
+		req.DirectoryPath = os.TempDir()
+	}
+
+	summary, err := s.indexer.IndexInPlace(r.Context(), req.DirectoryPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+// handleStorageConsolidate consolidates loose downloads and copies WhatsApp audio.
+func (s *Server) handleStorageConsolidate(w http.ResponseWriter, r *http.Request) {
+	type ConsolidateReq struct {
+		SourceDir string `json:"source_dir"`
+	}
+	var req ConsolidateReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	tree, _ := s.provisioner.GetTree()
+	targetMusic := os.TempDir()
+	if tree != nil {
+		targetMusic = tree.MusicPath
+	}
+
+	sourceDir := req.SourceDir
+	if sourceDir == "" {
+		sourceDir = s.cfg.LibraryRoot
+	}
+	if sourceDir == "" {
+		sourceDir = os.TempDir()
+	}
+
+	summary, err := s.indexer.ConsolidateLibrary(r.Context(), sourceDir, targetMusic)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+// handleDownloadStart downloads a track directly to Unbound/Downloads/.
+func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
+	type DownloadReq struct {
+		TrackID string `json:"track_id"`
+		Title   string `json:"title"`
+		Artist  string `json:"artist"`
+		Album   string `json:"album"`
+	}
+	var req DownloadReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.TrackID == "" && req.Title == "") {
+		writeError(w, http.StatusBadRequest, "track_id or title is required")
+		return
+	}
+
+	task, err := s.downloader.DownloadTrack(r.Context(), req.TrackID, req.Title, req.Artist, req.Album)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handleDownloadList lists all physical tracks inside Unbound/Downloads/.
+func (s *Server) handleDownloadList(w http.ResponseWriter, r *http.Request) {
+	tracks, err := s.downloader.ListDownloadedFiles()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"count":  len(tracks),
+		"tracks": tracks,
+	})
 }
 
 // handleScan initiates local storage scanning.

@@ -25,6 +25,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/canvas"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
+	"github.com/cubicreates/unbound-engine/pkg/downloader"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
 	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
@@ -38,6 +39,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
 	"github.com/cubicreates/unbound-engine/pkg/sleeptimer"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
+	"github.com/cubicreates/unbound-engine/pkg/storage"
 	"github.com/cubicreates/unbound-engine/pkg/updater"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -68,6 +70,9 @@ func main() {
 	artistProfile := flag.String("artist-profile", "", "Artist name to extract full discography for")
 	sleepTimerTest := flag.Bool("sleeptimer", false, "Test sleep timer countdown and volume attenuation")
 	updateCheck := flag.Bool("update-check", false, "Query GitHub Releases API for app updates")
+	storageTree := flag.Bool("storage-tree", false, "Inspect and provision Unbound/.backend/ storage layout")
+	indexVirtual := flag.String("index-virtual", "", "Run non-destructive in-place virtual audio indexer on directory")
+	downloadTest := flag.String("download-test", "", "Track title to test physical downloader into Unbound/Downloads/")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
@@ -464,7 +469,7 @@ func main() {
 		return
 	}
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag && !*analyticsRecap && !*audioDSPTest && !*exploreCharts && !*sleepTimerTest && !*updateCheck {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag && !*analyticsRecap && !*audioDSPTest && !*exploreCharts && !*sleepTimerTest && !*updateCheck && !*storageTree && *indexVirtual == "" && *downloadTest == "" {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
@@ -485,6 +490,9 @@ func main() {
 		fmt.Println("  tester -artist-profile <name>")
 		fmt.Println("  tester -sleeptimer")
 		fmt.Println("  tester -update-check")
+		fmt.Println("  tester -storage-tree")
+		fmt.Println("  tester -index-virtual <directory_path>")
+		fmt.Println("  tester -download-test <title>")
 		fmt.Println("  tester -scrobble <track> -artist <artist>")
 		fmt.Println("  tester -p2p")
 		os.Exit(1)
@@ -776,6 +784,81 @@ func main() {
 				_ = repo.SaveFingerprint(ctx, track.AcousticHash, track.FilePath, track.DurationMs)
 			}
 		}
+	}
+
+	// Day 12: Storage Provisioner Tree
+	if *storageTree {
+		fmt.Printf("\n[UNBOUND ENGINE] Provisioning & Inspecting Root Directory Layout...\n")
+		prov := storage.NewProvisioner("")
+		tree, err := prov.ProvisionLayout()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Storage layout provisioning failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Root Layout Successfully Verified:\n")
+		fmt.Printf("  Root Directory:        %s\n", tree.RootPath)
+		fmt.Printf("  Hidden Engine Backend: %s\n", tree.BackendPath)
+		fmt.Printf("    ├── SQLite DB:       %s\n", tree.SQLitePath)
+		fmt.Printf("    ├── AI Models:       %s\n", tree.ModelsPath)
+		fmt.Printf("    ├── Canvas Cache:    %s\n", tree.CachePath)
+		fmt.Printf("    └── Engine Logs:     %s\n", tree.LogsPath)
+		fmt.Printf("  User Visible Folders:\n")
+		fmt.Printf("    ├── Physical Downloads: %s\n", tree.DownloadPath)
+		fmt.Printf("    ├── Consolidated Music: %s\n", tree.MusicPath)
+		fmt.Printf("    ├── Exported Playlists: %s\n", tree.PlaylistPath)
+		fmt.Printf("    └── Unbound Recaps:     %s\n", tree.RecapPath)
+	}
+
+	// Day 12: In-Place Virtual Audio Indexing
+	if *indexVirtual != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Non-Destructive In-Place Virtual Indexing: %s\n", *indexVirtual)
+		var repo *database.Repository
+		if db != nil {
+			repo = database.NewRepository(db)
+		}
+		indexer := storage.NewIndexer(repo)
+		summary, err := indexer.IndexInPlace(ctx, *indexVirtual)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Virtual indexing failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Virtual Index Completed in %dms (0 files moved, 0 disk space duplicated):\n", summary.ElapsedMs)
+		fmt.Printf("  Mode:               %s\n", summary.Mode)
+		fmt.Printf("  Total Scanned:      %d\n", summary.TotalScanned)
+		fmt.Printf("  Music Indexed:      %d\n", summary.IndexedTracks)
+		fmt.Printf("  Voice Notes Filtered: %d\n", summary.VoiceNotesSkipped)
+	}
+
+	// Day 12: Physical Stream Downloader
+	if *downloadTest != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Testing Physical Audio Downloader for: %s\n", *downloadTest)
+		prov := storage.NewProvisioner("")
+		tree, _ := prov.GetTree()
+		dlDir := os.TempDir()
+		if tree != nil {
+			dlDir = tree.DownloadPath
+		}
+
+		mgr := downloader.NewManager(dlDir, nil)
+		ytCli := ytmusic.NewClient()
+		tracks, err := ytCli.Search(ctx, *downloadTest)
+		if err != nil || len(tracks) == 0 {
+			fmt.Printf("Searching fallback track...\n")
+		} else {
+			target := tracks[0]
+			fmt.Printf("Downloading '%s - %s' to %s...\n", target.Artist, target.Title, dlDir)
+			task, err := mgr.DownloadTrack(ctx, target.ID, target.Title, target.Artist, target.Album)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Download test completed with status: %v (Task: %+v)\n", err, task)
+			} else {
+				fmt.Printf("Download Completed! Saved to: %s (Status: %s)\n", task.LocalPath, task.Status)
+			}
+		}
+
+		downloaded, _ := mgr.ListDownloadedFiles()
+		fmt.Printf("Physical Files in Unbound/Downloads/: %d files found\n", len(downloaded))
 	}
 }
 

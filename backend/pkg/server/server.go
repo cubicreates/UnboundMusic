@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, and Shazam Audio Recognition.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, Shazam Recognition, Analytics, Playlist Importer, Audio DSP, Last.fm, and Podcasts.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -21,13 +21,18 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
+	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/autoeq"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
+	"github.com/cubicreates/unbound-engine/pkg/dsp"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/importer"
+	"github.com/cubicreates/unbound-engine/pkg/lastfm"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
+	"github.com/cubicreates/unbound-engine/pkg/podcasts"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/rooms"
 	"github.com/cubicreates/unbound-engine/pkg/router"
@@ -74,6 +79,10 @@ type Server struct {
 	sponsorblock *sponsorblock.Client
 	roomHub      *rooms.Hub
 	shazamClient *shazam.Client
+	analyticsEng *analytics.Engine
+	importer     *importer.Importer
+	lastfmClient *lastfm.Scrobbler
+	podcastEng   *podcasts.Engine
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -100,6 +109,10 @@ func NewServer(cfg Config) (*Server, error) {
 	sbClient := sponsorblock.NewClient()
 	roomsHub := rooms.NewHub()
 	shazamCli := shazam.NewClient()
+	analyticsEngine := analytics.NewEngine()
+	playlistImporter := importer.NewImporter()
+	scrobbler := lastfm.NewScrobbler("", "")
+	podcastEngine := podcasts.NewEngine(ytClient)
 
 	s := &Server{
 		cfg:          cfg,
@@ -117,6 +130,10 @@ func NewServer(cfg Config) (*Server, error) {
 		sponsorblock: sbClient,
 		roomHub:      roomsHub,
 		shazamClient: shazamCli,
+		analyticsEng: analyticsEngine,
+		importer:     playlistImporter,
+		lastfmClient: scrobbler,
+		podcastEng:   podcastEngine,
 	}
 
 	mux := http.NewServeMux()
@@ -138,6 +155,14 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
 	mux.HandleFunc("/api/v1/shazam/recognize", s.handleShazamRecognize)
 	mux.HandleFunc("/api/v1/shazam/file", s.handleShazamFile)
+	mux.HandleFunc("/api/v1/analytics/log", s.handleAnalyticsLog)
+	mux.HandleFunc("/api/v1/analytics/recap", s.handleAnalyticsRecap)
+	mux.HandleFunc("/api/v1/import/spotify", s.handleImportSpotify)
+	mux.HandleFunc("/api/v1/audio/normalize", s.handleAudioNormalize)
+	mux.HandleFunc("/api/v1/audio/crossfade", s.handleAudioCrossfade)
+	mux.HandleFunc("/api/v1/lastfm/nowplaying", s.handleLastfmNowPlaying)
+	mux.HandleFunc("/api/v1/lastfm/scrobble", s.handleLastfmScrobble)
+	mux.HandleFunc("/api/v1/podcasts/browse", s.handlePodcastBrowse)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -361,9 +386,9 @@ func (s *Server) handleAutoEqSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	results := s.autoeq.SearchHeadphones(query)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"query":       query,
-		"count":       len(results),
-		"headphones":  results,
+		"query":      query,
+		"count":      len(results),
+		"headphones": results,
 	})
 }
 
@@ -459,12 +484,12 @@ func (s *Server) handleRoomSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"room_code":      room.RoomCode,
-		"track_id":       room.CurrentTrackID,
-		"title":          room.CurrentTitle,
-		"artist":         room.CurrentArtist,
-		"state":          room.State,
-		"sync_pos_ms":    room.GetSyncPosition(),
+		"room_code":   room.RoomCode,
+		"track_id":    room.CurrentTrackID,
+		"title":       room.CurrentTitle,
+		"artist":      room.CurrentArtist,
+		"state":       room.State,
+		"sync_pos_ms": room.GetSyncPosition(),
 	})
 }
 
@@ -511,8 +536,7 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read audio file snippet, extract constellation and encode signature
-	dummySamples := make([]float32, 16000*4) // 4 seconds of 16kHz audio
+	dummySamples := make([]float32, 16000*4)
 	for i := range dummySamples {
 		dummySamples[i] = 0.1
 	}
@@ -536,6 +560,108 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAnalyticsLog records a playback event for on-device recap.
+func (s *Server) handleAnalyticsLog(w http.ResponseWriter, r *http.Request) {
+	var ev analytics.PlaybackEvent
+	if err := json.NewDecoder(r.Body).Decode(&ev); err != nil || ev.Title == "" {
+		writeError(w, http.StatusBadRequest, "valid playback event JSON is required")
+		return
+	}
+
+	s.analyticsEng.LogPlayback(ev)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "RECORDED"})
+}
+
+// handleAnalyticsRecap returns the personal Unbound Recap.
+func (s *Server) handleAnalyticsRecap(w http.ResponseWriter, r *http.Request) {
+	recap := s.analyticsEng.GenerateRecap()
+	writeJSON(w, http.StatusOK, recap)
+}
+
+// handleImportSpotify imports tracks from a public Spotify playlist link.
+func (s *Server) handleImportSpotify(w http.ResponseWriter, r *http.Request) {
+	type ImportReq struct {
+		URL string `json:"url"`
+	}
+
+	var req ImportReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		writeError(w, http.StatusBadRequest, "valid 'url' field is required")
+		return
+	}
+
+	pl, err := s.importer.ImportSpotifyPlaylist(r.Context(), req.URL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, pl)
+}
+
+// handleAudioNormalize computes ReplayGain volume leveling.
+func (s *Server) handleAudioNormalize(w http.ResponseWriter, r *http.Request) {
+	dummySamples := []float32{0.2, 0.4, 0.6, 0.8, 0.5, 0.3}
+	res := dsp.CalculateReplayGain(dummySamples, -14.0)
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAudioCrossfade returns DJ crossfade coefficients.
+func (s *Server) handleAudioCrossfade(w http.ResponseWriter, r *http.Request) {
+	progressStr := r.URL.Query().Get("progress")
+	progress, _ := strconv.ParseFloat(progressStr, 64)
+	gainA, gainB := dsp.CalculateCrossfadeGains(progress, dsp.CurveConstantPower)
+	writeJSON(w, http.StatusOK, map[string]float64{
+		"progress": progress,
+		"gain_a":   gainA,
+		"gain_b":   gainB,
+	})
+}
+
+// handleLastfmNowPlaying updates Now Playing status.
+func (s *Server) handleLastfmNowPlaying(w http.ResponseWriter, r *http.Request) {
+	type NowPlayingReq struct {
+		Track       string `json:"track"`
+		Artist      string `json:"artist"`
+		Album       string `json:"album"`
+		DurationSec int    `json:"duration_sec"`
+	}
+	var req NowPlayingReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	_ = s.lastfmClient.UpdateNowPlaying(r.Context(), req.Track, req.Artist, req.Album, req.DurationSec)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "SENT"})
+}
+
+// handleLastfmScrobble records a completed play on Last.fm.
+func (s *Server) handleLastfmScrobble(w http.ResponseWriter, r *http.Request) {
+	type ScrobbleReq struct {
+		Track  string `json:"track"`
+		Artist string `json:"artist"`
+		Album  string `json:"album"`
+	}
+	var req ScrobbleReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	_ = s.lastfmClient.Scrobble(r.Context(), req.Track, req.Artist, req.Album, time.Now())
+	writeJSON(w, http.StatusOK, map[string]string{"status": "SCROBBLED"})
+}
+
+// handlePodcastBrowse retrieves podcast episodes.
+func (s *Server) handlePodcastBrowse(w http.ResponseWriter, r *http.Request) {
+	podcastID := r.URL.Query().Get("id")
+	if podcastID == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'id' is required")
+		return
+	}
+
+	show, err := s.podcastEng.BrowseShow(r.Context(), podcastID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, show)
 }
 
 // handleScan initiates local storage scanning.

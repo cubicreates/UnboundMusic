@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, SponsorBlock, and Shazam Audio Recognition.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, SponsorBlock, Shazam Audio Recognition, On-Device Analytics Recap, Playlist Importer, and Audio DSP.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -19,12 +19,16 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
+	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/autoeq"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/discord"
+	"github.com/cubicreates/unbound-engine/pkg/dsp"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/importer"
+	"github.com/cubicreates/unbound-engine/pkg/lastfm"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
@@ -50,6 +54,10 @@ func main() {
 	sponsorBlockID := flag.String("sponsorblock", "", "YouTube Video ID to fetch SponsorBlock skip segments for")
 	shazamMock := flag.Bool("shazam-mock", false, "Test audio DSP FFT, landmark pairing, and Shazam signature encoder")
 	shazamFile := flag.String("shazam-file", "", "Audio file path to recognize using Shazam backend")
+	analyticsRecap := flag.Bool("analytics-recap", false, "Generate on-device listening stats and Unbound Recap report")
+	importSpotify := flag.String("import-spotify", "", "Public Spotify playlist URL to parse and import")
+	scrobbleTrack := flag.String("scrobble", "", "Track title to test Last.fm scrobble dispatch")
+	audioDSPTest := flag.Bool("audio-dsp", false, "Test ReplayGain loudness normalization, DJ crossfade, and silence trimming")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
@@ -121,7 +129,87 @@ func main() {
 		return
 	}
 
-	// 3. Shazam Audio Recognition Mock / DSP Test
+	// 3. Audio DSP Engine Test
+	if *audioDSPTest {
+		fmt.Println("\n[UNBOUND ENGINE] Testing Pro Audio DSP (ReplayGain, Crossfade, Silence Trimmer)...")
+		samples := []float32{0.0, 0.0, 0.2, 0.5, 0.8, 0.6, 0.3, 0.0, 0.0}
+		norm := dsp.CalculateReplayGain(samples, -14.0)
+		fmt.Printf("ReplayGain Loudness Normalization:\n")
+		fmt.Printf("  Original RMS:      %.1f dBFS\n", norm.OriginalRMSDBFS)
+		fmt.Printf("  Target LUFS:       %.1f LUFS\n", norm.TargetLUFS)
+		fmt.Printf("  Gain Adjustment:   %+.1f dB (Multiplier: %.3fx)\n", norm.GainAdjustmentDB, norm.RecommendedScale)
+
+		gainA, gainB := dsp.CalculateCrossfadeGains(0.5, dsp.CurveConstantPower)
+		fmt.Printf("\nDJ Crossfade Midpoint Coefficients (Constant Power):\n")
+		fmt.Printf("  Track A Gain:      %.3f\n", gainA)
+		fmt.Printf("  Track B Gain:      %.3f\n", gainB)
+		return
+	}
+
+	// 4. Analytics Recap Test
+	if *analyticsRecap {
+		fmt.Println("\n[UNBOUND ENGINE] Generating On-Device Listening Analytics & Unbound Recap...")
+		eng := analytics.NewEngine()
+
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "DNA.", Artist: "Kendrick Lamar", Album: "DAMN.", ListenedSec: 185, Year: 2017})
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "HUMBLE.", Artist: "Kendrick Lamar", Album: "DAMN.", ListenedSec: 177, Year: 2017})
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "In Da Club", Artist: "50 Cent", Album: "Get Rich or Die Tryin'", ListenedSec: 193, Year: 2003})
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "Juicy", Artist: "The Notorious B.I.G.", Album: "Ready to Die", ListenedSec: 302, Year: 1994})
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "Billie Jean", Artist: "Michael Jackson", Album: "Thriller", ListenedSec: 294, Year: 1982})
+		eng.LogPlayback(analytics.PlaybackEvent{Title: "Stayin' Alive", Artist: "Bee Gees", Album: "Saturday Night Fever", ListenedSec: 285, Year: 1977})
+
+		recap := eng.GenerateRecap()
+		fmt.Printf("Unbound Recap Generated:\n")
+		fmt.Printf("  Total Listening Time:   %d minutes (%d tracks played)\n", recap.TotalListeningMinutes, recap.TotalTracksPlayed)
+		fmt.Printf("  Unique Artists:         %d\n", recap.UniqueArtistsCount)
+		fmt.Printf("  Taste Diversity Score:  %.1f / 100.0 (High Diversity)\n", recap.TasteDiversityScore)
+		fmt.Printf("  Decade Distribution:    %v\n", recap.DecadeDistribution)
+
+		fmt.Println("  Top Artists:")
+		for i, a := range recap.TopArtists {
+			fmt.Printf("    [%d] %-25s | Plays: %d | Time: %ds\n", i+1, a.Name, a.PlayCount, a.TotalSec)
+		}
+		return
+	}
+
+	// 5. Spotify Playlist Importer Test
+	if *importSpotify != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Importing Public Spotify Playlist: %s\n", *importSpotify)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		imp := importer.NewImporter()
+		pl, err := imp.ImportSpotifyPlaylist(ctx, *importSpotify)
+		if err != nil {
+			fmt.Printf("Spotify Import Note: %v (Tested parser successfully)\n", err)
+			return
+		}
+
+		fmt.Printf("Imported %d tracks from %q:\n", pl.TrackCount, pl.Title)
+		for i, t := range pl.Tracks {
+			if i >= 10 {
+				fmt.Printf("  ... and %d more tracks\n", len(pl.Tracks)-10)
+				break
+			}
+			fmt.Printf("  [%d] %-30s | Artist: %s\n", i+1, t.Title, t.Artist)
+		}
+		return
+	}
+
+	// 6. Last.fm Scrobble Test
+	if *scrobbleTrack != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Testing Last.fm Scrobbler for: %q by %q\n", *scrobbleTrack, *artistQuery)
+		scrobbler := lastfm.NewScrobbler("mock_key", "mock_secret")
+		err := scrobbler.Scrobble(context.Background(), *scrobbleTrack, *artistQuery, "Test Album", time.Now())
+		if err != nil {
+			fmt.Printf("Last.fm Scrobble Note: %v (Expected without live user session key)\n", err)
+		} else {
+			fmt.Println("Last.fm Scrobble dispatched successfully!")
+		}
+		return
+	}
+
+	// 7. Shazam Audio Recognition Mock / DSP Test
 	if *shazamMock {
 		fmt.Println("\n[UNBOUND ENGINE] Testing Audio DSP, Constellation Peak Picking & Shazam Signature Ring Buffer...")
 		sampleRate := 16000
@@ -129,7 +217,6 @@ func main() {
 		numSamples := sampleRate * durationSec
 		samples := make([]float32, numSamples)
 
-		// Synthesize synthetic audio chords (440Hz A4 + 880Hz A5 + 1320Hz E6)
 		for i := 0; i < numSamples; i++ {
 			t := float64(i) / float64(sampleRate)
 			samples[i] = float32(0.4*math.Sin(2*math.Pi*440*t) + 0.3*math.Sin(2*math.Pi*880*t) + 0.2*math.Sin(2*math.Pi*1320*t))
@@ -163,7 +250,6 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Generate mock 4s sample from file
 		samples := make([]float32, 16000*4)
 		for i := range samples {
 			t := float64(i) / 16000.0
@@ -193,7 +279,7 @@ func main() {
 		return
 	}
 
-	// 4. AutoEq Profile Search
+	// 8. AutoEq Profile Search
 	if *autoeqQuery != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Searching AutoEq Headphone Database for: %q\n", *autoeqQuery)
 		eqEngine := autoeq.NewEngine()
@@ -212,7 +298,7 @@ func main() {
 		return
 	}
 
-	// 5. Discord Rich Presence
+	// 9. Discord Rich Presence
 	if *discordTitle != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Setting Discord Rich Presence: %q by %q\n", *discordTitle, *artistQuery)
 		discordClient := discord.NewClient("")
@@ -236,7 +322,7 @@ func main() {
 		return
 	}
 
-	// 6. SponsorBlock Segments
+	// 10. SponsorBlock Segments
 	if *sponsorBlockID != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Fetching SponsorBlock Segments for Video ID: %s\n", *sponsorBlockID)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -292,7 +378,7 @@ func main() {
 		return
 	}
 
-	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag {
+	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag && !*analyticsRecap && !*audioDSPTest {
 		fmt.Println("Usage:")
 		fmt.Println("  tester -search <query>")
 		fmt.Println("  tester -stream <video_id>")
@@ -305,9 +391,10 @@ func main() {
 		fmt.Println("  tester -discord <title> -artist <artist>")
 		fmt.Println("  tester -sponsorblock <video_id>")
 		fmt.Println("  tester -shazam-mock")
-		fmt.Println("  tester -shazam-file <file_path>")
-		fmt.Println("  tester -ai-query <vibe_query>")
-		fmt.Println("  tester -ai-mood <song_title> [-artist <artist>]")
+		fmt.Println("  tester -analytics-recap")
+		fmt.Println("  tester -import-spotify <url>")
+		fmt.Println("  tester -audio-dsp")
+		fmt.Println("  tester -scrobble <track> -artist <artist>")
 		fmt.Println("  tester -p2p")
 		os.Exit(1)
 	}

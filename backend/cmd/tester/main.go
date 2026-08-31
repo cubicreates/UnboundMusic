@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, and Edge AI payload packaging.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, and SponsorBlock.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -18,13 +18,16 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
+	"github.com/cubicreates/unbound-engine/pkg/autoeq"
 	"github.com/cubicreates/unbound-engine/pkg/database"
+	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
+	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -40,6 +43,9 @@ func main() {
 	p2pFlag := flag.Bool("p2p", false, "Test local P2P Wi-Fi peer discovery and beacon broadcast")
 	aiQuery := flag.String("ai-query", "", "Natural language semantic vibe search query")
 	aiMood := flag.String("ai-mood", "", "Track title to evaluate mood and vibe for")
+	autoeqQuery := flag.String("autoeq", "", "Headphone name to search calibrated EQ profiles for")
+	discordTitle := flag.String("discord", "", "Track title to broadcast to Discord Rich Presence")
+	sponsorBlockID := flag.String("sponsorblock", "", "YouTube Video ID to fetch SponsorBlock skip segments for")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
@@ -111,6 +117,70 @@ func main() {
 		return
 	}
 
+	// 3. AutoEq Profile Search
+	if *autoeqQuery != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Searching AutoEq Headphone Database for: %q\n", *autoeqQuery)
+		eqEngine := autoeq.NewEngine()
+		models := eqEngine.SearchHeadphones(*autoeqQuery)
+		fmt.Printf("Found %d matching calibrated headphone models:\n", len(models))
+		for i, m := range models {
+			fmt.Printf("  [%d] Brand: %-15s | Model: %-25s | Type: %s\n", i+1, m.Brand, m.Name, m.Type)
+			preset, err := eqEngine.GetEQPreset(m.ID)
+			if err == nil {
+				fmt.Printf("      Target: %s (Preamp: %.1fdB)\n", preset.TargetCurve, preset.PreampGainDB)
+				for _, b := range preset.Bands {
+					fmt.Printf("      - %5d Hz: %+5.1f dB (Q: %.2f)\n", b.FrequencyHz, b.GainDB, b.QFactor)
+				}
+			}
+		}
+		return
+	}
+
+	// 4. Discord Rich Presence
+	if *discordTitle != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Setting Discord Rich Presence: %q by %q\n", *discordTitle, *artistQuery)
+		discordClient := discord.NewClient("")
+		if err := discordClient.Connect(); err != nil {
+			fmt.Printf("Discord Note: %v (Discord desktop client is not active)\n", err)
+		} else {
+			defer discordClient.Close()
+			err := discordClient.SetActivity(discord.Activity{
+				Details:        *discordTitle,
+				State:          *artistQuery,
+				LargeImageKey:  "unbound_logo",
+				LargeImageText: "Unbound Music",
+				StartTimestamp: time.Now().Unix(),
+			})
+			if err != nil {
+				fmt.Printf("Failed setting activity: %v\n", err)
+			} else {
+				fmt.Println("Discord Rich Presence updated successfully!")
+			}
+		}
+		return
+	}
+
+	// 5. SponsorBlock Segments
+	if *sponsorBlockID != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Fetching SponsorBlock Segments for Video ID: %s\n", *sponsorBlockID)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		sbClient := sponsorblock.NewClient()
+		segments, err := sbClient.GetSkipSegments(ctx, *sponsorBlockID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "SponsorBlock failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Found %d skip intervals:\n", len(segments))
+		for i, s := range segments {
+			fmt.Printf("  [%d] Category: %-15s | Action: %-5s | [%.1fs -> %.1fs] (Duration: %.1fs)\n",
+				i+1, s.Category, s.Action, s.StartSec, s.EndSec, s.EndSec-s.StartSec)
+		}
+		return
+	}
+
 	if *aiQuery != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Evaluating Semantic Vibe Query: %q\n", *aiQuery)
 		runner := ai.NewRunner("")
@@ -155,6 +225,9 @@ func main() {
 		fmt.Println("  tester -align <title> [-artist <artist>]")
 		fmt.Println("  tester -router <title> [-artist <artist>]")
 		fmt.Println("  tester -recommend <title_or_id>")
+		fmt.Println("  tester -autoeq <headphone_name>")
+		fmt.Println("  tester -discord <title> -artist <artist>")
+		fmt.Println("  tester -sponsorblock <video_id>")
 		fmt.Println("  tester -ai-query <vibe_query>")
 		fmt.Println("  tester -ai-mood <song_title> [-artist <artist>]")
 		fmt.Println("  tester -p2p")

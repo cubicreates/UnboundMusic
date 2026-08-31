@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, and Edge AI inference to Kotlin/Compose UI.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, and Shared Rooms.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -21,13 +21,17 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
+	"github.com/cubicreates/unbound-engine/pkg/autoeq"
 	"github.com/cubicreates/unbound-engine/pkg/database"
+	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
+	"github.com/cubicreates/unbound-engine/pkg/rooms"
 	"github.com/cubicreates/unbound-engine/pkg/router"
+	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -64,6 +68,10 @@ type Server struct {
 	recommender  *recommender.Engine
 	discovery    *p2p.Discovery
 	aiRunner     *ai.Runner
+	autoeq       *autoeq.Engine
+	discordRPC   *discord.Client
+	sponsorblock *sponsorblock.Client
+	roomHub      *rooms.Hub
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -85,6 +93,10 @@ func NewServer(cfg Config) (*Server, error) {
 	recEngine := recommender.NewEngine(repo)
 	p2pDiscovery := p2p.NewDiscovery("node_local", "Unbound Desktop", cfg.Port)
 	edgeAI := ai.NewRunner(cfg.ModelsPath)
+	autoEqEngine := autoeq.NewEngine()
+	discordClient := discord.NewClient("")
+	sbClient := sponsorblock.NewClient()
+	roomsHub := rooms.NewHub()
 
 	s := &Server{
 		cfg:          cfg,
@@ -97,6 +109,10 @@ func NewServer(cfg Config) (*Server, error) {
 		recommender:  recEngine,
 		discovery:    p2pDiscovery,
 		aiRunner:     edgeAI,
+		autoeq:       autoEqEngine,
+		discordRPC:   discordClient,
+		sponsorblock: sbClient,
+		roomHub:      roomsHub,
 	}
 
 	mux := http.NewServeMux()
@@ -109,6 +125,13 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/peers", s.handlePeers)
 	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
 	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
+	mux.HandleFunc("/api/v1/autoeq/search", s.handleAutoEqSearch)
+	mux.HandleFunc("/api/v1/autoeq/preset", s.handleAutoEqPreset)
+	mux.HandleFunc("/api/v1/discord/presence", s.handleDiscordPresence)
+	mux.HandleFunc("/api/v1/sponsorblock", s.handleSponsorBlock)
+	mux.HandleFunc("/api/v1/rooms/create", s.handleRoomCreate)
+	mux.HandleFunc("/api/v1/rooms/join", s.handleRoomJoin)
+	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -128,6 +151,9 @@ func (s *Server) Start() error {
 // Shutdown cleanly closes active listeners and database connections.
 func (s *Server) Shutdown(ctx context.Context) error {
 	_ = s.httpServer.Shutdown(ctx)
+	if s.discordRPC != nil {
+		_ = s.discordRPC.Close()
+	}
 	if s.db != nil {
 		_ = s.db.Close()
 	}
@@ -322,6 +348,118 @@ func (s *Server) handleAIMood(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAutoEqSearch searches available calibrated headphone profiles.
+func (s *Server) handleAutoEqSearch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	results := s.autoeq.SearchHeadphones(query)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"query":       query,
+		"count":       len(results),
+		"headphones":  results,
+	})
+}
+
+// handleAutoEqPreset returns 10-band equalization curve parameters for a headphone model.
+func (s *Server) handleAutoEqPreset(w http.ResponseWriter, r *http.Request) {
+	modelID := r.URL.Query().Get("id")
+	preset, err := s.autoeq.GetEQPreset(modelID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, preset)
+}
+
+// handleDiscordPresence updates desktop rich presence.
+func (s *Server) handleDiscordPresence(w http.ResponseWriter, r *http.Request) {
+	var act discord.Activity
+	if err := json.NewDecoder(r.Body).Decode(&act); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid activity payload")
+		return
+	}
+
+	_ = s.discordRPC.Connect()
+	_ = s.discordRPC.SetActivity(act)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "UPDATED"})
+}
+
+// handleSponsorBlock fetches video skip segments.
+func (s *Server) handleSponsorBlock(w http.ResponseWriter, r *http.Request) {
+	videoID := r.URL.Query().Get("id")
+	segments, err := s.sponsorblock.GetSkipSegments(r.Context(), videoID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"video_id": videoID,
+		"segments": segments,
+	})
+}
+
+// handleRoomCreate creates a shared listening room.
+func (s *Server) handleRoomCreate(w http.ResponseWriter, r *http.Request) {
+	type CreateReq struct {
+		HostID     string `json:"host_id"`
+		DeviceName string `json:"device_name"`
+	}
+	var req CreateReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.HostID == "" {
+		req.HostID = "host_local"
+	}
+	if req.DeviceName == "" {
+		req.DeviceName = "Unbound Device"
+	}
+
+	room, err := s.roomHub.CreateRoom(req.HostID, req.DeviceName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, room)
+}
+
+// handleRoomJoin joins an existing room.
+func (s *Server) handleRoomJoin(w http.ResponseWriter, r *http.Request) {
+	type JoinReq struct {
+		RoomCode   string `json:"room_code"`
+		UserID     string `json:"user_id"`
+		DeviceName string `json:"device_name"`
+	}
+	var req JoinReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RoomCode == "" {
+		writeError(w, http.StatusBadRequest, "room_code is required")
+		return
+	}
+
+	room, err := s.roomHub.JoinRoom(req.RoomCode, req.UserID, req.DeviceName)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, room)
+}
+
+// handleRoomSync returns synchronized playback position.
+func (s *Server) handleRoomSync(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	room, err := s.roomHub.GetRoom(code)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"room_code":      room.RoomCode,
+		"track_id":       room.CurrentTrackID,
+		"title":          room.CurrentTitle,
+		"artist":         room.CurrentArtist,
+		"state":          room.State,
+		"sync_pos_ms":    room.GetSyncPosition(),
+	})
 }
 
 // handleScan initiates local storage scanning.

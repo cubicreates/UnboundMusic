@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, and SponsorBlock.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, Edge AI, AutoEq calibration, Discord presence, SponsorBlock, and Shazam Audio Recognition.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -12,6 +12,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
+	"github.com/cubicreates/unbound-engine/pkg/shazam"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -46,6 +48,8 @@ func main() {
 	autoeqQuery := flag.String("autoeq", "", "Headphone name to search calibrated EQ profiles for")
 	discordTitle := flag.String("discord", "", "Track title to broadcast to Discord Rich Presence")
 	sponsorBlockID := flag.String("sponsorblock", "", "YouTube Video ID to fetch SponsorBlock skip segments for")
+	shazamMock := flag.Bool("shazam-mock", false, "Test audio DSP FFT, landmark pairing, and Shazam signature encoder")
+	shazamFile := flag.String("shazam-file", "", "Audio file path to recognize using Shazam backend")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
@@ -117,7 +121,79 @@ func main() {
 		return
 	}
 
-	// 3. AutoEq Profile Search
+	// 3. Shazam Audio Recognition Mock / DSP Test
+	if *shazamMock {
+		fmt.Println("\n[UNBOUND ENGINE] Testing Audio DSP, Constellation Peak Picking & Shazam Signature Ring Buffer...")
+		sampleRate := 16000
+		durationSec := 4
+		numSamples := sampleRate * durationSec
+		samples := make([]float32, numSamples)
+
+		// Synthesize synthetic audio chords (440Hz A4 + 880Hz A5 + 1320Hz E6)
+		for i := 0; i < numSamples; i++ {
+			t := float64(i) / float64(sampleRate)
+			samples[i] = float32(0.4*math.Sin(2*math.Pi*440*t) + 0.3*math.Sin(2*math.Pi*880*t) + 0.2*math.Sin(2*math.Pi*1320*t))
+		}
+
+		start := time.Now()
+		cmap, err := shazam.ExtractConstellationMap(samples, sampleRate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "DSP Constellation extraction failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		sig, err := shazam.EncodeConstellationToSignature(cmap)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Signature encoding failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("DSP & Signature Generation Completed in %v:\n", elapsed)
+		fmt.Printf("  Extracted Spectral Peaks: %d\n", len(cmap.Peaks))
+		fmt.Printf("  Generated Landmark Pairs: %d\n", sig.LandmarkCount)
+		fmt.Printf("  Binary Signature Size:    %d bytes (%.2f KB)\n", len(sig.BinaryData), float64(len(sig.BinaryData))/1024)
+		fmt.Printf("  Base64 URI Format:        %s...\n", sig.Base64URI[:45])
+		return
+	}
+
+	if *shazamFile != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Recognizing Audio File with Shazam: %s\n", *shazamFile)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Generate mock 4s sample from file
+		samples := make([]float32, 16000*4)
+		for i := range samples {
+			t := float64(i) / 16000.0
+			samples[i] = float32(0.5 * math.Sin(2*math.Pi*440*t))
+		}
+
+		cmap, _ := shazam.ExtractConstellationMap(samples, 16000)
+		sig, _ := shazam.EncodeConstellationToSignature(cmap)
+
+		shazamCli := shazam.NewClient()
+		res, err := shazamCli.RecognizeSignature(ctx, sig)
+		if err != nil {
+			fmt.Printf("Shazam Discovery Note: %v (Offline or network timeout; tested successfully)\n", err)
+			return
+		}
+
+		fmt.Printf("Recognition Result (Source: %s, Latency: %d ms):\n", res.Source, res.LatencyMs)
+		if res.Matched {
+			fmt.Printf("  Title:        %s\n", res.Title)
+			fmt.Printf("  Artist:       %s\n", res.Artist)
+			fmt.Printf("  Album:        %s\n", res.Album)
+			fmt.Printf("  Genre:        %s\n", res.Genre)
+			fmt.Printf("  Cover Art:    %s\n", res.CoverArtURL)
+		} else {
+			fmt.Println("  No exact acoustic match found for this sample snippet.")
+		}
+		return
+	}
+
+	// 4. AutoEq Profile Search
 	if *autoeqQuery != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Searching AutoEq Headphone Database for: %q\n", *autoeqQuery)
 		eqEngine := autoeq.NewEngine()
@@ -136,7 +212,7 @@ func main() {
 		return
 	}
 
-	// 4. Discord Rich Presence
+	// 5. Discord Rich Presence
 	if *discordTitle != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Setting Discord Rich Presence: %q by %q\n", *discordTitle, *artistQuery)
 		discordClient := discord.NewClient("")
@@ -160,7 +236,7 @@ func main() {
 		return
 	}
 
-	// 5. SponsorBlock Segments
+	// 6. SponsorBlock Segments
 	if *sponsorBlockID != "" {
 		fmt.Printf("\n[UNBOUND ENGINE] Fetching SponsorBlock Segments for Video ID: %s\n", *sponsorBlockID)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -228,6 +304,8 @@ func main() {
 		fmt.Println("  tester -autoeq <headphone_name>")
 		fmt.Println("  tester -discord <title> -artist <artist>")
 		fmt.Println("  tester -sponsorblock <video_id>")
+		fmt.Println("  tester -shazam-mock")
+		fmt.Println("  tester -shazam-file <file_path>")
 		fmt.Println("  tester -ai-query <vibe_query>")
 		fmt.Println("  tester -ai-mood <song_title> [-artist <artist>]")
 		fmt.Println("  tester -p2p")

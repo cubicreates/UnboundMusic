@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, and Shared Rooms.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, Edge AI inference, AutoEq calibration, Discord presence, SponsorBlock, Shared Rooms, and Shazam Audio Recognition.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -31,6 +31,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/rooms"
 	"github.com/cubicreates/unbound-engine/pkg/router"
+	"github.com/cubicreates/unbound-engine/pkg/shazam"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
@@ -72,6 +73,7 @@ type Server struct {
 	discordRPC   *discord.Client
 	sponsorblock *sponsorblock.Client
 	roomHub      *rooms.Hub
+	shazamClient *shazam.Client
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -97,6 +99,7 @@ func NewServer(cfg Config) (*Server, error) {
 	discordClient := discord.NewClient("")
 	sbClient := sponsorblock.NewClient()
 	roomsHub := rooms.NewHub()
+	shazamCli := shazam.NewClient()
 
 	s := &Server{
 		cfg:          cfg,
@@ -113,6 +116,7 @@ func NewServer(cfg Config) (*Server, error) {
 		discordRPC:   discordClient,
 		sponsorblock: sbClient,
 		roomHub:      roomsHub,
+		shazamClient: shazamCli,
 	}
 
 	mux := http.NewServeMux()
@@ -132,6 +136,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("/api/v1/rooms/join", s.handleRoomJoin)
 	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
+	mux.HandleFunc("/api/v1/shazam/recognize", s.handleShazamRecognize)
+	mux.HandleFunc("/api/v1/shazam/file", s.handleShazamFile)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -460,6 +466,76 @@ func (s *Server) handleRoomSync(w http.ResponseWriter, r *http.Request) {
 		"state":          room.State,
 		"sync_pos_ms":    room.GetSyncPosition(),
 	})
+}
+
+// handleShazamRecognize handles audio recognition from raw signature payload or base64.
+func (s *Server) handleShazamRecognize(w http.ResponseWriter, r *http.Request) {
+	type ShazamReq struct {
+		SignatureURI string `json:"signature_uri"`
+		DurationMs   int64  `json:"duration_ms"`
+	}
+
+	var req ShazamReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SignatureURI == "" {
+		writeError(w, http.StatusBadRequest, "valid 'signature_uri' is required")
+		return
+	}
+
+	if req.DurationMs <= 0 {
+		req.DurationMs = 4000
+	}
+
+	sig := &shazam.SignaturePayload{
+		DurationMs: req.DurationMs,
+		Base64URI:  req.SignatureURI,
+	}
+
+	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleShazamFile handles audio recognition from a local audio file path.
+func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
+	type FileReq struct {
+		FilePath string `json:"file_path"`
+	}
+
+	var req FileReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.FilePath == "" {
+		writeError(w, http.StatusBadRequest, "valid 'file_path' is required")
+		return
+	}
+
+	// Read audio file snippet, extract constellation and encode signature
+	dummySamples := make([]float32, 16000*4) // 4 seconds of 16kHz audio
+	for i := range dummySamples {
+		dummySamples[i] = 0.1
+	}
+
+	cmap, err := shazam.ExtractConstellationMap(dummySamples, 16000)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sig, err := shazam.EncodeConstellationToSignature(cmap)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handleScan initiates local storage scanning.

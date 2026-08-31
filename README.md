@@ -6,11 +6,10 @@
 
   <p>
     <img src="https://img.shields.io/badge/License-GPL--3.0-0052CC?style=flat-square" alt="License">
-    <img src="https://img.shields.io/badge/APK%20Bundle-%3C%2050%20MB-brightgreen?style=flat-square" alt="Under 50MB">
-    <img src="https://img.shields.io/badge/Frontend-Kotlin%20Multiplatform-7F52FF?style=flat-square&logo=kotlin&logoColor=white" alt="Kotlin Multiplatform">
-    <img src="https://img.shields.io/badge/Engine-Embedded%20Go-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Backend">
-    <img src="https://img.shields.io/badge/UI-Compose%20Multiplatform-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Compose Multiplatform">
-    <img src="https://img.shields.io/badge/Cloud%20Hosting-%240.00%2Fmo-00875A?style=flat-square" alt="Zero Cloud Cost">
+    <img src="https://img.shields.io/badge/Bundle-%3C%2050%20MB-brightgreen?style=flat-square" alt="Under 50MB">
+    <img src="https://img.shields.io/badge/Frontend-Compose%20Multiplatform-7F52FF?style=flat-square&logo=jetpackcompose&logoColor=white" alt="Compose Multiplatform">
+    <img src="https://img.shields.io/badge/Engine-Pure%20Go-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go Backend">
+    <img src="https://img.shields.io/badge/Cloud%20Cost-%240.00%2Fmo-00875A?style=flat-square" alt="Zero Cloud Cost">
   </p>
 </div>
 
@@ -26,149 +25,89 @@
 
 ## What Makes Unbound Music Different
 
-| Feature Domain | Upstream / Traditional FOSS Clients | Unbound Music Hybrid Architecture |
+| Feature Domain | Traditional FOSS Clients | Unbound Music Hybrid Architecture |
 | :--- | :--- | :--- |
 | **Download Footprint** | Heavy multi-hundred MB bundles | **$\sim 36.5\text{ MB}$ Self-Contained Bundle** ($< 50\text{MB}$) with zero extra downloads |
-| **Intelligence Engine** | Cloud LLM tokens or zero intelligence | **Command-Only Micro-AI** + 0-MB BM25 mathematical heuristic fallback |
-| **Scraper Architecture** | External cloud scraper APIs (prone to bans) | **Embedded Go Daemon** running on-device as a private micro-server |
-| **User Interface** | Cluttered video player wrappers | **Pure Audio-Exclusive UI** (Spotify × VLC) with sandbox CDN thumbnail cache |
-| **Lyrics Pipeline** | Static text walls or paid API tokens | **Genius FOSS + On-Device CTC Forced Alignment** ($\sim 1.5\text{s}$ sync, $0 cost) |
-| **Storage Ingestion** | Unorganized file dumps / broken chat links | **Acoustic Fingerprinting** + WhatsApp-Safe Copy & Downloads Move |
-| **Network Efficiency** | Duplicate network streams for local tracks | **Zero-Data Hybrid Router** (intercepts online requests to play local files) |
-| **Playback Modes** | Standard linear / shuffle queues | **Reverse Play Mode** (inverts tracklist for reverse-narrative concept albums) |
-| **Acoustic Control** | Generic system equalizers | **VLC-Grade 10-Band Parametric EQ** + $+12\text{dB}$ Preamp with soft limiter |
+| **Intelligence Engine** | Cloud LLM tokens or zero intelligence | **On-Device Micro-AI** (SmolLM2-135M GGUF + MiniLM ONNX + 128-dim Vector Search) |
+| **Audio Recognition** | None or paid third-party APIs | **Pure-Go 16kHz FFT Peak Constellation Shazam Subsystem** ($0.00 cost) |
+| **Scraper Architecture** | External cloud scraper APIs (prone to bans) | **Embedded Go Daemon** running on-device as a private micro-server (`127.0.0.1:45731`) |
+| **Lyrics Pipeline** | Censored radio databases | **Genius FOSS (100% Uncensored) + On-Device CTC Forced Syllable Alignment** |
+| **Visual Aesthetics** | Static album art | **Spotify Canvas 8-Second Vertical Looping Video Backgrounds** |
+| **Storage Ingestion** | Unorganized file dumps | **Acoustic Fingerprinting** + WhatsApp-Safe Copy & Downloads Move |
+| **Network Efficiency** | Duplicate network streams for local tracks | **Zero-Data Hybrid Router** (intercepts online requests $\to$ plays local file) |
+| **Personal Analytics** | Basic play counts | **On-Device Unbound Recap** (Decade distribution + Taste Diversity entropy) |
+| **Acoustic Control** | Generic system equalizers | **AutoEq 4,000+ Profiles + ReplayGain Normalization + DJ Crossfade** |
 
 ---
 
-## Core Architectural Pillars
+## Technical Documentation & Roadmap
 
-### 1. Self-Contained < 50 MB Bundle & Adaptive Storage Gatekeeper
-* **Zero Post-Install Downloads**: The complete APK bundle weighs **$\sim 36.5\text{MB}$**, packaging the Kotlin UI, embedded Go audio engine, CTC alignment acoustic model, and compressed Micro-AI payload.
-* **Storage Gatekeeper**:
-
-| Device Storage State | Trigger Condition | Execution Strategy | Storage & Memory Impact |
-| :--- | :--- | :--- | :--- |
-| **Normal / High Storage** | Available space $\ge 100\text{MB}$ | Decompresses Zstd micro-AI payload ($<150\text{ms}$) | $\sim 26\text{MB}$ uncompressed RAM/cache; full vector taste search |
-| **Constrained Storage** | Available space $< 100\text{MB}$ | Activates SQLite FTS5 / BM25 Mathematical Engine | **$0\text{ MB}$ additional storage**; 0 neural weights in RAM |
+* Detailed Roadmap & Daily Milestones: **[ROADMAP.md](file:///d:/Github/MyMusic/docs/ROADMAP.md)**
+* Subsystem Architecture & REST API Reference: **[docs/README.md](file:///d:/Github/MyMusic/docs/README.md)**
 
 ---
 
-### 2. Command-Driven Deterministic Micro-AI & Local RAG
-* **No Conversational Fluff**: The AI does not generate human-like text responses or chat dialog.
-* **Acoustic & Vector Operations**:
-  1. **Cosine Taste Vectors**: Computes compact 128-dimensional mathematical vectors stored in `sqlite-vec`.
-  2. **Mood & Energy Clustering**: Maps tracks into acoustic vibe clusters directly on-device.
-  3. **Local RAG on Fingerprint Misses**: When acoustic fingerprinting cannot identify an obscure local track, the reasoner extracts lyric fragments/tags to formulate structured queries and resolve metadata.
+## Core Backend Subsystems (Days 1–11)
 
----
+```mermaid
+graph TD
+    UI[Compose Multiplatform UI] -->|HTTP REST / IPC| Daemon[Localhost Engine Daemon :45731]
+    
+    subgraph Audio & Streams
+        Daemon --> Stream[Innertube Opus/AAC Stream Extractor]
+        Daemon --> Router[Zero-Data Hybrid Playback Interceptor]
+        Daemon --> DSP[ReplayGain / DJ Crossfade / Silence Trimmer]
+        Daemon --> AutoEq[AutoEq 4,000+ Headphone Calibration]
+    end
 
-### 3. Safe Storage Ingestion & File Organization Rules
+    subgraph Lyrics & Visuals
+        Daemon --> Lyrics[Uncensored Genius Scraper + LRCLIB Fallback]
+        Daemon --> Aligner[On-Device Phonetic Syllable Aligner]
+        Daemon --> Canvas[Spotify Canvas 8s Looping Video]
+    end
 
-| Audio Source / Type | Ingestion Action | Architectural Rationale |
-| :--- | :--- | :--- |
-| **WhatsApp Audio** (`WhatsApp/Media/...`) | **COPY** | Preserves WhatsApp internal database pointers and in-chat voice message bubbles. |
-| **Telegram / Messaging Media** | **COPY** | Prevents breaking media references in chat messaging applications. |
-| **Downloads / Generic Folders** (`/Download`, `/Music`) | **MOVE & ORGANIZE** | Safely tidies loose files into structured `Music/Artist/Album/Song.ext` library. |
-| **Non-Music Audio (< 30s / Voice Notes)** | **IGNORE** | Acoustic filter skips speech memos, ringtones, and notification sounds. |
+    subgraph On-Device AI & Analytics
+        Daemon --> EdgeAI[SmolLM2-135M + MiniLM Vector Search]
+        Daemon --> Shazam[16kHz FFT Peak Constellation Shazam Subsystem]
+        Daemon --> Rec[Offline Smart Radio Recommender]
+        Daemon --> Analytics[On-Device Unbound Recap & Diversity Scoring]
+    end
 
----
-
-### 4. Advanced Playback Modes & "Reverse Play"
-
-| Queue Mode | Playback Sequence | Primary Use Case |
-| :--- | :--- | :--- |
-| **Normal / Sequential** | $1 \to N$ (Stops at end) | Standard album / playlist listening. |
-| **Loop All** | $1 \to N \to 1 \to \dots$ | Continuous background playback. |
-| **Loop Single** | $K \to K \to K$ | Single track repeat. |
-| **Shuffle / Random** | Fisher-Yates permutation | Unbiased random playback with no immediate repeats. |
-| **Reverse Play** | $N \to 1$ (Inverted Queue) | **Concept Albums** (e.g. Kendrick Lamar's *DAMN.*) designed with reverse narratives. |
-
----
-
-### 5. Sound Engineering Suite
-
-| Parameter | Specifications & Range | Description |
-| :--- | :--- | :--- |
-| **10-Band Parametric EQ** | $31\text{Hz}, 62\text{Hz}, 125\text{Hz}, 250\text{Hz}, 500\text{Hz}, 1\text{kHz}, 2\text{kHz}, 4\text{kHz}, 8\text{kHz}, 16\text{kHz}$ | Precision band-pass and shelving filters with headphone presets. |
-| **Preamp Gain Stage** | $0\text{dB}$ to $+12\text{dB}$ | Boosts low-mastered vintage recordings. |
-| **Soft-Knee Limiter** | Automatic dynamic threshold | Eliminates digital clipping and harsh audio distortion. |
-| **Codec Transparency** | Real-time stream & file inspection | Live badge displaying format (`FLAC`, `Opus`, `AAC`), sample rate, and bit depth. |
-
----
-
-## Technical Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            CLIENT DEVICE (Phone / PC)                       │
-│                                                                             │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                    KOTLIN / COMPOSE MP FRONTEND                       │  │
-│  │  - UI: "Spotify × VLC" Hybrid Audio-Exclusive Interface               │  │
-│  │  - Media Output: Media3 (ExoPlayer on Android) / mpv (Desktop)        │  │
-│  │  - Pro Audio: 10-Band Parametric EQ, Preamp, Gain Limiter             │  │
-│  │  - Queue Engine: Normal | Loop All | Loop One | Shuffle | REVERSE     │  │
-│  │  - Animated Canvas Apple Music-Style Kinetic Lyrics Renderer          │  │
-│  │  - Storage Gatekeeper: Adaptive Micro-AI vs. 0-MB BM25 Fallback       │  │
-│  │  - Battery Exemption & Autostart Onboarding Wizard                    │  │
-│  └───────────────────────────────────┬───────────────────────────────────┘  │
-│                                      │ IPC / JNI / Local REST (127.0.0.1)   │
-│  ┌───────────────────────────────────▼───────────────────────────────────┐  │
-│  │                   EMBEDDED GO ENGINE (Daemon / JNI)                   │  │
-│  │                                                                       │  │
-│  │  ┌─────────────────────────────┐   ┌───────────────────────────────┐  │  │
-│  │  │   AUDIO FINGERPRINT & TAG   │   │     HYBRID STREAM ROUTER      │  │  │
-│  │  │  - Chromaprint / AcoustID   │   │  - Intercepts stream requests │  │  │
-│  │  │  - WhatsApp Copy / Move Dir │   │  - Local lossless prioritized │  │  │
-│  │  │  - Noise & Speech Filter    │   │  - Fallback to YT/YTMusic     │  │  │
-│  │  └──────────────┬──────────────┘   └───────────────┬───────────────┘  │  │
-│  │                 │                                  │                  │  │
-│  │  ┌──────────────▼──────────────┐   ┌───────────────▼───────────────┐  │  │
-│  │  │   LOCAL SQLITE METADATA DB  │   │   GENIUS & LYRICS SUBSYSTEM   │  │  │
-│  │  │  - Fingerprint Hash Index   │   │  - Genius FOSS Web Scraper    │  │  │
-│  │  │  - Taste & Listening History│   │  - On-Device Forced Alignment │  │  │
-│  │  │  - sqlite-vec Taste Index   │   │  - LRCLIB & SimpMusic Client  │  │  │
-│  │  │  - Offline Synced Lyrics    │   │  - Deterministic Micro-AI RAG │  │  │
-│  │  └─────────────────────────────┘   └───────────────────────────────┘  │  │
-│  └───────────────────────────────────┬───────────────────────────────────┘  │
-└──────────────────────────────────────┼──────────────────────────────────────┘
-                                       │
-                Internet Connection    ▼
-      ┌─────────────────────────────────────────────────────────┐
-      │  YouTube Music CDN  │  Genius.com  │  LRCLIB API        │
-      └─────────────────────────────────────────────────────────┘
+    subgraph Storage & Ecosystem
+        Daemon --> SQLite[Pure-Go SQLite Memory Bank WAL Mode]
+        Daemon --> Ingest[Smart Storage Ingestion Rules]
+        Daemon --> P2P[Local Wi-Fi P2P Catalog Mesh Sync]
+        Daemon --> Rooms[Shared Listening Rooms Sub-ms Sync]
+        Daemon --> Discord[Discord Rich Presence IPC]
+        Daemon --> Sponsor[SponsorBlock Video Skip Filter]
+        Daemon --> LastFM[Last.fm 2.0 Scrobbler]
+        Daemon --> Podcasts[Podcasts & Episode Chapters]
+        Daemon --> Explore[Moods & Top 100 Charts]
+        Daemon --> Artist[Artist Discography & Similar Artists]
+        Daemon --> Sleep[Sleep Timer & Volume Fade-Out]
+        Daemon --> Updater[GitHub Releases Auto-Updater]
+    end
 ```
 
 ---
 
-## Privacy & Freedom
+## Quickstart & Verification
 
-* **100% Free and Open Source**: Licensed under GNU General Public License v3.0.
-* **No Telemetry / No Tracking**: FOSS builds contain zero trackers, third-party analytics, or data-collection SDKs.
-* **On-Device Sovereignty**: Audio processing, fingerprint indexing, database records, and lyric alignments remain strictly on your hardware.
-
----
-
-## Build & Development
-
-### Requirements
-* **JDK 17+**
-* **Android SDK** (API 34+)
-* **Go 1.21+** (with `gomobile` for shared library generation)
-
-### Commands
-```bash
-# Build Android APK
-./gradlew :androidApp:assembleDebug
-
-# Run Desktop Application (JVM / Compose Desktop)
-./gradlew :composeApp:run
+### Running the Backend Daemon:
+```powershell
+cd backend
+go run ./cmd/daemon
 ```
 
----
+### Running Test Harness:
+```powershell
+cd backend
+go test -v ./...
+```
 
-## Legal Disclaimer
-
-* Unbound Music is an open-source, non-commercial software project developed for educational and research purposes.
-* Unbound Music does not host, upload, or distribute copyrighted media files. All network streams are handled dynamically from publicly accessible third-party endpoints.
-* We strongly encourage all users to support musicians, songwriters, and creators by purchasing official music and subscribing to services such as [YouTube Premium](https://www.youtube.com/premium).
+### Automated Subsystem Test Scripts:
+* `powershell -ExecutionPolicy Bypass -File ./test/test_search.ps1`
+* `powershell -ExecutionPolicy Bypass -File ./test/test_lyrics.ps1`
+* `powershell -ExecutionPolicy Bypass -File ./test/test_shazam.ps1`
+* `powershell -ExecutionPolicy Bypass -File ./test/test_advanced_features.ps1`
+* `powershell -ExecutionPolicy Bypass -File ./test/test_day11_features.ps1`

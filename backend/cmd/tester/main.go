@@ -1,7 +1,7 @@
 /*
  * Package: main
  * File: main.go
- * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, and P2P sync.
+ * Purpose: Standalone CLI testing tool to verify YouTube Music search, stream extraction, Genius lyrics scraping, storage ingestion, on-device forced alignment, SQLite persistence, zero-data hybrid routing, offline recommendations, P2P sync, and Edge AI payload packaging.
  * Subsystem: Testing & Tooling
  * Concurrency: Single-threaded CLI entry point.
  */
@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
@@ -37,7 +38,113 @@ func main() {
 	routerQuery := flag.String("router", "", "Song title to test Zero-Data Hybrid Playback Interception Router")
 	recommendQuery := flag.String("recommend", "", "Song title or ID to generate offline smart radio mix for")
 	p2pFlag := flag.Bool("p2p", false, "Test local P2P Wi-Fi peer discovery and beacon broadcast")
+	aiQuery := flag.String("ai-query", "", "Natural language semantic vibe search query")
+	aiMood := flag.String("ai-mood", "", "Track title to evaluate mood and vibe for")
+	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
+	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
 	flag.Parse()
+
+	args := flag.Args()
+
+	// 1. Pack Models into Zstd
+	if *packModels {
+		if len(args) < 2 {
+			fmt.Println("Usage: tester -pack-models <src_dir> <out_zst_path>")
+			os.Exit(1)
+		}
+		srcDir := args[0]
+		outPath := args[1]
+
+		files := make(map[string]string)
+		entries, err := os.ReadDir(srcDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read source directory: %v\n", err)
+			os.Exit(1)
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				files[e.Name()] = filepath.Join(srcDir, e.Name())
+			}
+		}
+
+		fmt.Printf("[PACKAGER] Compressing %d files with Zstandard Level 19...\n", len(files))
+		start := time.Now()
+		compressedBytes, err := gatekeeper.CompressFilesToZstdTar(files)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Compression failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := os.WriteFile(outPath, compressedBytes, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed writing compressed output: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Compression Complete in %v! Output size: %.2f MB\n",
+			time.Since(start), float64(len(compressedBytes))/(1024*1024))
+		return
+	}
+
+	// 2. Unpack Payload Benchmark
+	if *unpackPayload != "" {
+		data, err := os.ReadFile(*unpackPayload)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed reading payload file: %v\n", err)
+			os.Exit(1)
+		}
+
+		destDir := filepath.Join(os.TempDir(), "unbound_models_test")
+		fmt.Printf("[UNPACKER] Testing decompression of %s (%.2f MB)...\n",
+			*unpackPayload, float64(len(data))/(1024*1024))
+
+		manifest, err := gatekeeper.DecompressZstdTarStream(data, destDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Decompression failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Decompression Completed in %d ms:\n", manifest.DecompressionMs)
+		fmt.Printf("  Extracted Files: %d\n", manifest.TotalFiles)
+		fmt.Printf("  Unpacked Size:   %.2f MB\n", float64(manifest.TotalBytes)/(1024*1024))
+		fmt.Printf("  SmolLM Model:    %s\n", manifest.SmolLMModelPath)
+		fmt.Printf("  MMS Align Model: %s\n", manifest.MMSAlignModelPath)
+		return
+	}
+
+	if *aiQuery != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Evaluating Semantic Vibe Query: %q\n", *aiQuery)
+		runner := ai.NewRunner("")
+		start := time.Now()
+		res, err := runner.ParseVibeQuery(*aiQuery)
+		elapsed := time.Since(start)
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "AI query failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Semantic Intent Parsed in %v:\n", elapsed)
+		fmt.Printf("  Energy Level:     %s (Suggested BPM: %d)\n", res.EnergyLevel, res.SuggestedBPM)
+		fmt.Printf("  Target Genres:    %v\n", res.TargetGenres)
+		fmt.Printf("  Mood Tags:        %v\n", res.MoodTags)
+		fmt.Printf("  Search Keywords:  %v\n", res.SearchKeywords)
+		return
+	}
+
+	if *aiMood != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Analyzing Track Mood: %q\n", *aiMood)
+		runner := ai.NewRunner("")
+		res, err := runner.AnalyzeTrackMood(*aiMood, *artistQuery, "I got loyalty, got royalty inside my DNA")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Mood analysis failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Mood Analysis Result:\n")
+		fmt.Printf("  Primary Mood:     %s (Valence: %.2f | Energy: %.2f)\n", res.PrimaryMood, res.ValenceScore, res.EnergyScore)
+		fmt.Printf("  Secondary Moods:  %v\n", res.SecondaryMoods)
+		return
+	}
 
 	if *searchQuery == "" && *streamID == "" && *lyricsQuery == "" && *scanDir == "" && *alignQuery == "" && *routerQuery == "" && *recommendQuery == "" && !*p2pFlag {
 		fmt.Println("Usage:")
@@ -48,6 +155,8 @@ func main() {
 		fmt.Println("  tester -align <title> [-artist <artist>]")
 		fmt.Println("  tester -router <title> [-artist <artist>]")
 		fmt.Println("  tester -recommend <title_or_id>")
+		fmt.Println("  tester -ai-query <vibe_query>")
+		fmt.Println("  tester -ai-mood <song_title> [-artist <artist>]")
 		fmt.Println("  tester -p2p")
 		os.Exit(1)
 	}
@@ -269,14 +378,12 @@ func main() {
 		fmt.Println("\n[UNBOUND ENGINE] Testing Local P2P Wi-Fi Sync Discovery...")
 		discovery := p2p.NewDiscovery("node_test_cli", "Unbound CLI Node", 45731)
 
-		// Broadcast announcement
 		if err := discovery.BroadcastBeacon(); err != nil {
 			fmt.Printf("  UDP Broadcast Note: %v (Normal if broadcast interface restricted)\n", err)
 		} else {
 			fmt.Println("  UDP Beacon Broadcast Sent successfully.")
 		}
 
-		// Register mock peer and compute sync diff
 		mockPeer := p2p.Peer{
 			DeviceID:   "phone_galaxy_s24",
 			DeviceName: "Galaxy S24 Ultra",
@@ -293,7 +400,6 @@ func main() {
 			fmt.Printf("    - Device: %-20s | IP: %-15s | Port: %d\n", p.DeviceName, p.IPAddress, p.APIPort)
 		}
 
-		// Test diff
 		localHashes := []string{"hash_dna", "hash_wap"}
 		remoteHashes := []string{"hash_dna", "hash_wap", "hash_blinding_lights", "hash_starboy"}
 		diff, _ := p2p.CalculateSyncDiff(mockPeer.DeviceID, localHashes, remoteHashes)

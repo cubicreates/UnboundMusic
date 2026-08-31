@@ -1,7 +1,7 @@
 /*
  * Package: server
  * File: server.go
- * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, and P2P sync to Kotlin/Compose UI.
+ * Purpose: Embedded localhost REST / IPC daemon server exposing Unbound Music capabilities, offline recommender, P2P sync, and Edge AI inference to Kotlin/Compose UI.
  * Subsystem: Localhost Daemon & IPC
  * Concurrency: Standard Go HTTP server managing concurrent client connections via goroutines.
  */
@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
@@ -36,6 +37,7 @@ type Config struct {
 	DatabasePath   string `json:"database_path"`
 	LibraryRoot    string `json:"library_root"`
 	AppStorageRoot string `json:"app_storage_root"`
+	ModelsPath     string `json:"models_path"`
 }
 
 // DefaultConfig provides standard localhost defaults.
@@ -45,6 +47,7 @@ func DefaultConfig() Config {
 		DatabasePath:   "",
 		LibraryRoot:    "",
 		AppStorageRoot: "",
+		ModelsPath:     "",
 	}
 }
 
@@ -60,6 +63,7 @@ type Server struct {
 	router       *router.Router
 	recommender  *recommender.Engine
 	discovery    *p2p.Discovery
+	aiRunner     *ai.Runner
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -80,6 +84,7 @@ func NewServer(cfg Config) (*Server, error) {
 	playbackRouter := router.NewRouter(ytClient, repo)
 	recEngine := recommender.NewEngine(repo)
 	p2pDiscovery := p2p.NewDiscovery("node_local", "Unbound Desktop", cfg.Port)
+	edgeAI := ai.NewRunner(cfg.ModelsPath)
 
 	s := &Server{
 		cfg:          cfg,
@@ -91,6 +96,7 @@ func NewServer(cfg Config) (*Server, error) {
 		router:       playbackRouter,
 		recommender:  recEngine,
 		discovery:    p2pDiscovery,
+		aiRunner:     edgeAI,
 	}
 
 	mux := http.NewServeMux()
@@ -101,6 +107,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/scan", s.handleScan)
 	mux.HandleFunc("/api/v1/recommend", s.handleRecommend)
 	mux.HandleFunc("/api/v1/peers", s.handlePeers)
+	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
+	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -210,7 +218,6 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Check SQLite Cache First
 	if trackID != "" {
 		cached, err := s.repo.GetLyrics(r.Context(), trackID)
 		if err == nil && cached != nil && len(cached.Lines) > 0 {
@@ -219,7 +226,6 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. Fetch Genius Verified Uncensored Lyrics
 	hit, err := s.geniusClient.SearchSong(r.Context(), title, artist)
 	if err == nil && hit != nil {
 		plainPayload, err := s.geniusClient.FetchLyrics(r.Context(), hit)
@@ -233,7 +239,6 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Fallback to LRCLIB
 	lrclibPayload, err := s.geniusClient.FetchLRCLIBSynced(r.Context(), title, artist, 0)
 	if err == nil && len(lrclibPayload.Lines) > 0 {
 		lrclibPayload.TrackID = trackID
@@ -273,6 +278,50 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 		"peer_count": len(peers),
 		"peers":      peers,
 	})
+}
+
+// handleAIQuery parses natural language vibe requests.
+func (s *Server) handleAIQuery(w http.ResponseWriter, r *http.Request) {
+	type AIRequest struct {
+		Prompt string `json:"prompt"`
+	}
+
+	var req AIRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
+		writeError(w, http.StatusBadRequest, "valid 'prompt' JSON field is required")
+		return
+	}
+
+	res, err := s.aiRunner.ParseVibeQuery(req.Prompt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAIMood evaluates track mood and emotional valence.
+func (s *Server) handleAIMood(w http.ResponseWriter, r *http.Request) {
+	type MoodRequest struct {
+		Title  string `json:"title"`
+		Artist string `json:"artist"`
+		Lyrics string `json:"lyrics"`
+	}
+
+	var req MoodRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Title == "" {
+		writeError(w, http.StatusBadRequest, "valid 'title' JSON field is required")
+		return
+	}
+
+	res, err := s.aiRunner.AnalyzeTrackMood(req.Title, req.Artist, req.Lyrics)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 // handleScan initiates local storage scanning.

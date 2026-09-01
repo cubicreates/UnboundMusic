@@ -30,3 +30,4 @@ testapps/
 **/testapps/
 testfrontend/
 **/testfrontend/
+.gitignore

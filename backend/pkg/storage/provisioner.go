@@ -59,7 +59,10 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	root := filepath.Join(p.baseRoot, "Unbound")
+	root := p.baseRoot
+	if filepath.Base(root) != "Unbound" {
+		root = filepath.Join(p.baseRoot, "Unbound")
+	}
 	backendRoot := filepath.Join(root, ".backend")
 
 	sqliteDir := filepath.Join(backendRoot, "sqlite")

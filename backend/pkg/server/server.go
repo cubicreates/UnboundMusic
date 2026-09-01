@@ -48,6 +48,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/storage"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/updater"
+	"github.com/cubicreates/unbound-engine/pkg/vector"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -196,6 +197,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/peers", s.handlePeers)
 	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
 	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
+	mux.HandleFunc("/api/v1/vector/similarity", s.handleVectorSimilarity)
 	mux.HandleFunc("/api/v1/autoeq/search", s.handleAutoEqSearch)
 	mux.HandleFunc("/api/v1/autoeq/preset", s.handleAutoEqPreset)
 	mux.HandleFunc("/api/v1/discord/presence", s.handleDiscordPresence)
@@ -226,6 +228,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/tree", s.handleStorageTree)
 	mux.HandleFunc("/api/v1/storage/index", s.handleStorageIndex)
 	mux.HandleFunc("/api/v1/storage/consolidate", s.handleStorageConsolidate)
+	mux.HandleFunc("/api/v1/storage/classify", s.handleStorageClassify)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 
@@ -444,6 +447,59 @@ func (s *Server) handleAIMood(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleVectorSimilarity calculates cosine similarity and Euclidean distance across 128-dimensional embedding vectors.
+func (s *Server) handleVectorSimilarity(w http.ResponseWriter, r *http.Request) {
+	type VectorReq struct {
+		VectorA []float32 `json:"vector_a"`
+		VectorB []float32 `json:"vector_b"`
+	}
+
+	var req VectorReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	dim := 128
+	if len(req.VectorA) == 0 || len(req.VectorB) == 0 {
+		// Synthesize realistic 128-dimensional acoustic taste vectors ("Late Night Lo-Fi" vs "Chill Ambient")
+		req.VectorA = make([]float32, dim)
+		req.VectorB = make([]float32, dim)
+		for i := 0; i < dim; i++ {
+			val := float32(math.Sin(float64(i)*0.15) * 0.5)
+			req.VectorA[i] = val + 0.2
+			req.VectorB[i] = val + 0.18 + float32(math.Cos(float64(i)*0.3)*0.05)
+		}
+	}
+
+	start := time.Now()
+	similarity, err := vector.CosineSimilarity(req.VectorA, req.VectorB)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	distance, _ := vector.EuclideanDistance(req.VectorA, req.VectorB)
+	elapsedMicrosec := time.Since(start).Microseconds()
+
+	sampleA := req.VectorA
+	if len(sampleA) > 6 {
+		sampleA = sampleA[:6]
+	}
+	sampleB := req.VectorB
+	if len(sampleB) > 6 {
+		sampleB = sampleB[:6]
+	}
+
+	resp := map[string]any{
+		"dimension":          len(req.VectorA),
+		"cosine_similarity":  similarity,
+		"euclidean_distance": distance,
+		"latency_microsec":   elapsedMicrosec,
+		"vector_a_sample":    sampleA,
+		"vector_b_sample":    sampleB,
+		"interpretation":     fmt.Sprintf("%.2f%% taste alignment in %d µs", similarity*100, elapsedMicrosec),
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleAutoEqSearch searches available calibrated headphone profiles.
@@ -952,6 +1008,47 @@ func (s *Server) handleStorageConsolidate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// handleStorageClassify evaluates a filepath against WhatsApp COPY vs Downloads MOVE rules and 30s voice memo filtering.
+func (s *Server) handleStorageClassify(w http.ResponseWriter, r *http.Request) {
+	type ClassifyReq struct {
+		FilePath   string `json:"file_path"`
+		DurationMs int64  `json:"duration_ms"`
+	}
+	var req ClassifyReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.FilePath == "" {
+		req.FilePath = "/storage/emulated/0/WhatsApp/Media/WhatsApp Audio/AUD-20260901-WA0001.opus"
+	}
+	if req.DurationMs == 0 {
+		req.DurationMs = 15000 // 15 seconds
+	}
+
+	meta := &fingerprint.AudioMetadata{
+		FilePath:   req.FilePath,
+		DurationMs: req.DurationMs,
+		Extension:  filepath.Ext(req.FilePath),
+	}
+
+	class := fingerprint.ClassifyAudio(meta)
+	isChat := fingerprint.IsProtectedChatMedia(req.FilePath)
+	action := "MOVED"
+	if isChat {
+		action = "COPIED (Non-Destructive for WhatsApp/Chat)"
+	}
+	if !class.IsMusic {
+		action = "IGNORED (Dropped: Voice Memo / Sound Effect < 30s)"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"file_path":         req.FilePath,
+		"duration_ms":       req.DurationMs,
+		"is_music":          class.IsMusic,
+		"rejection_reason":  class.Reason,
+		"is_protected_chat": isChat,
+		"ingestion_rule":    action,
+	})
 }
 
 // handleDownloadStart downloads a track directly to Unbound/Downloads/.

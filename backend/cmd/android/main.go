@@ -11,9 +11,18 @@
 package main
 
 /*
+#if defined(__ANDROID__) || defined(ANDROID)
 #include <jni.h>
+#else
+// Fallback types for static analysis when NDK headers are not in host include path
+typedef void* JNIEnv;
+typedef void* jobject;
+typedef void* jstring;
+typedef int   jint;
+#endif
 #include <stdlib.h>
 
+#if defined(__ANDROID__) || defined(ANDROID)
 static const char* get_string_utf(JNIEnv *env, jstring str) {
     if (str == NULL || env == NULL) return NULL;
     return (*env)->GetStringUTFChars(env, str, NULL);
@@ -24,6 +33,10 @@ static void release_string_utf(JNIEnv *env, jstring str, const char* chars) {
         (*env)->ReleaseStringUTFChars(env, str, chars);
     }
 }
+#else
+static const char* get_string_utf(JNIEnv *env, jstring str) { return NULL; }
+static void release_string_utf(JNIEnv *env, jstring str, const char* chars) {}
+#endif
 */
 import "C"
 

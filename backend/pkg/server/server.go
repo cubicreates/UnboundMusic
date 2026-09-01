@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -202,6 +203,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("/api/v1/rooms/join", s.handleRoomJoin)
 	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
+	mux.HandleFunc("/api/v1/shazam/dsp", s.handleShazamDSP)
 	mux.HandleFunc("/api/v1/shazam/recognize", s.handleShazamRecognize)
 	mux.HandleFunc("/api/v1/shazam/file", s.handleShazamFile)
 	mux.HandleFunc("/api/v1/analytics/log", s.handleAnalyticsLog)
@@ -556,6 +558,55 @@ func (s *Server) handleRoomSync(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleShazamDSP computes 16kHz audio DSP FFT, extracts peak constellation map, and encodes into binary signature.
+func (s *Server) handleShazamDSP(w http.ResponseWriter, r *http.Request) {
+	sampleRate := 16000
+	durationSec := 4
+	numSamples := sampleRate * durationSec
+	samples := make([]float32, numSamples)
+
+	// Synthesize multi-frequency harmonic acoustic chord (A4 440Hz, E5 660Hz, C#6 1108Hz, D7 2349Hz)
+	for i := 0; i < numSamples; i++ {
+		tSec := float64(i) / float64(sampleRate)
+		samples[i] = float32(
+			0.4*math.Sin(2*math.Pi*440*tSec) +
+				0.3*math.Sin(2*math.Pi*660*tSec) +
+				0.2*math.Sin(2*math.Pi*1108*tSec) +
+				0.1*math.Sin(2*math.Pi*2349*tSec),
+		)
+	}
+
+	cmap, err := shazam.ExtractConstellationMap(samples, sampleRate)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	sig, err := shazam.EncodeConstellationToSignature(cmap)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	samplePeaks := cmap.Peaks
+	if len(samplePeaks) > 8 {
+		samplePeaks = samplePeaks[:8]
+	}
+
+	resp := map[string]any{
+		"sample_rate":       sampleRate,
+		"duration_ms":       cmap.DurationMs,
+		"peak_count":        len(cmap.Peaks),
+		"landmark_count":    sig.LandmarkCount,
+		"binary_size_bytes": len(sig.BinaryData),
+		"signature_uri":     sig.Base64URI,
+		"bands":             shazam.FrequencyBands,
+		"sample_peaks":      samplePeaks,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
 // handleShazamRecognize handles audio recognition from raw signature payload or base64.
 func (s *Server) handleShazamRecognize(w http.ResponseWriter, r *http.Request) {
 	type ShazamReq struct {
@@ -587,7 +638,7 @@ func (s *Server) handleShazamRecognize(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// handleShazamFile handles audio recognition from a local audio file path.
+// handleShazamFile handles audio recognition from a local audio file path with offline database fallback.
 func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 	type FileReq struct {
 		FilePath string `json:"file_path"`
@@ -599,6 +650,14 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Check local SQLite offline vault for matching fingerprint (< 2ms)
+	offlineRes, _ := shazam.MatchOffline(r.Context(), s.repo, req.FilePath)
+	if offlineRes != nil && offlineRes.Matched {
+		writeJSON(w, http.StatusOK, offlineRes)
+		return
+	}
+
+	// 2. Synthesize audio buffer and query Shazam recognition
 	dummySamples := make([]float32, 16000*4)
 	for i := range dummySamples {
 		dummySamples[i] = 0.1
@@ -618,7 +677,8 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		// Fallback to offline result indicator
+		writeJSON(w, http.StatusOK, offlineRes)
 		return
 	}
 

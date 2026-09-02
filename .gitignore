@@ -31,3 +31,5 @@ testapps/
 testfrontend/
 **/testfrontend/
 .gitignore
+inspiration/
+**/inspiration

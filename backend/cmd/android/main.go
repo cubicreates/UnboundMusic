@@ -1,21 +1,10 @@
-//go:build android && cgo
-
-/*
- * Package: main
- * File: main.go
- * Purpose: Android JNI Native C-Shared bridge exposing embedded Go Engine server directly to Android runtime.
- * Subsystem: Native JNI Engine Bridge
- * Concurrency: Thread-safe native JNI bindings booting Go HTTP daemon in background goroutine.
- */
-
 package main
 
 /*
 #if defined(__ANDROID__) || defined(ANDROID)
 #include <jni.h>
 #else
-// Fallback types for static analysis when NDK headers are not in host include path
-typedef void* JNIEnv;
+typedef struct _JNIEnv JNIEnv;
 typedef void* jobject;
 typedef void* jstring;
 typedef int   jint;
@@ -53,13 +42,7 @@ var (
 	serverMutex  sync.Mutex
 )
 
-//export Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative
-func Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative(
-	env *C.JNIEnv,
-	clazz C.jobject,
-	jAppStoragePath C.jstring,
-	jPort C.jint,
-) C.jint {
+func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint) C.jint {
 	serverMutex.Lock()
 	defer serverMutex.Unlock()
 
@@ -104,11 +87,7 @@ func Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative(
 	return 1
 }
 
-//export Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative
-func Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative(
-	env *C.JNIEnv,
-	clazz C.jobject,
-) C.jint {
+func stopEngineInternal() C.jint {
 	serverMutex.Lock()
 	defer serverMutex.Unlock()
 
@@ -119,6 +98,42 @@ func Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative(
 	_ = activeServer.Shutdown(context.Background())
 	activeServer = nil
 	return 1
+}
+
+//export Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative
+func Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+	jAppStoragePath C.jstring,
+	jPort C.jint,
+) C.jint {
+	return startEngineInternal(env, jAppStoragePath, jPort)
+}
+
+//export Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative
+func Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+) C.jint {
+	return stopEngineInternal()
+}
+
+//export Java_com_cubicreates_unboundmusic_daemon_DaemonManager_startEngineNative
+func Java_com_cubicreates_unboundmusic_daemon_DaemonManager_startEngineNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+	jAppStoragePath C.jstring,
+	jPort C.jint,
+) C.jint {
+	return startEngineInternal(env, jAppStoragePath, jPort)
+}
+
+//export Java_com_cubicreates_unboundmusic_daemon_DaemonManager_stopEngineNative
+func Java_com_cubicreates_unboundmusic_daemon_DaemonManager_stopEngineNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+) C.jint {
+	return stopEngineInternal()
 }
 
 func main() {

@@ -1,22 +1,12 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.search
  * File: SearchScreen.kt
- * Purpose: Production Search & Discovery Hub for Unbound Music. Supports YouTube Music catalog search,
- *          natural language vibe exploration, ambient Shazam acoustic recognition, and genre discovery.
+ * Purpose: High-performance Discovery & Search Hub for Unbound Music with instant search results and genre browsing.
  * Subsystem: Discovery / Search UI
  */
 
 package com.cubicreates.unboundmusic.ui.search
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,6 +40,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -59,8 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -73,14 +62,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
-import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
-import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 private val trendingVibes = listOf(
@@ -111,18 +97,6 @@ fun SearchScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
 
-    // Pulse animation for Shazam / Listen button
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -131,16 +105,15 @@ fun SearchScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp)
-                .padding(top = 28.dp, bottom = 140.dp),
+                .padding(horizontal = 16.dp)
+                .padding(top = 24.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // 1. Search Hero Section
             Text(
                 text = "Discover",
-                fontSize = 40.sp,
+                fontSize = 32.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-0.03).sp,
                 style = TextStyle(
                     brush = Brush.horizontalGradient(
                         colors = listOf(UnboundPrimary, UnboundTertiary)
@@ -148,51 +121,45 @@ fun SearchScreen(
                 )
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Find music by describing a vibe, title, or sound.",
-                fontSize = 14.sp,
+                text = "Search YouTube Music catalog, artists, or #vibes.",
+                fontSize = 13.sp,
                 color = OnSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. Search Bar with Ambient Glow
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(
-                        elevation = 12.dp,
-                        shape = RoundedCornerShape(16.dp),
-                        spotColor = UnboundPrimary.copy(alpha = 0.35f)
-                    )
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(SurfaceGlassHighest)
-                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            // 2. Search Bar
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF222222),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838))
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Search",
                         tint = UnboundPrimary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
                                 text = "Search tracks, artists, or #vibes...",
                                 color = OnSurfaceVariant.copy(alpha = 0.5f),
-                                fontSize = 15.sp
+                                fontSize = 14.sp
                             )
                         }
                         BasicTextField(
@@ -203,7 +170,7 @@ fun SearchScreen(
                             },
                             textStyle = TextStyle(
                                 color = OnSurface,
-                                fontSize = 15.sp
+                                fontSize = 14.sp
                             ),
                             cursorBrush = SolidColor(UnboundPrimary),
                             singleLine = true,
@@ -213,7 +180,7 @@ fun SearchScreen(
 
                     if (isSearching) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                             color = UnboundPrimary,
                             strokeWidth = 2.dp
                         )
@@ -223,24 +190,23 @@ fun SearchScreen(
                                 searchQuery = ""
                                 onSearchQueryChanged("")
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Clear",
                                 tint = OnSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Content Area: Search Results OR Discovery Feed
             if (searchQuery.isNotBlank() || searchResults.isNotEmpty()) {
-                // Live Search Results List
                 Text(
                     text = "SEARCH RESULTS",
                     fontSize = 12.sp,
@@ -249,7 +215,7 @@ fun SearchScreen(
                     letterSpacing = 0.1.sp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 6.dp)
                 )
 
                 if (searchResults.isEmpty() && !isSearching) {
@@ -272,7 +238,7 @@ fun SearchScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(searchResults) { track ->
+                        items(searchResults, key = { it.title + it.streamUrl + it.artist }) { track ->
                             SearchResultItem(
                                 track = track,
                                 onClick = { onTrackSelect(track) }
@@ -289,26 +255,26 @@ fun SearchScreen(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // 3. Listen to Surroundings Action (Ambient Shazam Recognition)
-                    Box(
+                    // 3. Listen to Surroundings Action
+                    Surface(
                         modifier = Modifier
-                            .scale(pulseScale)
-                            .clip(RoundedCornerShape(32.dp))
-                            .background(SurfaceGlassHighest)
-                            .border(width = 1.dp, color = UnboundPrimary.copy(alpha = 0.5f), shape = RoundedCornerShape(32.dp))
+                            .clip(RoundedCornerShape(24.dp))
                             .clickable {
                                 isListening = !isListening
                                 onListenToSurroundings()
-                            }
-                            .padding(horizontal = 24.dp, vertical = 12.dp)
+                            },
+                        shape = RoundedCornerShape(24.dp),
+                        color = Color(0xFF222222),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.5f))
                     ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(28.dp)
                                     .clip(CircleShape)
                                     .background(UnboundPrimary),
                                 contentAlignment = Alignment.Center
@@ -317,22 +283,22 @@ fun SearchScreen(
                                     imageVector = Icons.Default.GraphicEq,
                                     contentDescription = "Shazam",
                                     tint = OnPrimary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
 
                             Text(
                                 text = if (isListening) "Listening to Audio..." else "Listen to Surroundings",
                                 color = UnboundPrimary,
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // 4. Trending Vibe Tags
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -342,7 +308,7 @@ fun SearchScreen(
                             fontWeight = FontWeight.Bold,
                             color = OnSurfaceVariant,
                             letterSpacing = 0.1.sp,
-                            modifier = Modifier.padding(bottom = 10.dp)
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
 
                         FlowRow(
@@ -350,165 +316,57 @@ fun SearchScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            trendingVibes.forEach { tag ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(SurfaceGlassHighest)
-                                        .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(10.dp))
-                                        .clickable {
-                                            searchQuery = tag.removePrefix("#")
-                                            onVibeTagClick(tag)
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                            trendingVibes.forEach { vibe ->
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = Color(0xFF222222),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
+                                    modifier = Modifier.clickable { onVibeTagClick(vibe) }
                                 ) {
                                     Text(
-                                        text = tag,
+                                        text = vibe,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
                                         color = OnSurface,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Normal
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                                     )
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // 5. Featured Genre Cards
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        // Large Featured Tile: Neon Noir
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(SurfaceGlassHighest)
-                                .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                                .clickable { onGenreCardClick("Neon Noir") }
-                        ) {
-                            AsyncImage(
-                                model = IMG_NEON_NOIR,
-                                contentDescription = "Neon Noir",
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
+                    // 5. Featured Vibes
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "FEATURED VIBES",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurfaceVariant,
+                            letterSpacing = 0.1.sp,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        Brush.verticalGradient(
-                                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
-                                            startY = 60f
-                                        )
-                                    )
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(14.dp)
-                            ) {
-                                Text(
-                                    text = "Neon Noir",
-                                    fontSize = 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Curated for late night drives.",
-                                    fontSize = 13.sp,
-                                    color = OnSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Two Side-by-Side Tiles: Velvet R&B and Minimal Techno
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Tile 1: Velvet R&B
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(SurfaceGlassHighest)
-                                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                                    .clickable { onGenreCardClick("Velvet R&B") }
-                            ) {
-                                AsyncImage(
-                                    model = IMG_VELVET_RNB,
-                                    contentDescription = "Velvet R&B",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
+                            FeaturedVibeCard(
+                                title = "Neon Noir",
+                                description = "Moody synths & late night driving.",
+                                imageUrl = IMG_NEON_NOIR,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onGenreCardClick("Neon Noir") }
+                            )
 
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
-                                                startY = 60f
-                                            )
-                                        )
-                                    )
-
-                                Text(
-                                    text = "Velvet R&B",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .padding(10.dp)
-                                )
-                            }
-
-                            // Tile 2: Minimal Techno
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(SurfaceGlassHighest)
-                                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                                    .clickable { onGenreCardClick("Minimal Techno") }
-                            ) {
-                                AsyncImage(
-                                    model = IMG_MINIMAL_TECHNO,
-                                    contentDescription = "Minimal Techno",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            Brush.verticalGradient(
-                                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
-                                                startY = 60f
-                                            )
-                                        )
-                                    )
-
-                                Text(
-                                    text = "Minimal Techno",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White,
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .padding(10.dp)
-                                )
-                            }
+                            FeaturedVibeCard(
+                                title = "Velvet R&B",
+                                description = "Silky vocals and heavy 808s.",
+                                imageUrl = IMG_VELVET_RNB,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onGenreCardClick("Velvet R&B") }
+                            )
                         }
                     }
                 }
@@ -517,89 +375,136 @@ fun SearchScreen(
     }
 }
 
-/**
- * Individual track card in search results.
- */
 @Composable
 private fun SearchResultItem(
     track: TrackItem,
     onClick: () -> Unit
 ) {
-    Row(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceGlassHighest)
-            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF1E1E1E),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
     ) {
-        // Thumbnail
-        Box(
+        Row(
             modifier = Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(UnboundSurfaceContainerHigh),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (track.coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF2A2A2A)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (track.coverUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = track.coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = UnboundPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = OnSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = OnSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
+                Text(
+                    text = track.artist,
+                    fontSize = 12.sp,
+                    color = OnSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-        }
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        // Title and Artist
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = track.title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OnSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = track.artist,
-                fontSize = 13.sp,
-                color = OnSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        // Play Button
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(UnboundPrimary.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
             Icon(
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = "Play",
                 tint = UnboundPrimary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(22.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun FeaturedVibeCard(
+    title: String,
+    description: String,
+    imageUrl: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit = {}
+) {
+    Surface(
+        modifier = modifier
+            .aspectRatio(1.2f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF1E1E1E),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333333))
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.85f)
+                            ),
+                            startY = 60f
+                        )
+                    )
+            )
+
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Text(
+                    text = description,
+                    fontSize = 11.sp,
+                    color = Color.White.copy(alpha = 0.75f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

@@ -1,3 +1,10 @@
+/*
+ * Package: com.cubicreates.unboundmusic.ui.components
+ * File: BottomNavBar.kt
+ * Purpose: High-contrast, zero-lag navigation bar designed for all Android screen dimensions and aspect ratios (including Oppo A3x 5G).
+ * Subsystem: Navigation UI
+ */
+
 package com.cubicreates.unboundmusic.ui.components
 
 import androidx.compose.foundation.background
@@ -21,19 +28,19 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cubicreates.unboundmusic.ui.theme.BorderGlass
-import com.cubicreates.unboundmusic.ui.theme.BottomNavGlass
-import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
 enum class NavigationTab(val label: String, val icon: ImageVector) {
@@ -49,56 +56,51 @@ fun UnboundBottomNavBar(
     currentTab: NavigationTab = NavigationTab.HOME,
     onTabSelected: (NavigationTab) -> Unit = {}
 ) {
-    Box(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-            .background(BottomNavGlass)
-            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
             .navigationBarsPadding()
-            .padding(vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFF1E1E1E),
+        shadowElevation = 16.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333333))
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp, horizontal = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavigationTab.values().forEach { tab ->
                 val isSelected = tab == currentTab
-                val contentColor = if (isSelected) UnboundPrimary else OnSurfaceVariant.copy(alpha = 0.6f)
+                val contentColor = if (isSelected) UnboundPrimary else Color(0xFFB0B0B0)
 
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (isSelected) UnboundPrimary.copy(alpha = 0.12f) else Color.Transparent)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = { onTabSelected(tab) }
                         )
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
-                    if (isSelected) {
-                        Box(
-                            modifier = Modifier
-                                .size(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(UnboundPrimary)
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = tab.label,
                         tint = contentColor,
-                        modifier = Modifier.size(if (isSelected) 26.dp else 22.dp)
+                        modifier = Modifier.size(24.dp)
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = tab.label,
                         fontSize = 11.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         color = contentColor
                     )
                 }

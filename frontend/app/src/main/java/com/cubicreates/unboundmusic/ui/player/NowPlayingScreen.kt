@@ -106,72 +106,41 @@ fun NowPlayingScreen(
     var showQueueSheet by remember { mutableStateOf(false) }
     var showFullLyrics by remember { mutableStateOf(false) }
 
-    // Kinetic syllable pulse animation
-    val infiniteTransition = rememberInfiniteTransition(label = "syllable_pulse")
-    val pulseAlpha1 by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse1"
-    )
-    val pulseAlpha2 by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, delayMillis = 400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse2"
-    )
-    val pulseAlpha3 by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, delayMillis = 800, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse3"
-    )
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(UnboundBackground)
     ) {
-        // 1. Immersive Ambient Background Layer with Morphing Blur
+        // 1. High-Performance Ambient Background Layer (Zero GPU Lag)
         Box(
-            modifier = Modifier
-                .fillMaxSize()
+            modifier = Modifier.fillMaxSize()
         ) {
             AsyncImage(
                 model = canvasArtUrl ?: track.coverUrl.ifEmpty { DEFAULT_AMBIENT_BG },
                 contentDescription = "Ambient Background",
                 modifier = Modifier
                     .fillMaxSize()
-                    .scale(1.2f)
-                    .blur(60.dp),
+                    .scale(1.1f),
                 contentScale = ContentScale.Crop,
-                alpha = 0.35f
+                alpha = 0.22f
             )
 
-            // Dark vignette gradient overlay for high contrast
+            // Dark vignette gradient overlay for clean contrast and zero GPU overhead
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                UnboundBackground.copy(alpha = 0.4f),
-                                UnboundBackground.copy(alpha = 0.75f),
-                                UnboundBackground.copy(alpha = 0.98f)
+                                Color(0xFF131313).copy(alpha = 0.65f),
+                                Color(0xFF131313).copy(alpha = 0.88f),
+                                Color(0xFF131313)
                             )
                         )
                     )
             )
         }
+
 
         // 2. Main Scrollable Canvas Area
         Column(
@@ -353,30 +322,13 @@ fun NowPlayingScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Fading ",
-                            fontSize = 20.sp,
+                            text = "Fading into the music...",
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = UnboundPrimary.copy(alpha = pulseAlpha1)
-                        )
-                        Text(
-                            text = "into ",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = UnboundPrimary.copy(alpha = pulseAlpha2)
-                        )
-                        Text(
-                            text = "the ",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = UnboundPrimary.copy(alpha = pulseAlpha3)
-                        )
-                        Text(
-                            text = "music...",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = OnSurfaceVariant.copy(alpha = 0.35f)
+                            color = UnboundPrimary.copy(alpha = 0.7f)
                         )
                     }
+
                 }
             }
 

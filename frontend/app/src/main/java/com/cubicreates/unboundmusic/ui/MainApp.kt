@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -117,95 +119,110 @@ fun MainApp(
                 onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) }
             )
         } else {
-            // Standard Tab Navigation Content
-            Crossfade(
-                targetState = selectedTab,
-                animationSpec = tween(250),
-                label = "screen_crossfade"
-            ) { tab ->
-                when (tab) {
-                    NavigationTab.HOME -> {
-                        HomeScreen(
-                            tracks = chartTracks,
-                            onTrackSelect = { track ->
-                                viewModel.playTrack(track)
-                                isPlayerExpanded = true
-                            },
-                            onProfileClick = { showSettings = true },
-                            onMenuClick = {
-                                viewModel.loadRecap()
-                                showRecap = true
+            // Standard Tab Navigation Content inside Responsive Scaffold
+            androidx.compose.material3.Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = UnboundBackground,
+                bottomBar = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(UnboundBackground)
+                    ) {
+                        if (currentTrack.title.isNotBlank() && (playbackState.isPlaying || playbackState.currentPositionMs > 0)) {
+                            FloatingMiniPlayer(
+                                title = currentTrack.title,
+                                artist = currentTrack.artist,
+                                coverUrl = currentTrack.coverUrl,
+                                isPlaying = playbackState.isPlaying,
+                                isFavorite = isFavorite,
+                                onPlayPauseToggle = { viewModel.togglePlayPause() },
+                                onFavoriteToggle = { viewModel.toggleFavorite() },
+                                onPlayerClick = { isPlayerExpanded = true }
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        UnboundBottomNavBar(
+                            currentTab = selectedTab,
+                            onTabSelected = { tab ->
+                                if (tab == NavigationTab.PLAYING) {
+                                    isPlayerExpanded = true
+                                } else {
+                                    selectedTab = tab
+                                }
                             }
                         )
                     }
-                    NavigationTab.SEARCH -> {
-                        SearchScreen(
-                            searchResults = searchResults,
-                            isSearching = isSearching,
-                            onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
-                            onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
-                            onVibeTagClick = { tag -> viewModel.executeVibeSearch(tag.removePrefix("#")) },
-                            onGenreCardClick = { genre -> viewModel.executeVibeSearch(genre) },
-                            onTrackSelect = { track ->
-                                viewModel.playTrack(track)
-                                isPlayerExpanded = true
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    Crossfade(
+                        targetState = selectedTab,
+                        animationSpec = tween(200),
+                        label = "screen_crossfade"
+                    ) { tab ->
+                        when (tab) {
+                            NavigationTab.HOME -> {
+                                HomeScreen(
+                                    tracks = chartTracks,
+                                    onTrackSelect = { track ->
+                                        viewModel.playTrack(track)
+                                        isPlayerExpanded = true
+                                    },
+                                    onProfileClick = { showSettings = true },
+                                    onMenuClick = {
+                                        viewModel.loadRecap()
+                                        showRecap = true
+                                    }
+                                )
                             }
-                        )
-                    }
-                    NavigationTab.LIBRARY -> {
-                        LibraryScreen(
-                            savedGB = savedGB,
-                            downloadsCount = downloadsCount,
-                            whatsappCount = whatsappCount,
-                            telegramCount = telegramCount,
-                            youtubeCount = youtubeCount,
-                            tracks = libraryTracks,
-                            onSourceClick = { viewModel.refreshLibrary() },
-                            onTrackSelect = { track ->
-                                viewModel.playTrack(track)
-                                isPlayerExpanded = true
-                            },
-                            onRefresh = { viewModel.refreshLibrary() },
-                            onProfileClick = { showSettings = true }
-                        )
-                    }
-                    NavigationTab.PLAYING -> {
-                        // Handled by isPlayerExpanded above
+                            NavigationTab.SEARCH -> {
+                                SearchScreen(
+                                    searchResults = searchResults,
+                                    isSearching = isSearching,
+                                    onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
+                                    onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
+                                    onVibeTagClick = { tag -> viewModel.executeVibeSearch(tag.removePrefix("#")) },
+                                    onGenreCardClick = { genre -> viewModel.executeVibeSearch(genre) },
+                                    onTrackSelect = { track ->
+                                        viewModel.playTrack(track)
+                                        isPlayerExpanded = true
+                                    }
+                                )
+                            }
+                            NavigationTab.LIBRARY -> {
+                                LibraryScreen(
+                                    savedGB = savedGB,
+                                    downloadsCount = downloadsCount,
+                                    whatsappCount = whatsappCount,
+                                    telegramCount = telegramCount,
+                                    youtubeCount = youtubeCount,
+                                    tracks = libraryTracks,
+                                    onSourceClick = { viewModel.refreshLibrary() },
+                                    onTrackSelect = { track ->
+                                        viewModel.playTrack(track)
+                                        isPlayerExpanded = true
+                                    },
+                                    onRefresh = { viewModel.refreshLibrary() },
+                                    onProfileClick = { showSettings = true }
+                                )
+                            }
+                            NavigationTab.PLAYING -> {
+                                // Handled by isPlayerExpanded above
+                            }
+                        }
                     }
                 }
             }
-
-            // Global Floating Mini-Player & Bottom Navigation Bar
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-            ) {
-                FloatingMiniPlayer(
-                    title = currentTrack.title,
-                    artist = currentTrack.artist,
-                    coverUrl = currentTrack.coverUrl,
-                    isPlaying = playbackState.isPlaying,
-                    isFavorite = isFavorite,
-                    onPlayPauseToggle = { viewModel.togglePlayPause() },
-                    onFavoriteToggle = { viewModel.toggleFavorite() },
-                    onPlayerClick = { isPlayerExpanded = true }
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                UnboundBottomNavBar(
-                    currentTab = selectedTab,
-                    onTabSelected = { tab ->
-                        if (tab == NavigationTab.PLAYING) {
-                            isPlayerExpanded = true
-                        } else {
-                            selectedTab = tab
-                        }
-                    }
-                )
-            }
         }
+
+
 
         // Modal 1: Settings Screen
         if (showSettings) {

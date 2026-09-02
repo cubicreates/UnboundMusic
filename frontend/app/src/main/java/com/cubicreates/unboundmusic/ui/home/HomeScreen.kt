@@ -49,7 +49,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(top = 72.dp, bottom = 140.dp)
+                .padding(top = 72.dp, bottom = 24.dp)
         ) {
             // Moods & Moments Horizontal Carousel
             MoodsSection(

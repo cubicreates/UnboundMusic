@@ -125,7 +125,7 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(top = 80.dp, bottom = 140.dp),
+                .padding(top = 80.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // 1. Header Section

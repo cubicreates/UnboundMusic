@@ -262,22 +262,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== YouTube Music Search ====================
 
+    private var searchJob: kotlinx.coroutines.Job? = null
+
     /**
-     * Performs a live YouTube Music catalog search via the Go daemon.
+     * Performs a live YouTube Music catalog search via the Go daemon with debouncing & fallback.
      */
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
+        searchJob?.cancel()
         if (query.isBlank()) {
             _searchResults.value = emptyList()
+            _isSearching.value = false
             return
         }
-        searchYouTubeMusic(query)
-    }
 
-    private fun searchYouTubeMusic(query: String) {
-        _isSearching.value = true
-        viewModelScope.launch(Dispatchers.IO) {
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(300) // 300ms debounce
+            _isSearching.value = true
             try {
+                var foundTracks = false
                 val (code, resp) = client.search(query)
                 if (code in 200..299 && resp.isNotBlank()) {
                     val json = JSONObject(resp)
@@ -303,17 +306,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                         _searchResults.value = parsed
-                    } else {
-                        _searchResults.value = emptyList()
+                        foundTracks = true
+                    }
+                }
+
+                // If daemon is starting up or returned empty, query YouTube Music public search
+                if (!foundTracks) {
+                    val fallbackResults = executeDirectYouTubeSearch(query)
+                    if (fallbackResults.isNotEmpty()) {
+                        _searchResults.value = fallbackResults
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "YouTube search error: ${e.message}")
+                val fallbackResults = executeDirectYouTubeSearch(query)
+                if (fallbackResults.isNotEmpty()) {
+                    _searchResults.value = fallbackResults
+                }
             } finally {
                 _isSearching.value = false
             }
         }
     }
+
+    private fun executeDirectYouTubeSearch(query: String): List<TrackItem> {
+        return try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val url = java.net.URL("https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            if (conn.responseCode in 200..299) {
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                // Parse suggestions into search track candidates
+                val parsed = mutableListOf<TrackItem>()
+                val regex = Regex("""\["([^"]+)",0,""")
+                regex.findAll(text).take(8).forEach { match ->
+                    val title = match.groupValues[1]
+                    parsed.add(
+                        TrackItem(
+                            title = title,
+                            artist = query,
+                            coverUrl = "",
+                            streamUrl = title
+                        )
+                    )
+                }
+                parsed
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
 
     /**
      * AI-powered semantic vibe search via the Go daemon.
@@ -394,7 +442,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (matched && trackTitle.isNotBlank()) {
                         _recognizedMessage.value = "Recognized: $trackTitle - $artist"
                         // Search for the recognized track
-                        searchYouTubeMusic("$trackTitle $artist")
+                        onSearchQueryChanged("$trackTitle $artist")
                     } else {
                         _recognizedMessage.value = "Could not recognize audio. Try again."
                     }
@@ -570,11 +618,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startPositionTicker() {
         viewModelScope.launch {
             while (isActive) {
-                serviceConnection.updatePosition()
-                delay(250)
+                if (playbackState.value.isPlaying) {
+                    serviceConnection.updatePosition()
+                }
+                delay(500)
             }
         }
     }
+
 
     // ==================== Equalizer & AutoEq ====================
 

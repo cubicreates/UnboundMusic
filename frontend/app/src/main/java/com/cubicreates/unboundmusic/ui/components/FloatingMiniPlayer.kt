@@ -1,3 +1,10 @@
+/*
+ * Package: com.cubicreates.unboundmusic.ui.components
+ * File: FloatingMiniPlayer.kt
+ * Purpose: Sleek, high-performance floating mini player for Unbound Music.
+ * Subsystem: Player UI
+ */
+
 package com.cubicreates.unboundmusic.ui.components
 
 import androidx.compose.foundation.background
@@ -17,16 +24,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -34,39 +42,36 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
-import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
-
-private const val DEFAULT_MINI_COVER = "https://lh3.googleusercontent.com/aida-public/AB6AXuDxptiPrbxiFF1ejcwv1bMxAxWGqdHo_tv1apa2CWBmrg9fbeGklO1YfiCol1v84WTgNqo5Ct9cCnxBKLb_VRP4CW3PSQMGBBhWsaFTR3DHZykgA1kS2k88u2wtzfMsL7I67qnw5s4bfzQkyntZw0iLIJJ3RnhZwHsFgRAVTEsQFqUvpFQYp8AhEkJOchLPC76P0Qxepqec1aT01w9G_oJDGaM0QRHnD0d3cUBxQ_vcOy_bf-g7Xin1eg"
 
 @Composable
 fun FloatingMiniPlayer(
     modifier: Modifier = Modifier,
     title: String = "Neon Ascend",
     artist: String = "Luna Ray",
-    coverUrl: String = DEFAULT_MINI_COVER,
+    coverUrl: String = "",
     isPlaying: Boolean = false,
     isFavorite: Boolean = true,
     onPlayerClick: () -> Unit = {},
     onFavoriteToggle: () -> Unit = {},
     onPlayPauseToggle: () -> Unit = {}
 ) {
-    Box(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .shadow(elevation = 20.dp, shape = RoundedCornerShape(20.dp), spotColor = Color.Black)
-            .clip(RoundedCornerShape(20.dp))
-            .background(SurfaceGlassHighest)
-            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(20.dp))
-            .clickable(onClick = onPlayerClick)
-            .padding(8.dp)
+            .padding(horizontal = 12.dp)
+            .clickable(onClick = onPlayerClick),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF222222),
+        shadowElevation = 12.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838))
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -77,16 +82,26 @@ fun FloatingMiniPlayer(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(44.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(10.dp))
+                        .background(Color(0xFF2E2E2E)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = coverUrl,
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
+                    if (coverUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = coverUrl,
+                            contentDescription = title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -97,7 +112,7 @@ fun FloatingMiniPlayer(
                 ) {
                     Text(
                         text = title,
-                        fontSize = 16.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = OnSurface,
                         maxLines = 1,
@@ -106,7 +121,7 @@ fun FloatingMiniPlayer(
                     Text(
                         text = artist,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Medium,
                         color = OnSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -117,27 +132,29 @@ fun FloatingMiniPlayer(
             // Right: Favorite & Play Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 IconButton(
                     onClick = onFavoriteToggle,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = "Favorite",
-                        tint = if (isFavorite) UnboundPrimary else OnSurfaceVariant
+                        tint = if (isFavorite) UnboundPrimary else Color(0xFF888888),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onPlayPauseToggle,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = OnSurface
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }

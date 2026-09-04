@@ -33,3 +33,10 @@ testfrontend/
 .gitignore
 inspiration/
 **/inspiration
+.ai_models_raw/
+**/.ai_models_raw/
+*.gguf
+*.onnx
+*.zst
+backend/assets/payload/
+frontend/app/src/main/assets/payload/

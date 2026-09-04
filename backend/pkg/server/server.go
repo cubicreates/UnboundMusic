@@ -417,7 +417,7 @@ func (s *Server) handleAIQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.aiRunner.ParseVibeQuery(req.Prompt)
+	res, err := s.aiRunner.ParseVibeQuery(r.Context(), req.Prompt)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

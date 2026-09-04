@@ -140,7 +140,7 @@ func main() {
 		fmt.Printf("  Extracted Files: %d\n", manifest.TotalFiles)
 		fmt.Printf("  Unpacked Size:   %.2f MB\n", float64(manifest.TotalBytes)/(1024*1024))
 		fmt.Printf("  SmolLM Model:    %s\n", manifest.SmolLMModelPath)
-		fmt.Printf("  MMS Align Model: %s\n", manifest.MMSAlignModelPath)
+		fmt.Printf("  MiniLM Model:    %s\n", manifest.MiniLMModelPath)
 		return
 	}
 
@@ -438,7 +438,7 @@ func main() {
 		fmt.Printf("\n[UNBOUND ENGINE] Evaluating Semantic Vibe Query: %q\n", *aiQuery)
 		runner := ai.NewRunner("")
 		start := time.Now()
-		res, err := runner.ParseVibeQuery(*aiQuery)
+		res, err := runner.ParseVibeQuery(context.Background(), *aiQuery)
 		elapsed := time.Since(start)
 
 		if err != nil {

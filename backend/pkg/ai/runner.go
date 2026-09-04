@@ -1,7 +1,7 @@
 /*
  * Package: ai
  * File: runner.go
- * Purpose: Local edge AI runner executing natural language vibe queries and semantic song mood classification.
+ * Purpose: Single-shot on-demand AI runner executing natural language vibe queries via llama-cli with heuristic fallback.
  * Subsystem: Edge AI Engine
  * Concurrency: Thread-safe pure inference methods safe for concurrent execution across worker goroutines.
  */
@@ -9,20 +9,20 @@
 package ai
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
-	"sync"
+	"time"
+
+	"github.com/cubicreates/unbound-engine/pkg/models"
 )
 
-// VibeQueryResult represents structured search filters extracted from natural language.
-type VibeQueryResult struct {
-	OriginalPrompt string   `json:"original_prompt"`
-	TargetGenres   []string `json:"target_genres"`
-	MoodTags       []string `json:"mood_tags"`
-	EnergyLevel    string   `json:"energy_level"` // "HIGH", "MEDIUM", "CHILL", "INTENSE"
-	SuggestedBPM   int      `json:"suggested_bpm"`
-	SearchKeywords []string `json:"search_keywords"`
-}
+// VibeQueryResult is an alias for models.VibeQueryResult for backward compatibility.
+type VibeQueryResult = models.VibeQueryResult
 
 // TrackMoodResult encapsulates mood analysis for a specific track.
 type TrackMoodResult struct {
@@ -30,91 +30,136 @@ type TrackMoodResult struct {
 	Artist          string   `json:"artist"`
 	PrimaryMood     string   `json:"primary_mood"`
 	SecondaryMoods  []string `json:"secondary_moods"`
-	EnergyScore     float32  `json:"energy_score"` // 0.0 to 1.0
+	EnergyScore     float32  `json:"energy_score"`  // 0.0 to 1.0
 	ValenceScore    float32  `json:"valence_score"` // 0.0 (sad/dark) to 1.0 (happy/bright)
 	SuggestedGenres []string `json:"suggested_genres"`
 }
 
 // Runner coordinates local edge language model inference.
 type Runner struct {
-	mu        sync.RWMutex
-	modelPath string
-	isLoaded  bool
+	llamaCliPath string
+	modelPath    string
+	timeout      time.Duration
 }
 
 // NewRunner instantiates a new on-device AI runner.
-func NewRunner(modelPath string) *Runner {
+// Supports NewRunner(llamaCliPath, modelPath string) or legacy single-path NewRunner(modelPath string).
+func NewRunner(paths ...string) *Runner {
+	var cliPath, modelPath string
+	if len(paths) == 1 {
+		modelPath = paths[0]
+	} else if len(paths) >= 2 {
+		cliPath = paths[0]
+		modelPath = paths[1]
+	}
+
 	return &Runner{
-		modelPath: modelPath,
-		isLoaded:  modelPath != "",
+		llamaCliPath: cliPath,
+		modelPath:    modelPath,
+		timeout:      3500 * time.Millisecond,
 	}
 }
 
+// SetTimeout configures the execution timeout for single-shot inference.
+func (r *Runner) SetTimeout(d time.Duration) {
+	r.timeout = d
+}
+
+// buildPrompt constructs the JSON-constrained system prompt for llama-cli.
+func buildPrompt(prompt string) string {
+	return fmt.Sprintf(`You are a music vibe parser. Output ONLY valid raw JSON with NO markdown formatting, NO backticks, and NO conversational text.
+Follow this schema:
+{"target_genres": ["..."], "mood_tags": ["..."], "energy_level": "CHILL|MEDIUM|HIGH|INTENSE", "suggested_bpm": 120, "search_keywords": ["..."]}
+User query: %s`, prompt)
+}
+
+// extractJSON sanitizes raw CLI output by extracting the outermost JSON object and removing markdown fences.
+func extractJSON(raw string) string {
+	cleaned := strings.TrimSpace(raw)
+	// Strip markdown code block if present
+	if idx := strings.Index(cleaned, "```json"); idx != -1 {
+		cleaned = cleaned[idx+7:]
+	} else if idx := strings.Index(cleaned, "```"); idx != -1 {
+		cleaned = cleaned[idx+3:]
+	}
+	if endIdx := strings.LastIndex(cleaned, "```"); endIdx != -1 {
+		cleaned = cleaned[:endIdx]
+	}
+
+	// Find the first '{' and last '}'
+	start := strings.Index(cleaned, "{")
+	end := strings.LastIndex(cleaned, "}")
+	if start != -1 && end != -1 && end > start {
+		return cleaned[start : end+1]
+	}
+
+	return strings.TrimSpace(cleaned)
+}
+
+// fileExists checks if a target file exists on disk and is not a directory.
+func fileExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
 // ParseVibeQuery translates a natural language vibe query into structured catalog filters.
-func (r *Runner) ParseVibeQuery(prompt string) (*VibeQueryResult, error) {
+// It executes the bundled static llama-cli binary in single-shot mode, falling back to deterministic
+// heuristic parsing if the binary/model is missing, times out, or produces unparseable output.
+func (r *Runner) ParseVibeQuery(ctx context.Context, prompt string) (*models.VibeQueryResult, error) {
 	trimmed := strings.TrimSpace(prompt)
 	if trimmed == "" {
 		return nil, fmt.Errorf("prompt cannot be empty")
 	}
 
-	lower := strings.ToLower(trimmed)
-	res := &VibeQueryResult{
-		OriginalPrompt: trimmed,
-		EnergyLevel:    "MEDIUM",
-		SuggestedBPM:   115,
+	// Check if binary and model exist on disk; if missing, fallback gracefully
+	if !fileExists(r.llamaCliPath) || !fileExists(r.modelPath) {
+		return r.parseVibeQueryHeuristic(trimmed)
 	}
 
-	// 1. Identify Musical Genres
-	genreKeywords := map[string][]string{
-		"Hip-Hop / Rap": {"rap", "hip hop", "hip-hop", "boom bap", "trap", "bars", "freestyle", "drill"},
-		"R&B / Soul":     {"r&b", "rnb", "soul", "neo-soul", "slow jams", "smooth"},
-		"Rock / Metal":   {"rock", "metal", "punk", "guitar", "grunge", "hard rock", "indie rock"},
-		"Pop":            {"pop", "dance pop", "catchy", "radio", "hit"},
-		"Electronic":     {"edm", "house", "techno", "electronic", "synthwave", "dance", "club"},
-		"Lo-Fi / Chill":  {"lofi", "lo-fi", "chill", "study", "relax", "rainy", "sleep", "ambient"},
-		"Classical":      {"classical", "piano", "orchestra", "strings", "symphony"},
+	timeout := r.timeout
+	if timeout <= 0 {
+		timeout = 3500 * time.Millisecond
 	}
 
-	for genre, keywords := range genreKeywords {
-		for _, kw := range keywords {
-			if strings.Contains(lower, kw) {
-				res.TargetGenres = append(res.TargetGenres, genre)
-				break
-			}
-		}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(execCtx, r.llamaCliPath,
+		"-m", r.modelPath,
+		"-p", buildPrompt(trimmed),
+		"-n", "64",
+		"--temp", "0.2",
+		"-t", "4",
+		"--no-display-prompt",
+		"--log-disable",
+	)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		// On timeout or execution error, fallback to deterministic heuristic
+		return r.parseVibeQueryHeuristic(trimmed)
 	}
 
-	// 2. Identify Mood & Vibe Tags
-	moodKeywords := map[string][]string{
-		"Aggressive":  {"aggressive", "hard", "angry", "rage", "intense", "gym", "hype", "heavy"},
-		"Melancholic": {"sad", "depressed", "melancholy", "heartbreak", "crying", "dark", "gloomy"},
-		"Euphoric":    {"happy", "uplifting", "party", "celebrate", "summer", "joy", "bright"},
-		"Chill":       {"chill", "relaxed", "calm", "mellow", "vibe", "peaceful", "laid back"},
-		"Romantic":    {"romantic", "love", "sensual", "date night", "affection"},
+	rawOutput := stdout.String()
+	jsonStr := extractJSON(rawOutput)
+
+	var result models.VibeQueryResult
+	if err := json.Unmarshal([]byte(jsonStr), &result); err != nil {
+		return r.parseVibeQueryHeuristic(trimmed)
 	}
 
-	for mood, keywords := range moodKeywords {
-		for _, kw := range keywords {
-			if strings.Contains(lower, kw) {
-				res.MoodTags = append(res.MoodTags, mood)
-				break
-			}
-		}
-	}
-
-	// 3. Estimate Energy & BPM
-	if strings.Contains(lower, "gym") || strings.Contains(lower, "hype") || strings.Contains(lower, "fast") || strings.Contains(lower, "rage") {
-		res.EnergyLevel = "INTENSE"
-		res.SuggestedBPM = 145
-	} else if strings.Contains(lower, "chill") || strings.Contains(lower, "sleep") || strings.Contains(lower, "slow") || strings.Contains(lower, "study") {
-		res.EnergyLevel = "CHILL"
-		res.SuggestedBPM = 85
-	}
-
-	// 4. Clean keywords for YouTube / catalog queries
-	res.SearchKeywords = strings.Fields(trimmed)
-
-	return res, nil
+	result.OriginalPrompt = trimmed
+	return &result, nil
 }
 
 // AnalyzeTrackMood calculates emotional valence and energy attributes for a track.

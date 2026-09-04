@@ -168,3 +168,85 @@ type LyricsService interface {
 	// GetLyrics fetches synchronized lyrics, attempting local cache before web scrapers.
 	GetLyrics(trackID string, title string, artist string, durationMs int64) (*LyricsPayload, error)
 }
+
+// TrackItem represents a normalized audio track entity used for public explore charts and radio playback.
+type TrackItem struct {
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Artist     string   `json:"artist"`
+	Artists    []string `json:"artists"`
+	Album      string   `json:"album"`
+	DurationMs int64    `json:"duration_ms"`
+	Thumbnail  string   `json:"thumbnail"`
+	Source     string   `json:"source"` // "youtube", "local", "whatsapp", "telegram"
+	FilePath   string   `json:"file_path,omitempty"`
+	IsExplicit bool     `json:"is_explicit"`
+}
+
+// LocalTrack represents an audio file discovered on local physical storage by the POSIX crawler.
+type LocalTrack struct {
+	ID           string `json:"id"`
+	FilePath     string `json:"file_path"`
+	Title        string `json:"title"`
+	Artist       string `json:"artist"`
+	Album        string `json:"album"`
+	DurationMs   int64  `json:"duration_ms"`
+	Format       string `json:"format"`        // "mp3", "flac", "m4a", "opus", "wav"
+	FileSize     int64  `json:"file_size"`
+	SourceFolder string `json:"source_folder"` // "downloads", "whatsapp", "telegram", "music"
+	DateIndexed  int64  `json:"date_indexed"`  // Unix timestamp in seconds
+	MTime        int64  `json:"mtime"`         // Unix timestamp in seconds of file modification
+}
+
+// FingerprintRecord maps an acoustic waveform hash to MusicBrainz metadata.
+type FingerprintRecord struct {
+	Hash       string `json:"hash"` // Primary Key (Chromaprint base64 or SHA-256 fallback)
+	FilePath   string `json:"file_path"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist"`
+	Album      string `json:"album"`
+	DurationMs int64  `json:"duration_ms"`
+	Source     string `json:"source"`
+	UpdatedAt  int64  `json:"updated_at"`
+}
+
+// PlaybackEvent logs listening actions locally for private on-device taste profiling.
+type PlaybackEvent struct {
+	EventID        string  `json:"event_id"`
+	TrackID        string  `json:"track_id"`
+	Title          string  `json:"title"`
+	Artist         string  `json:"artist"`
+	Album          string  `json:"album"`
+	Genre          string  `json:"genre"`
+	DurationSec    int     `json:"duration_sec"`
+	ListenedSec    int     `json:"listened_sec"`
+	CompletedRatio float64 `json:"completed_ratio"`
+	Timestamp      int64   `json:"timestamp"`
+}
+
+// VibeQueryResult encapsulates structured search parameters parsed from natural language prompts.
+type VibeQueryResult struct {
+	OriginalPrompt string   `json:"original_prompt"`
+	TargetGenres   []string `json:"target_genres"`
+	MoodTags       []string `json:"mood_tags"`
+	EnergyLevel    string   `json:"energy_level"` // "HIGH", "MEDIUM", "CHILL", "INTENSE"
+	SuggestedBPM   int      `json:"suggested_bpm"`
+	SearchKeywords []string `json:"search_keywords"`
+}
+
+// MoodCapsule represents a situational time-aware recommendation category card.
+type MoodCapsule struct {
+	Tag         string `json:"tag"`
+	Title       string `json:"title"`
+	BrowseID    string `json:"browse_id"`
+	Description string `json:"description"`
+	ColorHex    string `json:"color_hex"`
+	IconName    string `json:"icon_name"`
+}
+
+// DaypartingState holds active time window and associated mood capsules.
+type DaypartingState struct {
+	ActiveWindow string        `json:"active_window"`
+	LocalHour    int           `json:"local_hour"`
+	Capsules     []MoodCapsule `json:"capsules"`
+}

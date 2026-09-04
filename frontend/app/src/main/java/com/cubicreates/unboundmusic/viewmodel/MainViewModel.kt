@@ -153,6 +153,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _chartTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val chartTracks: StateFlow<List<TrackItem>> = _chartTracks.asStateFlow()
 
+    // ==================== Startup & Telemetry State ====================
+
+    private val _startupPhase = MutableStateFlow("SYSTEM_INIT")
+    val startupPhase: StateFlow<String> = _startupPhase.asStateFlow()
+
+    private val _startupProgress = MutableStateFlow(0.1f)
+    val startupProgress: StateFlow<Float> = _startupProgress.asStateFlow()
+
+    private val _isAppReady = MutableStateFlow(false)
+    val isAppReady: StateFlow<Boolean> = _isAppReady.asStateFlow()
+
     init {
         // Connect to Media3 playback service
         serviceConnection.connect()
@@ -171,12 +182,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Load home feed data
-        loadHomeFeed()
-
-        // Index local library
-        refreshLibrary()
+        // Orchestrate startup hydration with splash screen telemetry
+        startStartupHydration()
     }
+
+    private fun startStartupHydration() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _startupPhase.value = "SYSTEM_INIT"
+            _startupProgress.value = 0.25f
+            delay(350)
+
+            _startupPhase.value = "DAEMON_CONNECT"
+            _startupProgress.value = 0.60f
+
+            // Handshake with daemon
+            for (i in 1..6) {
+                try {
+                    val (code, _) = client.healthCheck()
+                    if (code in 200..299) break
+                } catch (e: Exception) {
+                    // Daemon booting
+                }
+                delay(120)
+            }
+
+            _startupPhase.value = "CACHE_HYDRATE"
+            _startupProgress.value = 0.88f
+            loadHomeFeed()
+            refreshLibrary()
+            delay(300)
+
+            _startupPhase.value = "READY"
+            _startupProgress.value = 1.0f
+            delay(250)
+            _isAppReady.value = true
+        }
+    }
+
+    fun completeStartup() {
+        _isAppReady.value = true
+    }
+
 
     // ==================== Playback Commands ====================
 

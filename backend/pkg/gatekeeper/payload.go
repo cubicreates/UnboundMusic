@@ -11,6 +11,7 @@ package gatekeeper
 import (
 	"archive/tar"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,15 @@ import (
 
 var (
 	unpackMutex sync.Mutex
+	freeDiskSpaceFunc = getFreeDiskSpace
+
+	// ErrInsufficientStorageSpace is returned when the target disk has less than 250 MB free space.
+	ErrInsufficientStorageSpace = errors.New("insufficient storage space: at least 250 MB free required")
+)
+
+const (
+	// MinPayloadFreeSpaceBytes defines the minimum free storage required for AI extraction (250 MB).
+	MinPayloadFreeSpaceBytes = int64(250 * 1024 * 1024)
 )
 
 // PayloadManifest contains details of unpacked AI model files.
@@ -33,7 +43,8 @@ type PayloadManifest struct {
 	DecompressionMs   int64     `json:"decompression_ms"`
 	IsReady           bool      `json:"is_ready"`
 	SmolLMModelPath   string    `json:"smollm_model_path"`
-	MMSAlignModelPath string    `json:"mms_align_model_path"`
+	MiniLMModelPath   string    `json:"minilm_model_path"`
+	MMSAlignModelPath string    `json:"mms_align_model_path,omitempty"`
 	ExtractedAt       time.Time `json:"extracted_at"`
 }
 
@@ -43,6 +54,26 @@ func DecompressZstdTarStream(compressedData []byte, destDir string) (*PayloadMan
 	defer unpackMutex.Unlock()
 
 	start := time.Now()
+
+	// 1. Verify available storage capacity before extracting (> 250 MB required)
+	checkPath := destDir
+	for {
+		if _, err := os.Stat(checkPath); err == nil {
+			break
+		}
+		parent := filepath.Dir(checkPath)
+		if parent == checkPath || parent == "." {
+			checkPath = os.TempDir()
+			break
+		}
+		checkPath = parent
+	}
+
+	freeBytes, err := freeDiskSpaceFunc(checkPath)
+	if err == nil && freeBytes > 0 && freeBytes < MinPayloadFreeSpaceBytes {
+		return nil, ErrInsufficientStorageSpace
+	}
+
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create destination directory: %w", err)
 	}
@@ -56,7 +87,14 @@ func DecompressZstdTarStream(compressedData []byte, destDir string) (*PayloadMan
 	tarReader := tar.NewReader(decoder)
 	var totalFiles int
 	var totalBytes int64
-	var smolLMPath, mmsPath string
+	var smolLMPath, miniLMPath string
+	var createdFiles []string
+
+	cleanup := func() {
+		for _, f := range createdFiles {
+			_ = os.Remove(f)
+		}
+	}
 
 	for {
 		header, err := tarReader.Next()
@@ -64,6 +102,7 @@ func DecompressZstdTarStream(compressedData []byte, destDir string) (*PayloadMan
 			break
 		}
 		if err != nil {
+			cleanup()
 			return nil, fmt.Errorf("error reading tar archive stream: %w", err)
 		}
 
@@ -72,27 +111,36 @@ func DecompressZstdTarStream(compressedData []byte, destDir string) (*PayloadMan
 		switch header.Typeflag {
 		case tar.TypeDir:
 			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				cleanup()
 				return nil, fmt.Errorf("failed to create directory %s: %w", targetPath, err)
 			}
 		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				cleanup()
+				return nil, fmt.Errorf("failed to create parent dir for %s: %w", targetPath, err)
+			}
+
 			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, header.FileInfo().Mode())
 			if err != nil {
+				cleanup()
 				return nil, fmt.Errorf("failed to create output file %s: %w", targetPath, err)
 			}
 
 			written, err := io.Copy(outFile, tarReader)
 			outFile.Close()
 			if err != nil {
+				cleanup()
 				return nil, fmt.Errorf("failed writing unpacked file %s: %w", targetPath, err)
 			}
 
+			createdFiles = append(createdFiles, targetPath)
 			totalFiles++
 			totalBytes += written
 
 			if filepath.Ext(targetPath) == ".gguf" {
 				smolLMPath = targetPath
 			} else if filepath.Ext(targetPath) == ".onnx" {
-				mmsPath = targetPath
+				miniLMPath = targetPath
 			}
 		}
 	}
@@ -106,7 +154,8 @@ func DecompressZstdTarStream(compressedData []byte, destDir string) (*PayloadMan
 		DecompressionMs:   elapsed,
 		IsReady:           true,
 		SmolLMModelPath:   smolLMPath,
-		MMSAlignModelPath: mmsPath,
+		MiniLMModelPath:   miniLMPath,
+		MMSAlignModelPath: miniLMPath,
 		ExtractedAt:       time.Now(),
 	}, nil
 }

@@ -61,6 +61,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.data.VibeResult
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -70,12 +72,12 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 private val trendingVibes = listOf(
-    "#LateNightRain",
-    "#CyberpunkDrive",
-    "#CoffeeHouseAcoustic",
-    "#SundayMorningLoFi",
-    "#GymHype",
-    "#DeepFocusFlow"
+    "Rainy Midnight Coding",
+    "Heavy Deadlift Phonk",
+    "Sunny Morning Acoustic",
+    "Late Night Lo-Fi",
+    "Cyberpunk Drive",
+    "Deep Focus Flow"
 )
 
 private const val IMG_NEON_NOIR = "https://lh3.googleusercontent.com/aida-public/AB6AXuAYApkR1WLZQ1hOJB95_iBd2_6cuBHZ5VbNOvQ_hcNKz3gsZLAuAA6yPer-cv4wpCYpLlw68Hxd1W5C7vYY2UC06lB5ekBMo_nNZokBGdAYqpVtQupurMBSPsqk4e8h0mZN8oEPMAwaAgWr7ERuusrXszfIgYH5lETzYbT9eVnm0PQnIvgH7KIfCGgn6dcFzlWxtoheMs68tYehJtQm41jdKTmPMk5DLyHD6t14YXR9Zny59FV8fN8pRw"
@@ -88,7 +90,9 @@ fun SearchScreen(
     modifier: Modifier = Modifier,
     searchResults: List<TrackItem> = emptyList(),
     isSearching: Boolean = false,
+    vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
     onSearchQueryChanged: (String) -> Unit = {},
+    onVibeSubmit: (String) -> Unit = {},
     onListenToSurroundings: () -> Unit = {},
     onVibeTagClick: (String) -> Unit = {},
     onGenreCardClick: (String) -> Unit = {},
@@ -124,7 +128,7 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Search YouTube Music catalog, artists, or #vibes.",
+                text = "Offline Edge AI Vibe Search & YouTube Music catalog",
                 fontSize = 13.sp,
                 color = OnSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -132,7 +136,7 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 2. Search Bar
+            // 2. Vibe AI Search Bar
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -157,7 +161,7 @@ fun SearchScreen(
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Search tracks, artists, or #vibes...",
+                                text = "Describe a vibe, mood, or setting...",
                                 color = OnSurfaceVariant.copy(alpha = 0.5f),
                                 fontSize = 14.sp
                             )
@@ -178,13 +182,27 @@ fun SearchScreen(
                         )
                     }
 
-                    if (isSearching) {
+                    if (isSearching || vibeState is VibeSearchUiState.Loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             color = UnboundPrimary,
                             strokeWidth = 2.dp
                         )
                     } else if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                onVibeSubmit(searchQuery)
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Run Vibe AI",
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
                         IconButton(
                             onClick = {
                                 searchQuery = ""
@@ -205,10 +223,100 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Vibe AI Result Card (if active)
+            if (vibeState is VibeSearchUiState.Success) {
+                val vr = vibeState.vibeResult
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF1E1E1E),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "VIBE: \"${vr.originalPrompt}\"",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = UnboundPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            // BPM Badge
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = UnboundPrimary.copy(alpha = 0.15f)
+                            ) {
+                                Text(
+                                    text = "${vr.suggestedBpm} BPM",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = UnboundPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Energy level pill
+                            val energyColor = when (vr.energyLevel.uppercase()) {
+                                "INTENSE" -> Color(0xFFE57373)
+                                "HIGH" -> Color(0xFFFFB74D)
+                                "CHILL" -> Color(0xFF64B5F6)
+                                else -> Color(0xFF81C784)
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = energyColor.copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    text = "ENERGY: ${vr.energyLevel}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = energyColor,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            vr.targetGenres.take(2).forEach { g ->
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF2A2A2A)
+                                ) {
+                                    Text(
+                                        text = g,
+                                        fontSize = 10.sp,
+                                        color = OnSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Content Area: Search Results OR Discovery Feed
-            if (searchQuery.isNotBlank() || searchResults.isNotEmpty()) {
+            val displayTracks = when {
+                vibeState is VibeSearchUiState.Success -> vibeState.radioTracks
+                else -> searchResults
+            }
+
+            if (searchQuery.isNotBlank() || displayTracks.isNotEmpty()) {
                 Text(
-                    text = "SEARCH RESULTS",
+                    text = if (vibeState is VibeSearchUiState.Success) "VIBE RADIO TRACKS" else "SEARCH RESULTS",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = OnSurfaceVariant,
@@ -218,7 +326,7 @@ fun SearchScreen(
                         .padding(vertical = 6.dp)
                 )
 
-                if (searchResults.isEmpty() && !isSearching) {
+                if (displayTracks.isEmpty() && !isSearching && vibeState !is VibeSearchUiState.Loading) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -238,7 +346,7 @@ fun SearchScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(searchResults, key = { it.title + it.streamUrl + it.artist }) { track ->
+                        items(displayTracks, key = { it.title + it.streamUrl + it.artist }) { track ->
                             SearchResultItem(
                                 track = track,
                                 onClick = { onTrackSelect(track) }

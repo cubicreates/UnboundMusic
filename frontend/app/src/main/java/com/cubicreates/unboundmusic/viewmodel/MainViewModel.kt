@@ -17,9 +17,16 @@ import androidx.lifecycle.viewModelScope
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.daemon.DaemonLifecycleState
 import com.cubicreates.unboundmusic.daemon.DaemonManager
+import com.cubicreates.unboundmusic.data.DaypartingState
+import com.cubicreates.unboundmusic.data.LocalTrack
+import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.VibeResult
+import com.cubicreates.unboundmusic.data.VibeSearchResponse
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.service.PlaybackUiState
 import com.cubicreates.unboundmusic.service.ServiceConnection
+import com.cubicreates.unboundmusic.service.StorageInitializer
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData
 import com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem
 import com.cubicreates.unboundmusic.ui.artist.ArtistProfileData
@@ -153,6 +160,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _chartTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val chartTracks: StateFlow<List<TrackItem>> = _chartTracks.asStateFlow()
 
+    // ==================== Phase 0 Cold Start & Guest State ====================
+
+    private val _regionalCharts = MutableStateFlow<List<TrackItem>>(emptyList())
+    val regionalCharts: StateFlow<List<TrackItem>> = _regionalCharts.asStateFlow()
+
+    private val _daypartingState = MutableStateFlow<DaypartingState?>(null)
+    val daypartingState: StateFlow<DaypartingState?> = _daypartingState.asStateFlow()
+
+    private val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
+    val libraryFolders: StateFlow<Map<String, List<LocalTrack>>> = _libraryFolders.asStateFlow()
+
+    private val _vibeSearchResult = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
+    val vibeSearchResult: StateFlow<VibeSearchUiState> = _vibeSearchResult.asStateFlow()
+
     // ==================== Startup & Telemetry State ====================
 
     private val _startupPhase = MutableStateFlow("SYSTEM_INIT")
@@ -208,6 +229,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             _startupPhase.value = "CACHE_HYDRATE"
             _startupProgress.value = 0.88f
+            initializeColdStart("US", "en")
             loadHomeFeed()
             refreshLibrary()
             delay(300)
@@ -221,6 +243,102 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun completeStartup() {
         _isAppReady.value = true
+    }
+
+    /**
+     * Phase 0 Cold Start initialization:
+     * 1. Unpacks native assets (fpcalc, llama-cli, models.zst).
+     * 2. Fetches regional charts and 24-hour time-aware mood capsules concurrently.
+     * 3. Scans local storage directories and indexes WhatsApp, Telegram, and Downloads audio.
+     */
+    fun initializeColdStart(countryCode: String = "US", languageCode: String = "en") {
+        viewModelScope.launch(Dispatchers.IO) {
+            // First-boot asset unpacker
+            StorageInitializer.initialize(getApplication())
+
+            // 1. Fetch explore charts & mood capsules concurrently
+            launch {
+                val charts = client.getCharts(countryCode, languageCode)
+                if (charts.isNotEmpty()) {
+                    _regionalCharts.value = charts
+                    _chartTracks.value = charts
+                }
+            }
+            launch {
+                val dp = client.getMoodCapsules()
+                if (dp != null) {
+                    _daypartingState.value = dp
+                }
+            }
+
+            // 2. Trigger storage crawl and load categorized library folders
+            launch {
+                val scanPaths = listOf(
+                    "/storage/emulated/0/Download/",
+                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio/",
+                    "/storage/emulated/0/Telegram/Telegram Audio/",
+                    "/storage/emulated/0/Music/"
+                )
+                client.scanStorage(scanPaths)
+
+                val whatsapp = client.getLocalTracks("whatsapp")
+                val telegram = client.getLocalTracks("telegram")
+                val downloads = client.getLocalTracks("downloads")
+
+                _whatsappCount.value = whatsapp.size
+                _telegramCount.value = telegram.size
+                _downloadsCount.value = downloads.size
+
+                val folders = mutableMapOf<String, List<LocalTrack>>()
+                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
+                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
+                if (downloads.isNotEmpty()) folders["Downloads"] = downloads
+
+                _libraryFolders.value = folders
+
+                val allLocal = (whatsapp + telegram + downloads).map { it.toTrackItem() }
+                if (allLocal.isNotEmpty()) {
+                    _libraryTracks.value = allLocal
+                }
+            }
+        }
+    }
+
+    /**
+     * Natural Language Vibe AI query runner.
+     */
+    fun submitVibeQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _vibeSearchResult.value = VibeSearchUiState.Loading
+            try {
+                val res = client.searchVibe(trimmed)
+                _vibeSearchResult.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
+                if (res.radioTracks.isNotEmpty()) {
+                    _searchResults.value = res.radioTracks
+                }
+            } catch (e: Exception) {
+                _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
+            }
+        }
+    }
+
+
+    /**
+     * Fetches mood radio tracks for a selected capsule and starts playback.
+     */
+    fun playMoodCapsule(capsule: MoodCapsule) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val tracks = client.getMoodRadio(capsule.browseId)
+                if (tracks.isNotEmpty()) {
+                    playTrack(tracks.first())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play mood capsule: ${e.message}")
+            }
+        }
     }
 
 

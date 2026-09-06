@@ -10,6 +10,7 @@
 
 package com.cubicreates.unboundmusic.data
 
+import com.cubicreates.unboundmusic.ui.components.TrackItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -333,6 +334,191 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
     /** List all physically downloaded audio files. */
     suspend fun downloadList(): Pair<Int, String> = withContext(Dispatchers.IO) {
         get("/api/v1/download/list")
+    }
+
+    // ==================== SECTION 14: Phase 0 Typed Contracts ====================
+
+    /** Fetches Top 100 regional charts directly into TrackItem list. */
+    suspend fun getCharts(gl: String = "US", hl: String = "en"): List<TrackItem> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/explore/charts?gl=${URLEncoder.encode(gl, "UTF-8")}&hl=${URLEncoder.encode(hl, "UTF-8")}")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<TrackItem>()
+        try {
+            val root = JSONObject(json)
+            val tracksArr = root.optJSONArray("tracks") ?: return@withContext emptyList()
+            for (i in 0 until tracksArr.length()) {
+                val obj = tracksArr.getJSONObject(i)
+                list.add(
+                    TrackItem(
+                        id = obj.optString("id"),
+                        title = obj.optString("title"),
+                        artist = obj.optString("artist"),
+                        album = obj.optString("album"),
+                        coverUrl = obj.optString("thumbnail"),
+                        streamUrl = "",
+                        durationMs = obj.optLong("duration_ms"),
+                        source = obj.optString("source", "youtube"),
+                        isExplicit = obj.optBoolean("is_explicit", false)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
+    /** Fetches 24-hour situational mood capsules. */
+    suspend fun getMoodCapsules(hour: Int? = null): DaypartingState? = withContext(Dispatchers.IO) {
+        val path = if (hour != null) "/api/v1/explore/moods?hour=$hour" else "/api/v1/explore/moods"
+        val (code, json) = get(path)
+        if (code != 200 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val window = root.optString("active_window", "DEEP_FOCUS")
+            val localHour = root.optInt("local_hour", 12)
+            val capsulesArr = root.optJSONArray("capsules")
+            val capsules = mutableListOf<MoodCapsule>()
+            if (capsulesArr != null) {
+                for (i in 0 until capsulesArr.length()) {
+                    val c = capsulesArr.getJSONObject(i)
+                    capsules.add(
+                        MoodCapsule(
+                            tag = c.optString("tag"),
+                            title = c.optString("title"),
+                            browseId = c.optString("browse_id"),
+                            description = c.optString("description"),
+                            colorHex = c.optString("color_hex", "#4DB6AC"),
+                            iconName = c.optString("icon_name", "ic_music")
+                        )
+                    )
+                }
+            }
+            DaypartingState(window, localHour, capsules)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Fetches mood radio stream tracks for a given browseId. */
+    suspend fun getMoodRadio(browseId: String, gl: String = "US", hl: String = "en"): List<TrackItem> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/explore/mood/radio?browse_id=${URLEncoder.encode(browseId, "UTF-8")}&gl=${URLEncoder.encode(gl, "UTF-8")}&hl=${URLEncoder.encode(hl, "UTF-8")}")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<TrackItem>()
+        try {
+            val root = JSONObject(json)
+            val tracksArr = root.optJSONArray("tracks") ?: return@withContext emptyList()
+            for (i in 0 until tracksArr.length()) {
+                val obj = tracksArr.getJSONObject(i)
+                list.add(
+                    TrackItem(
+                        id = obj.optString("id"),
+                        title = obj.optString("title"),
+                        artist = obj.optString("artist"),
+                        album = obj.optString("album"),
+                        coverUrl = obj.optString("thumbnail"),
+                        durationMs = obj.optLong("duration_ms"),
+                        source = obj.optString("source", "youtube")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
+    /** Triggers crawler & magic byte storage scan across paths. */
+    suspend fun scanStorage(paths: List<String>): StorageScanResponse? = withContext(Dispatchers.IO) {
+        val arr = org.json.JSONArray()
+        paths.forEach { arr.put(it) }
+        val payload = JSONObject().apply { put("paths", arr) }
+        val (code, json) = post("/api/v1/storage/scan", payload.toString())
+        if (code != 200 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            StorageScanResponse(
+                status = root.optString("status"),
+                scannedFiles = root.optInt("scanned_files"),
+                audioFilesFound = root.optInt("audio_files_found"),
+                newTracksIndexed = root.optInt("new_tracks_indexed"),
+                unchangedTracks = root.optInt("unchanged_tracks"),
+                elapsedMs = root.optLong("elapsed_ms")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Fetches indexed local tracks filtered by source. */
+    suspend fun getLocalTracks(source: String = "all"): List<LocalTrack> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/storage/tracks?source=${URLEncoder.encode(source, "UTF-8")}")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<LocalTrack>()
+        try {
+            val root = JSONObject(json)
+            val arr = root.optJSONArray("tracks") ?: return@withContext emptyList()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    LocalTrack(
+                        id = obj.optString("id"),
+                        filePath = obj.optString("file_path"),
+                        title = obj.optString("title"),
+                        artist = obj.optString("artist"),
+                        album = obj.optString("album"),
+                        durationMs = obj.optLong("duration_ms"),
+                        format = obj.optString("format", "mp3"),
+                        fileSize = obj.optLong("file_size"),
+                        sourceFolder = obj.optString("source_folder", "music"),
+                        dateIndexed = obj.optLong("date_indexed"),
+                        mtime = obj.optLong("mtime")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
+    /** Natural language Vibe AI Search. */
+    suspend fun searchVibe(prompt: String): VibeSearchResponse = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply { put("prompt", prompt) }
+        val (code, json) = post("/api/v1/search/vibe", payload.toString())
+        if (code != 200 || json.isBlank()) {
+            throw RuntimeException("Vibe search returned HTTP $code: $json")
+        }
+        val root = JSONObject(json)
+        val vrObj = root.getJSONObject("vibe_result")
+        val genres = mutableListOf<String>()
+        vrObj.optJSONArray("target_genres")?.let { for (i in 0 until it.length()) genres.add(it.getString(i)) }
+        val tags = mutableListOf<String>()
+        vrObj.optJSONArray("mood_tags")?.let { for (i in 0 until it.length()) tags.add(it.getString(i)) }
+        val keywords = mutableListOf<String>()
+        vrObj.optJSONArray("search_keywords")?.let { for (i in 0 until it.length()) keywords.add(it.getString(i)) }
+
+        val vibeResult = VibeResult(
+            originalPrompt = vrObj.optString("original_prompt", prompt),
+            targetGenres = genres,
+            moodTags = tags,
+            energyLevel = vrObj.optString("energy_level", "MEDIUM"),
+            suggestedBpm = vrObj.optInt("suggested_bpm", 120),
+            searchKeywords = keywords
+        )
+
+        val radioTracks = mutableListOf<TrackItem>()
+        root.optJSONArray("radio_tracks")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val t = arr.getJSONObject(i)
+                radioTracks.add(
+                    TrackItem(
+                        id = t.optString("id"),
+                        title = t.optString("title"),
+                        artist = t.optString("artist"),
+                        coverUrl = t.optString("thumbnail"),
+                        durationMs = t.optLong("duration_ms"),
+                        source = t.optString("source", "youtube")
+                    )
+                )
+            }
+        }
+
+        VibeSearchResponse(vibeResult, radioTracks)
     }
 
     // ==================== HTTP Transport ====================

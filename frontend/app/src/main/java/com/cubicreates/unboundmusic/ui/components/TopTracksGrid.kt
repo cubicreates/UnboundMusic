@@ -35,7 +35,13 @@ data class TrackItem(
     val title: String,
     val artist: String,
     val coverUrl: String,
-    val streamUrl: String = ""
+    val streamUrl: String = "",
+    val id: String = "",
+    val album: String = "",
+    val durationMs: Long = 0,
+    val source: String = "youtube",
+    val isExplicit: Boolean = false,
+    val artists: List<String> = emptyList()
 )
 
 val defaultTopTracks = listOf(

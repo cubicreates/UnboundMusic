@@ -76,6 +76,9 @@ fun MainApp(
     val lyricsLines by viewModel.lyricsLines.collectAsStateWithLifecycle()
     val canvasArtUrl by viewModel.canvasArtUrl.collectAsStateWithLifecycle()
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
+    val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
+    val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
+    val vibeSearchResult by viewModel.vibeSearchResult.collectAsStateWithLifecycle()
     val equalizerCurve by viewModel.equalizerCurve.collectAsStateWithLifecycle()
     val autoEqResults by viewModel.autoEqResults.collectAsStateWithLifecycle()
     val isSearchingAutoEq by viewModel.isSearchingAutoEq.collectAsStateWithLifecycle()
@@ -170,7 +173,12 @@ fun MainApp(
                         when (tab) {
                             NavigationTab.HOME -> {
                                 HomeScreen(
-                                    tracks = chartTracks,
+                                    tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                    daypartingState = daypartingState,
+                                    onCapsuleSelect = { capsule ->
+                                        viewModel.playMoodCapsule(capsule)
+                                        isPlayerExpanded = true
+                                    },
                                     onTrackSelect = { track ->
                                         viewModel.playTrack(track)
                                         isPlayerExpanded = true
@@ -186,10 +194,12 @@ fun MainApp(
                                 SearchScreen(
                                     searchResults = searchResults,
                                     isSearching = isSearching,
+                                    vibeState = vibeSearchResult,
                                     onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
+                                    onVibeSubmit = { viewModel.submitVibeQuery(it) },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
-                                    onVibeTagClick = { tag -> viewModel.executeVibeSearch(tag.removePrefix("#")) },
-                                    onGenreCardClick = { genre -> viewModel.executeVibeSearch(genre) },
+                                    onVibeTagClick = { tag -> viewModel.submitVibeQuery(tag.removePrefix("#")) },
+                                    onGenreCardClick = { genre -> viewModel.submitVibeQuery(genre) },
                                     onTrackSelect = { track ->
                                         viewModel.playTrack(track)
                                         isPlayerExpanded = true

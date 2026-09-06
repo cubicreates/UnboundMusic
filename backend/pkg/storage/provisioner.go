@@ -94,6 +94,12 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 		}
 	}
 
+	// Create .nomedia file in .backend to ensure Android MediaStore ignores internal machinery
+	noMediaPath := filepath.Join(backendRoot, ".nomedia")
+	if _, err := os.Stat(noMediaPath); os.IsNotExist(err) {
+		_ = os.WriteFile(noMediaPath, []byte(""), 0644)
+	}
+
 	tree := &DirectoryTree{
 		RootPath:     root,
 		BackendPath:  backendRoot,

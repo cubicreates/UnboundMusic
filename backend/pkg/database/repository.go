@@ -393,6 +393,41 @@ func (r *Repository) GetFingerprintByHash(ctx context.Context, hash string) (*mo
 	return &fp, nil
 }
 
+// GetFingerprintByPath retrieves acoustic metadata for a given file path.
+func (r *Repository) GetFingerprintByPath(ctx context.Context, filePath string) (*models.FingerprintRecord, error) {
+	query := `
+	SELECT hash, file_path, title, artist, album, duration_ms, source, updated_at
+	FROM fingerprints
+	WHERE file_path = ? OR local_path = ?
+	LIMIT 1;
+	`
+	row := r.db.conn.QueryRowContext(ctx, query, filePath, filePath)
+	var fp models.FingerprintRecord
+	var fpPath, title, artist, album, source sql.NullString
+	var durationMs, updatedAt sql.NullInt64
+
+	err := row.Scan(
+		&fp.Hash, &fpPath, &title, &artist, &album,
+		&durationMs, &source, &updatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	fp.FilePath = fpPath.String
+	fp.Title = title.String
+	fp.Artist = artist.String
+	fp.Album = album.String
+	fp.DurationMs = durationMs.Int64
+	fp.Source = source.String
+	fp.UpdatedAt = updatedAt.Int64
+
+	return &fp, nil
+}
+
 // RecordPlaybackEvent writes a user listening session event for offline taste profiling.
 func (r *Repository) RecordPlaybackEvent(ctx context.Context, event *models.PlaybackEvent) error {
 	if event == nil || event.EventID == "" {

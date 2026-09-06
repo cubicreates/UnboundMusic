@@ -1,0 +1,117 @@
+/*
+ * Package: main
+ * File: server_router.go
+ * Purpose: Centralized route registration, CORS middleware, and HTTP response serialization for the local daemon.
+ * Subsystem: Localhost Daemon API
+ * Concurrency: Thread-safe HTTP handler multiplexer.
+ */
+
+package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"sync/atomic"
+
+	"github.com/cubicreates/unbound-engine/pkg/ai"
+	"github.com/cubicreates/unbound-engine/pkg/database"
+	"github.com/cubicreates/unbound-engine/pkg/moods"
+	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
+)
+
+// Daemon coordinates HTTP controller endpoints and core engine subsystems.
+type Daemon struct {
+	repo        *database.Repository
+	exploreEng  *ytmusic.ExploreEngine
+	moodEng     *moods.Engine
+	aiRunner    *ai.Runner
+	ytClient    *ytmusic.Client
+	isScanning  int32
+}
+
+// NewDaemon creates an instantiated daemon server with all subsystems connected.
+func NewDaemon(
+	repo *database.Repository,
+	exploreEng *ytmusic.ExploreEngine,
+	moodEng *moods.Engine,
+	aiRunner *ai.Runner,
+	ytClient *ytmusic.Client,
+) *Daemon {
+	if ytClient == nil {
+		ytClient = ytmusic.NewClient()
+	}
+	if exploreEng == nil {
+		exploreEng = ytmusic.NewExploreEngine(repo)
+	}
+	if moodEng == nil {
+		moodEng = moods.NewEngine(exploreEng)
+	}
+	if aiRunner == nil {
+		aiRunner = ai.NewRunner()
+	}
+
+	return &Daemon{
+		repo:       repo,
+		exploreEng: exploreEng,
+		moodEng:    moodEng,
+		aiRunner:   aiRunner,
+		ytClient:   ytClient,
+	}
+}
+
+// Routes constructs the HTTP ServeMux and attaches CORS and error recovery middleware.
+func (d *Daemon) Routes() http.Handler {
+	mux := http.NewServeMux()
+
+	// Explore & Mood Endpoints
+	mux.HandleFunc("/api/v1/explore/charts", d.HandleGetRegionalCharts)
+	mux.HandleFunc("/api/v1/explore/moods", d.HandleGetMoodCapsules)
+	mux.HandleFunc("/api/v1/explore/mood/radio", d.HandleGetMoodRadio)
+
+	// Storage & Scanner Endpoints
+	mux.HandleFunc("/api/v1/storage/scan", d.HandleTriggerStorageScan)
+	mux.HandleFunc("/api/v1/storage/tracks", d.HandleGetLocalTracks)
+
+	// Edge AI Natural Language Vibe Search
+	mux.HandleFunc("/api/v1/search/vibe", d.HandleVibeSearch)
+
+	return d.corsMiddleware(mux)
+}
+
+// corsMiddleware injects CORS headers and handles preflight OPTIONS requests.
+func (d *Daemon) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, User-Agent")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// writeJSON serializes data as application/json with the provided status code.
+func (d *Daemon) writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+// writeError outputs a standardized error JSON payload.
+func (d *Daemon) writeError(w http.ResponseWriter, status int, message string) {
+	d.writeJSON(w, status, map[string]string{"error": message})
+}
+
+// tryLockScan attempts an atomic lock for scanning; returns false if already scanning.
+func (d *Daemon) tryLockScan() bool {
+	return atomic.CompareAndSwapInt32(&d.isScanning, 0, 1)
+}
+
+// unlockScan releases the scanning lock.
+func (d *Daemon) unlockScan() {
+	atomic.StoreInt32(&d.isScanning, 0)
+}

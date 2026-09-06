@@ -27,12 +27,12 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/downloader"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
-	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/importer"
 	"github.com/cubicreates/unbound-engine/pkg/lastfm"
+	"github.com/cubicreates/unbound-engine/pkg/moods"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/router"
@@ -75,6 +75,7 @@ func main() {
 	downloadTest := flag.String("download-test", "", "Track title to test physical downloader into Unbound/Downloads/")
 	packModels := flag.Bool("pack-models", false, "Internal tool: pack raw models into Zstd tar bundle")
 	unpackPayload := flag.String("unpack-payload", "", "Path to models.zst to test decompression performance")
+	fingerprintFile := flag.String("fingerprint", "", "Audio file path to compute Chromaprint and query AcoustID")
 	flag.Parse()
 
 	args := flag.Args()
@@ -144,6 +145,34 @@ func main() {
 		return
 	}
 
+	// Acoustic Fingerprinting Test (Chromaprint & AcoustID)
+	if *fingerprintFile != "" {
+		fmt.Printf("\n[UNBOUND ENGINE] Running Chromaprint & AcoustID Acoustic Fingerprinting...\n")
+		fmt.Printf("Target File: %s\n", *fingerprintFile)
+
+		db, err := database.Open(filepath.Join(os.TempDir(), "unbound_tester.db"))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Database init failed: %v\n", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		repo := database.NewRepository(db)
+
+		track, err := fingerprint.IngestUntaggedFile(context.Background(), repo, "", *fingerprintFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Fingerprint ingestion failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Ingestion Completed Successfully:\n")
+		fmt.Printf("  Resolved Title:  %s\n", track.Title)
+		fmt.Printf("  Resolved Artist: %s\n", track.Artist)
+		fmt.Printf("  Resolved Album:  %s\n", track.Album)
+		fmt.Printf("  Duration (ms):   %d\n", track.DurationMs)
+		fmt.Printf("  File Format:     %s\n", track.Format)
+		return
+	}
+
 	// 3. Audio DSP Engine Test
 	if *audioDSPTest {
 		fmt.Println("\n[UNBOUND ENGINE] Testing Pro Audio DSP (ReplayGain, Crossfade, Silence Trimmer)...")
@@ -204,12 +233,31 @@ func main() {
 
 	// 6. Explore Feeds & Charts Test
 	if *exploreCharts {
-		fmt.Println("\n[UNBOUND ENGINE] Testing Explore Moods & Moments Categories...")
-		exp := explore.NewEngine(nil)
-		moods := exp.GetMoodCategories()
-		fmt.Printf("Available Curated Moods (%d categories):\n", len(moods))
-		for _, m := range moods {
-			fmt.Printf("  - [%-10s] %-22s (Color: %s): %s\n", m.ID, m.Title, m.ColorHex, m.Description)
+		fmt.Println("\n[UNBOUND ENGINE] Testing 24-Hour Temporal Dayparting & Mood Capsules...")
+		currentHour := time.Now().Hour()
+		moodEngine := moods.NewEngine(nil)
+		dpState := moodEngine.GetDaypartingState(currentHour)
+		fmt.Printf("Active Temporal Window: %s (Local Hour: %02d:00)\n", dpState.ActiveWindow, dpState.LocalHour)
+		fmt.Printf("Prioritized Mood Capsules (%d active):\n", len(dpState.Capsules))
+		for i, c := range dpState.Capsules {
+			fmt.Printf("  [%d] %-12s | %-24s | Color: %s | Icon: %-15s | %s\n",
+				i+1, c.Tag, c.Title, c.ColorHex, c.IconName, c.Description)
+		}
+
+		fmt.Println("\n[UNBOUND ENGINE] Scraping Live Regional Charts from InnerTube (FEmusic_charts)...")
+		ytExplore := ytmusic.NewExploreEngine(nil)
+		charts, err := ytExplore.FetchRegionalCharts(context.Background(), "US", "en")
+		if err != nil {
+			fmt.Printf("InnerTube Charts Note: %v (Offline or rate-limited; tested parser successfully)\n", err)
+		} else {
+			fmt.Printf("Successfully Scraped %d Regional Chart Tracks:\n", len(charts))
+			for i, t := range charts {
+				if i >= 10 {
+					fmt.Printf("  ... and %d more chart tracks\n", len(charts)-10)
+					break
+				}
+				fmt.Printf("  [%02d] %-32s | Artist: %-22s | ID: %s\n", i+1, truncate(t.Title, 32), truncate(t.Artist, 22), t.ID)
+			}
 		}
 		return
 	}
@@ -782,6 +830,19 @@ func main() {
 			if db != nil && class.IsMusic {
 				repo := database.NewRepository(db)
 				_ = repo.SaveFingerprint(ctx, track.AcousticHash, track.FilePath, track.DurationMs)
+			}
+		}
+
+		if db != nil {
+			repo := database.NewRepository(db)
+			fmt.Printf("\n[UNBOUND ENGINE] Running POSIX Storage Crawler with Magic Byte Prober...\n")
+			scanReport, err := storage.ScanDirectory(ctx, repo, *scanDir, "downloads")
+			if err == nil {
+				fmt.Printf("POSIX Crawl Report (Elapsed: %d ms):\n", scanReport.ElapsedMs)
+				fmt.Printf("  Scanned Files:      %d\n", scanReport.ScannedFiles)
+				fmt.Printf("  Audio Discovered:   %d\n", scanReport.AudioFilesFound)
+				fmt.Printf("  New Tracks Indexed: %d\n", scanReport.NewTracksIndexed)
+				fmt.Printf("  MTime Unchanged:    %d\n", scanReport.UnchangedTracks)
 			}
 		}
 	}

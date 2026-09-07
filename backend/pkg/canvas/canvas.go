@@ -21,26 +21,34 @@ import (
 
 // CanvasResult encapsulates vertical looping video URL and poster frame.
 type CanvasResult struct {
-	TrackID      string `json:"track_id"`
-	Title        string `json:"title"`
-	Artist       string `json:"artist"`
-	CanvasURL    string `json:"canvas_url"`    // 8-second looping MP4 URL
-	ThumbnailURL string `json:"thumbnail_url"` // Static poster frame
-	ArtistAvatar string `json:"artist_avatar,omitempty"`
-	Found        bool   `json:"found"`
+	TrackID       string `json:"track_id"`
+	Title         string `json:"title"`
+	Artist        string `json:"artist"`
+	CanvasURL     string `json:"canvas_url"`      // 8-second looping MP4 URL
+	ThumbnailURL  string `json:"thumbnail_url"`   // Static poster frame
+	LocalFilePath string `json:"local_file_path,omitempty"` // Verified on-disk cached MP4/image path
+	ArtistAvatar  string `json:"artist_avatar,omitempty"`
+	Found         bool   `json:"found"`
 }
 
 // Client coordinates Spotify Canvas fetching.
 type Client struct {
 	mu         sync.RWMutex
 	cache      map[string]*CanvasResult
+	diskCache  *DiskLRUCache
 	httpClient *http.Client
 }
 
-// NewClient initializes a Spotify Canvas scraper client.
-func NewClient() *Client {
+// NewClient initializes a Spotify Canvas scraper client with optional on-disk caching directory.
+func NewClient(cacheDirs ...string) *Client {
+	dir := ""
+	if len(cacheDirs) > 0 {
+		dir = cacheDirs[0]
+	}
+	dCache, _ := NewDiskLRUCache(dir, DefaultMaxCacheSizeBytes)
 	return &Client{
 		cache:      make(map[string]*CanvasResult),
+		diskCache:  dCache,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
@@ -157,6 +165,21 @@ func (c *Client) GetCanvas(ctx context.Context, title, artist string) (*CanvasRe
 					res.CanvasURL = res.ThumbnailURL
 					res.Found = true
 				}
+			}
+		}
+	}
+
+	// Check on-disk visual cache
+	if c.diskCache != nil {
+		if localPath, found := c.diskCache.Get(key); found {
+			res.LocalFilePath = localPath
+		} else if res.Found {
+			targetURL := res.CanvasURL
+			if targetURL == "" {
+				targetURL = res.ThumbnailURL
+			}
+			if targetURL != "" {
+				c.diskCache.DownloadAsync(key, targetURL)
 			}
 		}
 	}

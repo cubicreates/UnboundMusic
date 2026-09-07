@@ -66,7 +66,7 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
 
     // ==================== SECTION 3: Lyrics & Alignment ====================
 
-    /** Fetches uncensored lyrics with syllable-level timestamps from Genius + CTC aligner. */
+    /** Fetches synchronized lyrics with phonetic Romanization and offline caching from 3-tier cascade. */
     suspend fun getLyrics(
         trackId: String = "",
         title: String = "",
@@ -74,10 +74,16 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         durationMs: Long = 0
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
         val params = mutableListOf<String>()
-        if (trackId.isNotBlank()) params.add("id=${URLEncoder.encode(trackId, "UTF-8")}")
+        if (trackId.isNotBlank()) {
+            params.add("track_id=${URLEncoder.encode(trackId, "UTF-8")}")
+            params.add("id=${URLEncoder.encode(trackId, "UTF-8")}")
+        }
         if (title.isNotBlank()) params.add("title=${URLEncoder.encode(title, "UTF-8")}")
         if (artist.isNotBlank()) params.add("artist=${URLEncoder.encode(artist, "UTF-8")}")
-        if (durationMs > 0) params.add("duration=$durationMs")
+        if (durationMs > 0) {
+            val durationSec = durationMs / 1000
+            params.add("duration=$durationSec")
+        }
         get("/api/v1/lyrics?${params.joinToString("&")}")
     }
 

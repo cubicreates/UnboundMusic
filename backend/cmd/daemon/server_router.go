@@ -20,6 +20,8 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/downloader"
+	"github.com/cubicreates/unbound-engine/pkg/genius"
+	"github.com/cubicreates/unbound-engine/pkg/lyrics"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
@@ -35,6 +37,7 @@ type Daemon struct {
 	radioGen    *ytmusic.RadioGenerator
 	syncer      *account.Syncer
 	downloadMgr *downloader.Manager
+	lyricsAgg   *lyrics.Aggregator
 	isScanning  int32
 }
 
@@ -64,6 +67,7 @@ func NewDaemon(
 	reranker := recommender.NewReRanker()
 	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
 	syncer := account.NewSyncer(repo, ytClient)
+	lyricsAgg := lyrics.NewAggregator(repo, nil, ytClient, genius.NewClient())
 
 	var downloadMgr *downloader.Manager
 	if len(downloadMgrs) > 0 && downloadMgrs[0] != nil {
@@ -86,6 +90,7 @@ func NewDaemon(
 		radioGen:    radioGen,
 		syncer:      syncer,
 		downloadMgr: downloadMgr,
+		lyricsAgg:   lyricsAgg,
 	}
 }
 
@@ -152,6 +157,9 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/download/resume", d.HandleResumeDownload)
 	mux.HandleFunc("/api/v1/download/cancel", d.HandleCancelDownload)
 	mux.HandleFunc("/api/v1/download/delete", d.HandleDeleteDownload)
+
+	// Phase 6: Kinetic Synced Lyrics & Phonetic Romanization
+	mux.HandleFunc("/api/v1/lyrics", d.HandleGetLyrics)
 
 	return d.corsMiddleware(mux)
 }

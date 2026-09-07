@@ -102,6 +102,9 @@ type LyricLine struct {
 	// EndMs is the timestamp when the line finishes.
 	EndMs int64 `json:"end_ms"`
 
+	// Romanized holds phonetic Latin transliteration (Romaji / Revised Romanization / Indic).
+	Romanized string `json:"romanized,omitempty"`
+
 	// Syllables contains fine-grained syllable level timing for kinetic word-by-word glow.
 	Syllables []Syllable `json:"syllables,omitempty"`
 }
@@ -125,6 +128,9 @@ type LyricsPayload struct {
 
 	// IsWordSynced specifies if fine-grained syllable level timing is present.
 	IsWordSynced bool `json:"is_word_synced"`
+
+	// Instrumental specifies whether the track is purely instrumental with no vocal lyrics.
+	Instrumental bool `json:"instrumental,omitempty"`
 
 	// Source identifies the provider (e.g. "Genius + Local CTC", "LRCLIB").
 	Source string `json:"source"`

@@ -90,6 +90,12 @@ fun NowPlayingScreen(
     formattedPosition: String = "0:00",
     formattedRemaining: String = "-0:00",
     lyricsLines: List<com.cubicreates.unboundmusic.viewmodel.LyricLine> = emptyList(),
+    lyricsSource: String = "",
+    romanizationMode: com.cubicreates.unboundmusic.data.RomanizationMode = com.cubicreates.unboundmusic.data.RomanizationMode.ORIGINAL,
+    timingOffsetMs: Long = 0L,
+    isInstrumental: Boolean = false,
+    onRomanizationModeChange: (com.cubicreates.unboundmusic.data.RomanizationMode) -> Unit = {},
+    onTimingOffsetChange: (Long) -> Unit = {},
     canvasArtUrl: String? = null,
     queue: List<TrackItem> = emptyList(),
     playbackMode: com.cubicreates.unboundmusic.service.PlaybackMode = com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL,
@@ -556,9 +562,14 @@ fun NowPlayingScreen(
                 KineticLyricsView(
                     lyricsLines = lyricsLines,
                     currentPositionMs = currentPositionMs,
+                    lyricsSource = lyricsSource,
+                    romanizationMode = romanizationMode,
+                    timingOffsetMs = timingOffsetMs,
+                    isInstrumental = isInstrumental,
+                    onRomanizationModeChange = onRomanizationModeChange,
+                    onTimingOffsetChange = onTimingOffsetChange,
                     onLineClick = { line ->
                         onSeekPositionMs(line.startMs)
-                        showFullLyrics = false
                     }
                 )
 

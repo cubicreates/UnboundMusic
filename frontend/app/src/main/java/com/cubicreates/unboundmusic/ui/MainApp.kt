@@ -84,6 +84,10 @@ fun MainApp(
     val telegramCount by viewModel.telegramCount.collectAsStateWithLifecycle()
     val youtubeCount by viewModel.youtubeCount.collectAsStateWithLifecycle()
     val lyricsLines by viewModel.lyricsLines.collectAsStateWithLifecycle()
+    val lyricsSource by viewModel.lyricsSource.collectAsStateWithLifecycle()
+    val romanizationMode by viewModel.romanizationMode.collectAsStateWithLifecycle()
+    val lyricsTimingOffsetMs by viewModel.lyricsTimingOffsetMs.collectAsStateWithLifecycle()
+    val isInstrumental by viewModel.isInstrumental.collectAsStateWithLifecycle()
     val canvasArtUrl by viewModel.canvasArtUrl.collectAsStateWithLifecycle()
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
@@ -133,6 +137,12 @@ fun MainApp(
                 formattedPosition = playbackState.formattedPosition,
                 formattedRemaining = playbackState.formattedRemaining,
                 lyricsLines = lyricsLines,
+                lyricsSource = lyricsSource,
+                romanizationMode = romanizationMode,
+                timingOffsetMs = lyricsTimingOffsetMs,
+                isInstrumental = isInstrumental,
+                onRomanizationModeChange = { viewModel.setRomanizationMode(it) },
+                onTimingOffsetChange = { viewModel.setLyricsTimingOffsetMs(it) },
                 canvasArtUrl = canvasArtUrl,
                 queue = playbackState.queue,
                 playbackMode = playbackState.playbackMode,

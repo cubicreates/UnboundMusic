@@ -252,4 +252,47 @@ enum class DownloadUiStatus {
     DOWNLOADED
 }
 
+/**
+ * Phase 6: Script display modes for Kinetic Typography.
+ */
+enum class RomanizationMode {
+    ORIGINAL,
+    ROMANIZED,
+    DUAL
+}
+
+/**
+ * Phonetic sub-word syllable timing.
+ */
+data class SyllableDto(
+    val text: String,
+    val startMs: Long,
+    val endMs: Long
+)
+
+/**
+ * LyricLine model with phonetic Romanization support.
+ */
+data class LyricLineDto(
+    val text: String,
+    val startMs: Long,
+    val endMs: Long,
+    val romanized: String = "",
+    val syllables: List<SyllableDto> = emptyList()
+)
+
+/**
+ * Full lyrics payload from GET /api/v1/lyrics.
+ */
+data class LyricsPayloadDto(
+    val trackId: String,
+    val title: String,
+    val artist: String,
+    val plainLyrics: String,
+    val lines: List<LyricLineDto> = emptyList(),
+    val isWordSynced: Boolean = false,
+    val instrumental: Boolean = false,
+    val source: String = ""
+)
+
 

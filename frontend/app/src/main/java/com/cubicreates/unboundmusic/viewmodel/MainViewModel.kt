@@ -220,6 +220,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lyricsSource = MutableStateFlow("")
     val lyricsSource: StateFlow<String> = _lyricsSource.asStateFlow()
 
+    private val _romanizationMode = MutableStateFlow(com.cubicreates.unboundmusic.data.RomanizationMode.ORIGINAL)
+    val romanizationMode: StateFlow<com.cubicreates.unboundmusic.data.RomanizationMode> = _romanizationMode.asStateFlow()
+
+    private val _lyricsTimingOffsetMs = MutableStateFlow(0L)
+    val lyricsTimingOffsetMs: StateFlow<Long> = _lyricsTimingOffsetMs.asStateFlow()
+
+    private val _isInstrumental = MutableStateFlow(false)
+    val isInstrumental: StateFlow<Boolean> = _isInstrumental.asStateFlow()
+
+    fun setRomanizationMode(mode: com.cubicreates.unboundmusic.data.RomanizationMode) {
+        _romanizationMode.value = mode
+    }
+
+    fun setLyricsTimingOffsetMs(offsetMs: Long) {
+        _lyricsTimingOffsetMs.value = offsetMs
+    }
+
     // ==================== Canvas / Visual State ====================
 
     private val _canvasVideoUrl = MutableStateFlow<String?>(null)
@@ -763,18 +780,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Lyrics ====================
 
     /**
-     * Fetches live lyrics with syllable timestamps from the Go daemon.
+     * Fetches live lyrics with syllable timestamps and phonetic Romanization from the Go daemon.
      */
     private suspend fun fetchLyrics(track: TrackItem) {
         try {
+            _isInstrumental.value = false
             val (code, resp) = client.getLyrics(
+                trackId = track.id,
                 title = track.title,
                 artist = track.artist,
                 durationMs = playbackState.value.durationMs
             )
             if (code in 200..299 && resp.isNotBlank()) {
                 val json = JSONObject(resp)
-                val source = json.optString("source", "GENIUS_CTC_ALIGNED")
+                val source = json.optString("source", "LRCLIB Synced Lyrics")
+                val isInst = json.optBoolean("instrumental", false)
+                _isInstrumental.value = isInst
+
                 val linesArray = json.optJSONArray("lines")
                 if (linesArray != null) {
                     val lines = mutableListOf<LyricLine>()
@@ -783,10 +805,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         lines.add(LyricLine(
                             text = lineObj.optString("text", ""),
                             startMs = lineObj.optLong("start_ms", 0),
-                            endMs = lineObj.optLong("end_ms", 0)
+                            endMs = lineObj.optLong("end_ms", 0),
+                            romanized = lineObj.optString("romanized", "")
                         ))
                     }
                     _lyricsLines.value = lines
+                    _lyricsSource.value = source
+                } else if (isInst) {
+                    _lyricsLines.value = emptyList()
                     _lyricsSource.value = source
                 }
             }
@@ -936,6 +962,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (task != null) {
                         _downloadTasks.value = _downloadTasks.value + (task.videoId to task)
                         startDownloadPollingLoop()
+                        // Phase 6: Pre-fetch and cache lyrics offline in SQLite
+                        launch { fetchLyrics(track) }
                     }
                 }
             } catch (e: Exception) {
@@ -1484,12 +1512,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
 
 /**
- * Represents a single line of synchronized lyrics with millisecond timestamps.
+ * Represents a single line of synchronized lyrics with millisecond timestamps and optional phonetic Romanization.
  */
 data class LyricLine(
     val text: String,
     val startMs: Long,
-    val endMs: Long
+    val endMs: Long,
+    val romanized: String = ""
 )
 
 /**

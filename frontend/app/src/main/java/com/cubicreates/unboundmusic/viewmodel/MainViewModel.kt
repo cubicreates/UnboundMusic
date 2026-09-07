@@ -20,8 +20,12 @@ import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.AccountStatusData
 import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.DaypartingState
+import com.cubicreates.unboundmusic.data.GenreItemDto
+import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.PlaylistItemDto
+import com.cubicreates.unboundmusic.data.PlaylistShelfDto
 import com.cubicreates.unboundmusic.data.UserEqPresetDto
 import com.cubicreates.unboundmusic.data.VibeResult
 import com.cubicreates.unboundmusic.data.VibeSearchResponse
@@ -110,6 +114,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _cachePurgeStatus = MutableStateFlow<String?>(null)
     val cachePurgeStatus: StateFlow<String?> = _cachePurgeStatus.asStateFlow()
+
+    // ==================== Phase 4: Genre & Mood Boards State ====================
+
+    private val _genreSections = MutableStateFlow<List<GenreSectionDto>>(emptyList())
+    val genreSections: StateFlow<List<GenreSectionDto>> = _genreSections.asStateFlow()
+
+    private val _activeGenreShelves = MutableStateFlow<List<PlaylistShelfDto>>(emptyList())
+    val activeGenreShelves: StateFlow<List<PlaylistShelfDto>> = _activeGenreShelves.asStateFlow()
+
+    private val _isLoadingGenreDetail = MutableStateFlow(false)
+    val isLoadingGenreDetail: StateFlow<Boolean> = _isLoadingGenreDetail.asStateFlow()
+
+    private val _selectedGenreTitle = MutableStateFlow("Genre")
+    val selectedGenreTitle: StateFlow<String> = _selectedGenreTitle.asStateFlow()
 
     // ==================== Artist & Album State ====================
 
@@ -280,6 +298,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             checkAccountStatus()
             loadAppSettings()
             loadCustomEqPresets()
+            loadMoodsAndGenres()
             delay(300)
 
             _startupPhase.value = "READY"
@@ -1186,6 +1205,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _cachePurgeStatus.value = "Purge error: ${e.message}"
             }
         }
+    }
+
+    // ==================== Phase 4: Genre & Mood Boards Actions ====================
+
+    fun loadMoodsAndGenres(countryCode: String = "US", langCode: String = "en") {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getMoodsAndGenres(countryCode, langCode)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val sections = client.parseMoodsAndGenres(resp)
+                    if (sections.isNotEmpty()) {
+                        _genreSections.value = sections
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Failed to load moods and genres: ${e.message}")
+            }
+        }
+    }
+
+    fun loadGenreDetail(params: String, title: String, countryCode: String = "US", langCode: String = "en") {
+        _selectedGenreTitle.value = title
+        _isLoadingGenreDetail.value = true
+        _activeGenreShelves.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getGenreDetail(params, title, countryCode, langCode)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val shelves = client.parseGenreDetail(resp)
+                    _activeGenreShelves.value = shelves
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Failed to load genre detail: ${e.message}")
+            } finally {
+                _isLoadingGenreDetail.value = false
+            }
+        }
+    }
+
+    fun playPlaylistItem(item: PlaylistItemDto) {
+        val track = TrackItem(
+            id = item.id.ifBlank { "track_" + System.currentTimeMillis() },
+            title = item.title,
+            artist = item.subtitle.ifBlank { _selectedGenreTitle.value },
+            coverUrl = item.thumbnailUrl,
+            streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=${item.playlistId}",
+            source = "Genre Explore"
+        )
+        playTrack(track)
     }
 
     // ==================== Artist Profile ====================

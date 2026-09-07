@@ -79,6 +79,8 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/explore/charts", d.HandleGetRegionalCharts)
 	mux.HandleFunc("/api/v1/explore/moods", d.HandleGetMoodCapsules)
 	mux.HandleFunc("/api/v1/explore/mood/radio", d.HandleGetMoodRadio)
+	mux.HandleFunc("/api/v1/explore/moods_genres", d.HandleGetMoodsAndGenres)
+	mux.HandleFunc("/api/v1/explore/genre_detail", d.HandleGetGenreDetail)
 
 	// Storage & Scanner Endpoints
 	mux.HandleFunc("/api/v1/storage/scan", d.HandleTriggerStorageScan)

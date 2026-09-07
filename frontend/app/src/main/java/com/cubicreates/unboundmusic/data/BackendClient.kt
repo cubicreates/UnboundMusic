@@ -843,6 +843,81 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         }
     }
 
+    // ==================== SECTION 13: Phase 4 Genre & Mood Boards ====================
+
+    /** Retrieves structured genre and mood discovery boards with 7-day cache. */
+    suspend fun getMoodsAndGenres(countryCode: String = "US", langCode: String = "en"): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/explore/moods_genres?gl=$countryCode&hl=$langCode")
+    }
+
+    /** Fetches curated playlist shelves for a genre token. */
+    suspend fun getGenreDetail(params: String, genreName: String = "Genre", countryCode: String = "US", langCode: String = "en"): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encodedParams = URLEncoder.encode(params, "UTF-8")
+        val encodedName = URLEncoder.encode(genreName, "UTF-8")
+        get("/api/v1/explore/genre_detail?params=$encodedParams&name=$encodedName&gl=$countryCode&hl=$langCode")
+    }
+
+    /** Parses GenreSectionDto list from JSON response. */
+    fun parseMoodsAndGenres(jsonStr: String): List<GenreSectionDto> {
+        val sections = mutableListOf<GenreSectionDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val secArr = root.optJSONArray("sections") ?: return sections
+            for (i in 0 until secArr.length()) {
+                val sObj = secArr.optJSONObject(i) ?: continue
+                val secTitle = sObj.optString("title", "Explore")
+                val itemsArr = sObj.optJSONArray("items") ?: continue
+                val items = mutableListOf<GenreItemDto>()
+                for (j in 0 until itemsArr.length()) {
+                    val itObj = itemsArr.optJSONObject(j) ?: continue
+                    items.add(
+                        GenreItemDto(
+                            title = itObj.optString("title", ""),
+                            stripeColor = itObj.optLong("stripe_color", 0L),
+                            params = itObj.optString("params", ""),
+                            browseId = itObj.optString("browse_id", "")
+                        )
+                    )
+                }
+                if (items.isNotEmpty()) {
+                    sections.add(GenreSectionDto(secTitle, items))
+                }
+            }
+        } catch (_: Exception) {}
+        return sections
+    }
+
+    /** Parses PlaylistShelfDto list from JSON response. */
+    fun parseGenreDetail(jsonStr: String): List<PlaylistShelfDto> {
+        val shelves = mutableListOf<PlaylistShelfDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val shelfArr = root.optJSONArray("shelves") ?: return shelves
+            for (i in 0 until shelfArr.length()) {
+                val sObj = shelfArr.optJSONObject(i) ?: continue
+                val shelfTitle = sObj.optString("title", "Featured Playlists")
+                val itemsArr = sObj.optJSONArray("items") ?: continue
+                val items = mutableListOf<PlaylistItemDto>()
+                for (j in 0 until itemsArr.length()) {
+                    val itObj = itemsArr.optJSONObject(j) ?: continue
+                    items.add(
+                        PlaylistItemDto(
+                            id = itObj.optString("id", ""),
+                            title = itObj.optString("title", "Unknown"),
+                            subtitle = itObj.optString("subtitle", ""),
+                            thumbnailUrl = itObj.optString("thumbnail_url", ""),
+                            playlistId = itObj.optString("playlist_id", "")
+                        )
+                    )
+                }
+                if (items.isNotEmpty()) {
+                    shelves.add(PlaylistShelfDto(shelfTitle, items))
+                }
+            }
+        } catch (_: Exception) {}
+        return shelves
+    }
+
     // ==================== HTTP Transport ====================
 
     private fun get(path: String): Pair<Int, String> {

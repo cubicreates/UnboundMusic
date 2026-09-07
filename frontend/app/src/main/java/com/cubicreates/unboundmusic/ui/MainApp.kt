@@ -40,7 +40,9 @@ import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.player.NowPlayingScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
+import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
+import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
@@ -63,6 +65,7 @@ fun MainApp(
     var showRecap by remember { mutableStateOf(false) }
     var showYouTubeLoginSheet by remember { mutableStateOf(false) }
     var viewingArtist by remember { mutableStateOf<String?>(null) }
+    var viewingGenre by remember { mutableStateOf<GenreItemDto?>(null) }
 
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
@@ -94,6 +97,10 @@ fun MainApp(
     val loudnessGainMb by viewModel.loudnessGainMb.collectAsStateWithLifecycle()
     val customEqPresets by viewModel.customEqPresets.collectAsStateWithLifecycle()
     val cachePurgeStatus by viewModel.cachePurgeStatus.collectAsStateWithLifecycle()
+    val genreSections by viewModel.genreSections.collectAsStateWithLifecycle()
+    val activeGenreShelves by viewModel.activeGenreShelves.collectAsStateWithLifecycle()
+    val isLoadingGenreDetail by viewModel.isLoadingGenreDetail.collectAsStateWithLifecycle()
+    val selectedGenreTitle by viewModel.selectedGenreTitle.collectAsStateWithLifecycle()
     val artistProfile by viewModel.artistProfile.collectAsStateWithLifecycle()
     val isLoadingArtist by viewModel.isLoadingArtist.collectAsStateWithLifecycle()
     val recapData by viewModel.recapData.collectAsStateWithLifecycle()
@@ -193,9 +200,14 @@ fun MainApp(
                                 HomeScreen(
                                     tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
                                     daypartingState = daypartingState,
+                                    genreSections = genreSections,
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)
                                         isPlayerExpanded = true
+                                    },
+                                    onGenreSelect = { genre ->
+                                        viewingGenre = genre
+                                        viewModel.loadGenreDetail(genre.params, genre.title)
                                     },
                                     onTrackSelect = { track ->
                                         viewModel.playTrack(track)
@@ -346,6 +358,25 @@ fun MainApp(
                     }
                 )
             }
+        }
+
+        // Modal 6: Genre Detail Screen
+        if (viewingGenre != null) {
+            GenreDetailScreen(
+                genreTitle = selectedGenreTitle,
+                shelves = activeGenreShelves,
+                isLoading = isLoadingGenreDetail,
+                onBack = { viewingGenre = null },
+                onPlaylistClick = { playlistItem ->
+                    viewModel.playPlaylistItem(playlistItem)
+                    isPlayerExpanded = true
+                },
+                onRetry = {
+                    viewingGenre?.let {
+                        viewModel.loadGenreDetail(it.params, it.title)
+                    }
+                }
+            )
         }
     }
 }

@@ -57,6 +57,8 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
+import com.cubicreates.unboundmusic.data.GenreItemDto
+import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
@@ -65,9 +67,11 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     tracks: List<TrackItem> = defaultTopTracks,
     daypartingState: DaypartingState? = null,
+    genreSections: List<GenreSectionDto> = emptyList(),
     onTrackSelect: (TrackItem) -> Unit = {},
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
+    onGenreSelect: (GenreItemDto) -> Unit = {},
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {}
 ) {
@@ -98,9 +102,18 @@ fun HomeScreen(
                 )
             }
 
+            // 2. Genre & Mood Discovery Boards
+            if (genreSections.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(28.dp))
+                MoodAndGenreBoard(
+                    sections = genreSections,
+                    onGenreClick = onGenreSelect
+                )
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 2. Regional Billboard Top 100 Grid
+            // 3. Regional Billboard Top 100 Grid
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

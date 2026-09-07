@@ -177,4 +177,41 @@ data class CachePurgeResult(
     val purgedCategories: List<String>
 )
 
+/**
+ * Item in a Genre or Mood discovery board.
+ */
+data class GenreItemDto(
+    val title: String,
+    val stripeColor: Long,
+    val params: String,
+    val browseId: String
+)
+
+/**
+ * Section grouping Genre or Mood discovery items (e.g. "Moods & moments", "Genres").
+ */
+data class GenreSectionDto(
+    val title: String,
+    val items: List<GenreItemDto>
+)
+
+/**
+ * Playlist or album item inside a genre shelf.
+ */
+data class PlaylistItemDto(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val thumbnailUrl: String,
+    val playlistId: String
+)
+
+/**
+ * Shelf of playlists within GenreDetailScreen.
+ */
+data class PlaylistShelfDto(
+    val title: String,
+    val items: List<PlaylistItemDto>
+)
+
 

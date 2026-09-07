@@ -24,21 +24,23 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/lyrics"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
+	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
 // Daemon coordinates HTTP controller endpoints and core engine subsystems.
 type Daemon struct {
-	repo        *database.Repository
-	exploreEng  *ytmusic.ExploreEngine
-	moodEng     *moods.Engine
-	aiRunner    *ai.Runner
-	ytClient    *ytmusic.Client
-	radioGen    *ytmusic.RadioGenerator
-	syncer      *account.Syncer
-	downloadMgr *downloader.Manager
-	lyricsAgg   *lyrics.Aggregator
-	isScanning  int32
+	repo          *database.Repository
+	exploreEng    *ytmusic.ExploreEngine
+	moodEng       *moods.Engine
+	aiRunner      *ai.Runner
+	ytClient      *ytmusic.Client
+	radioGen      *ytmusic.RadioGenerator
+	syncer        *account.Syncer
+	downloadMgr   *downloader.Manager
+	lyricsAgg     *lyrics.Aggregator
+	sponsorClient *sponsorblock.Client
+	isScanning    int32
 }
 
 // NewDaemon creates an instantiated daemon server with all subsystems connected.
@@ -81,16 +83,19 @@ func NewDaemon(
 		downloadMgr = downloader.NewManager(baseDir, ytClient, repo)
 	}
 
+	sponsorClient := sponsorblock.NewClient()
+
 	return &Daemon{
-		repo:        repo,
-		exploreEng:  exploreEng,
-		moodEng:     moodEng,
-		aiRunner:    aiRunner,
-		ytClient:    ytClient,
-		radioGen:    radioGen,
-		syncer:      syncer,
-		downloadMgr: downloadMgr,
-		lyricsAgg:   lyricsAgg,
+		repo:          repo,
+		exploreEng:    exploreEng,
+		moodEng:       moodEng,
+		aiRunner:      aiRunner,
+		ytClient:      ytClient,
+		radioGen:      radioGen,
+		syncer:        syncer,
+		downloadMgr:   downloadMgr,
+		lyricsAgg:     lyricsAgg,
+		sponsorClient: sponsorClient,
 	}
 }
 
@@ -160,6 +165,9 @@ func (d *Daemon) Routes() http.Handler {
 
 	// Phase 6: Kinetic Synced Lyrics & Phonetic Romanization
 	mux.HandleFunc("/api/v1/lyrics", d.HandleGetLyrics)
+
+	// Phase 7: Playback Resilience & SponsorBlock Skit Skipping
+	mux.HandleFunc("/api/v1/track/skip_segments", d.HandleGetSkipSegments)
 
 	return d.corsMiddleware(mux)
 }

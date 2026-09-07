@@ -29,6 +29,8 @@ import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.PlaylistItemDto
 import com.cubicreates.unboundmusic.data.PlaylistShelfDto
+import com.cubicreates.unboundmusic.data.SkipSegmentDto
+import com.cubicreates.unboundmusic.data.SleepTimerState
 import com.cubicreates.unboundmusic.data.UserEqPresetDto
 import com.cubicreates.unboundmusic.data.VibeResult
 import com.cubicreates.unboundmusic.data.VibeSearchResponse
@@ -37,6 +39,7 @@ import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.service.PlaybackUiState
 import com.cubicreates.unboundmusic.service.ServiceConnection
 import com.cubicreates.unboundmusic.service.StorageInitializer
+import com.cubicreates.unboundmusic.service.UnboundPlaybackService
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData
 import com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem
 import com.cubicreates.unboundmusic.ui.artist.ArtistProfileData
@@ -244,6 +247,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _canvasArtUrl = MutableStateFlow<String?>(null)
     val canvasArtUrl: StateFlow<String?> = _canvasArtUrl.asStateFlow()
+
+    // ==================== Phase 7: Playback Resilience, Skit Skipping & Sleep Engine ====================
+
+    private val _activeSkipSegments = MutableStateFlow<List<SkipSegmentDto>>(emptyList())
+    val activeSkipSegments: StateFlow<List<SkipSegmentDto>> = _activeSkipSegments.asStateFlow()
+
+    private val _skippedSkitNotice = MutableStateFlow<SkitSkipNotice?>(null)
+    val skippedSkitNotice: StateFlow<SkitSkipNotice?> = _skippedSkitNotice.asStateFlow()
+
+    private val _sleepTimerState = MutableStateFlow(SleepTimerState())
+    val sleepTimerState: StateFlow<SleepTimerState> = _sleepTimerState.asStateFlow()
+
+    private var skitNoticeDismissJob: kotlinx.coroutines.Job? = null
+    private var lastSkippedSegmentId: String? = null
+    private var sleepTimerJob: kotlinx.coroutines.Job? = null
 
     // ==================== Home Feed State ====================
 
@@ -514,9 +532,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Play via Media3 service
                 serviceConnection.playTrack(resolvedTrack, streamUrl)
 
-                // Fetch lyrics and canvas visuals in parallel
+                // Fetch lyrics, canvas visuals, and SponsorBlock skip segments in parallel
                 launch { fetchLyrics(resolvedTrack) }
                 launch { fetchCanvas(resolvedTrack) }
+                launch { fetchSkipSegments(resolvedTrack) }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
@@ -840,6 +859,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Canvas fetch error: ${e.message}")
+        }
+    }
+
+    // ==================== Phase 7: SponsorBlock Skit Skipping ====================
+
+    /**
+     * Fetches SponsorBlock music_offtopic skip segments for the current track.
+     */
+    private suspend fun fetchSkipSegments(track: TrackItem) {
+        try {
+            _activeSkipSegments.value = emptyList()
+            lastSkippedSegmentId = null
+            val videoId = track.id.ifBlank {
+                val stream = track.streamUrl
+                if (!stream.startsWith("http") && stream.isNotBlank() && !stream.contains(" ")) {
+                    stream
+                } else ""
+            }
+            if (videoId.isBlank()) return
+            val (code, resp) = client.getSkipSegments(videoId)
+            if (code in 200..299 && resp.isNotBlank()) {
+                val segments = client.parseSkipSegments(resp)
+                _activeSkipSegments.value = segments.sortedBy { it.startMs }
+                Log.d(TAG, "Loaded ${segments.size} skip segments for track: ${track.title}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Skip segments fetch note: ${e.message}")
         }
     }
 
@@ -1186,17 +1232,159 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Position Ticker ====================
 
     /**
-     * Ticks every 250ms to update playback progress smoothly in the UI.
+     * Ticks every 300ms to update playback progress smoothly in the UI and check SponsorBlock skips.
      */
     private fun startPositionTicker() {
         viewModelScope.launch {
             while (isActive) {
                 if (playbackState.value.isPlaying) {
                     serviceConnection.updatePosition()
+                    checkSponsorBlockSkip()
+                }
+                delay(300)
+            }
+        }
+    }
+
+    private fun checkSponsorBlockSkip() {
+        val segments = _activeSkipSegments.value
+        if (segments.isEmpty()) return
+        val curPos = playbackState.value.currentPositionMs
+        val duration = playbackState.value.durationMs
+
+        for (segment in segments) {
+            if (curPos >= segment.startMs && curPos < (segment.endMs - 150L) && segment.uuid != lastSkippedSegmentId) {
+                lastSkippedSegmentId = segment.uuid
+                val fromMs = curPos
+                val toMs = segment.endMs.coerceAtMost(duration)
+                seekToPositionMs(toMs)
+
+                val startStr = formatTimestamp(segment.startMs)
+                val endStr = formatTimestamp(segment.endMs)
+                _skippedSkitNotice.value = SkitSkipNotice(
+                    segment = segment,
+                    fromMs = fromMs,
+                    toMs = toMs,
+                    message = "Skipped Non-Music Skit ($startStr - $endStr)"
+                )
+
+                skitNoticeDismissJob?.cancel()
+                skitNoticeDismissJob = viewModelScope.launch {
+                    delay(4500)
+                    _skippedSkitNotice.value = null
+                }
+                break
+            }
+        }
+    }
+
+    private fun formatTimestamp(ms: Long): String {
+        val totalSec = ms / 1000
+        val m = totalSec / 60
+        val s = totalSec % 60
+        return String.format("%d:%02d", m, s)
+    }
+
+    fun undoSkitSkip() {
+        val notice = _skippedSkitNotice.value ?: return
+        seekToPositionMs(notice.fromMs)
+        _skippedSkitNotice.value = null
+        skitNoticeDismissJob?.cancel()
+    }
+
+    fun dismissSkitNotice() {
+        _skippedSkitNotice.value = null
+        skitNoticeDismissJob?.cancel()
+    }
+
+    // ==================== Phase 7: Bedtime Sleep Engine ====================
+
+    /**
+     * Starts the bedtime sleep timer with logarithmic 30-second volume fadeout.
+     */
+    fun startSleepTimer(minutes: Int, endOfSong: Boolean = false) {
+        cancelSleepTimer()
+
+        if (endOfSong) {
+            _sleepTimerState.value = SleepTimerState(
+                isActive = true,
+                remainingMs = 0L,
+                initialDurationMs = 0L,
+                endOfTrack = true
+            )
+            sleepTimerJob = viewModelScope.launch {
+                var previousTrackId = playbackState.value.currentTrack?.id
+                while (isActive) {
+                    delay(500)
+                    val state = playbackState.value
+                    val curTrackId = state.currentTrack?.id
+                    val nearEnd = state.durationMs > 0 && state.currentPositionMs >= (state.durationMs - 1200L)
+                    val trackChanged = previousTrackId != null && curTrackId != null && curTrackId != previousTrackId
+                    if (nearEnd || trackChanged || (!state.isPlaying && state.currentPositionMs > 0)) {
+                        for (i in 10 downTo 0) {
+                            UnboundPlaybackService.activeSleepFadeGain = (i / 10f) * (i / 10f)
+                            delay(100)
+                        }
+                        if (playbackState.value.isPlaying) {
+                            serviceConnection.togglePlayPause()
+                        }
+                        cancelSleepTimer()
+                        break
+                    }
+                    if (curTrackId != null) {
+                        previousTrackId = curTrackId
+                    }
+                }
+            }
+            return
+        }
+
+        val totalMs = minutes * 60 * 1000L
+        val fadeDurationMs = minOf(30_000L, totalMs)
+        _sleepTimerState.value = SleepTimerState(
+            isActive = true,
+            remainingMs = totalMs,
+            initialDurationMs = totalMs,
+            endOfTrack = false
+        )
+
+        sleepTimerJob = viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
+            val endTime = startTime + totalMs
+
+            while (isActive) {
+                val now = System.currentTimeMillis()
+                val remaining = (endTime - now).coerceAtLeast(0L)
+                _sleepTimerState.value = _sleepTimerState.value.copy(remainingMs = remaining)
+
+                // Smooth exponential 30-second volume fadeout
+                if (remaining <= fadeDurationMs) {
+                    val fadeRatio = (remaining.toFloat() / fadeDurationMs.toFloat()).coerceIn(0f, 1f)
+                    UnboundPlaybackService.activeSleepFadeGain = fadeRatio * fadeRatio
+                } else {
+                    UnboundPlaybackService.activeSleepFadeGain = 1.0f
+                }
+
+                if (remaining <= 0L) {
+                    if (playbackState.value.isPlaying) {
+                        serviceConnection.togglePlayPause()
+                    }
+                    cancelSleepTimer()
+                    break
                 }
                 delay(500)
             }
         }
+    }
+
+    /**
+     * Cancels active sleep timer and resets audio fade attenuation gain to 1.0f.
+     */
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        UnboundPlaybackService.activeSleepFadeGain = 1.0f
+        _sleepTimerState.value = SleepTimerState(isActive = false)
     }
 
 
@@ -1504,6 +1692,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        serviceConnection.moveQueueItem(fromIndex, toIndex)
+    }
+
+    fun removeQueueItem(index: Int) {
+        serviceConnection.removeQueueItem(index)
+    }
+
+    fun playNext(track: TrackItem) {
+        serviceConnection.insertNext(track)
+    }
+
+    fun addToQueue(track: TrackItem) {
+        serviceConnection.addToQueue(track)
+    }
+
     override fun onCleared() {
         super.onCleared()
         serviceConnection.disconnect()
@@ -1528,4 +1732,14 @@ data class MoodCategory(
     val title: String,
     val description: String,
     val color: String
+)
+
+/**
+ * Represents an active notification when an intro/outro/skit was automatically skipped.
+ */
+data class SkitSkipNotice(
+    val segment: SkipSegmentDto,
+    val fromMs: Long,
+    val toMs: Long,
+    val message: String
 )

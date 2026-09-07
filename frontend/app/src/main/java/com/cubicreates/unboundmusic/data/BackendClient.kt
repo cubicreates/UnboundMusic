@@ -87,6 +87,38 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         get("/api/v1/lyrics?${params.joinToString("&")}")
     }
 
+    // ==================== SECTION 3.1: SponsorBlock Music Skit Skipping ====================
+
+    /** Queries SponsorBlock music_offtopic skip segments for a video ID. */
+    suspend fun getSkipSegments(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val v = URLEncoder.encode(videoId, "UTF-8")
+        get("/api/v1/track/skip_segments?video_id=$v")
+    }
+
+    /** Parses raw skip segments JSON into domain SkipSegmentDto list. */
+    fun parseSkipSegments(jsonStr: String): List<SkipSegmentDto> {
+        if (jsonStr.isBlank()) return emptyList()
+        return try {
+            val array = org.json.JSONArray(jsonStr)
+            val list = mutableListOf<SkipSegmentDto>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                list.add(
+                    SkipSegmentDto(
+                        category = obj.optString("category", "music_offtopic"),
+                        startMs = obj.optLong("start_ms", 0),
+                        endMs = obj.optLong("end_ms", 0),
+                        action = obj.optString("action", "skip"),
+                        uuid = obj.optString("uuid", "")
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     // ==================== SECTION 4: Spotify Canvas ====================
 
     /** Fetches high-resolution visual assets (canvas video, album art, artist portrait). */

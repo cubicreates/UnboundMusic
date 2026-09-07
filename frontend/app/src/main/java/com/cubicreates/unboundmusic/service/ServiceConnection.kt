@@ -147,7 +147,7 @@ class ServiceConnection private constructor(private val context: Context) {
         }
 
         val mediaItem = MediaItem.Builder()
-            .setMediaId(track.title)
+            .setMediaId(track.id.ifBlank { track.title })
             .setUri(Uri.parse(targetUrl))
             .setMediaMetadata(
                 MediaMetadata.Builder()
@@ -176,7 +176,7 @@ class ServiceConnection private constructor(private val context: Context) {
             val url = track.streamUrl
             if (url.isBlank()) return@mapNotNull null
             MediaItem.Builder()
-                .setMediaId(track.title)
+                .setMediaId(track.id.ifBlank { track.title })
                 .setUri(Uri.parse(url))
                 .setMediaMetadata(
                     MediaMetadata.Builder()
@@ -273,6 +273,76 @@ class ServiceConnection private constructor(private val context: Context) {
 
     fun stop() {
         controller?.stop()
+    }
+
+    // --- Queue Management ---
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val ctrl = controller ?: return
+        if (fromIndex in 0 until ctrl.mediaItemCount && toIndex in 0 until ctrl.mediaItemCount && fromIndex != toIndex) {
+            ctrl.moveMediaItem(fromIndex, toIndex)
+            if (fromIndex in originalQueue.indices && toIndex in originalQueue.indices) {
+                val item = originalQueue.removeAt(fromIndex)
+                originalQueue.add(toIndex, item)
+            }
+            syncState()
+        }
+    }
+
+    fun removeQueueItem(index: Int) {
+        val ctrl = controller ?: return
+        if (index in 0 until ctrl.mediaItemCount) {
+            ctrl.removeMediaItem(index)
+            if (index in originalQueue.indices) {
+                originalQueue.removeAt(index)
+            }
+            syncState()
+        }
+    }
+
+    fun insertNext(track: TrackItem) {
+        val ctrl = controller ?: return
+        val url = track.streamUrl.ifBlank { "http://127.0.0.1:45731/api/v1/stream?title=${track.title}&artist=${track.artist}" }
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(track.id.ifBlank { track.title })
+            .setUri(Uri.parse(url))
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setArtworkUri(if (track.coverUrl.isNotBlank()) Uri.parse(track.coverUrl) else null)
+                    .build()
+            )
+            .build()
+
+        val nextIndex = (ctrl.currentMediaItemIndex + 1).coerceAtMost(ctrl.mediaItemCount)
+        ctrl.addMediaItem(nextIndex, mediaItem)
+        if (nextIndex <= originalQueue.size) {
+            originalQueue.add(nextIndex, track)
+        } else {
+            originalQueue.add(track)
+        }
+        syncState()
+    }
+
+    fun addToQueue(track: TrackItem) {
+        val ctrl = controller ?: return
+        val url = track.streamUrl.ifBlank { "http://127.0.0.1:45731/api/v1/stream?title=${track.title}&artist=${track.artist}" }
+        val mediaItem = MediaItem.Builder()
+            .setMediaId(track.id.ifBlank { track.title })
+            .setUri(Uri.parse(url))
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setArtworkUri(if (track.coverUrl.isNotBlank()) Uri.parse(track.coverUrl) else null)
+                    .build()
+            )
+            .build()
+
+        ctrl.addMediaItem(mediaItem)
+        originalQueue.add(track)
+        syncState()
     }
 
     // --- State Sync ---

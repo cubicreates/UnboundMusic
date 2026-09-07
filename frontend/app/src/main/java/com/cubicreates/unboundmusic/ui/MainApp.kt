@@ -112,6 +112,8 @@ fun MainApp(
 
     val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsStateWithLifecycle()
+    val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
 
     val currentTask = downloadTasks[currentTrack.id]
     val currentDownloadStatus = when {
@@ -165,7 +167,15 @@ fun MainApp(
                 downloadProgress = currentDownloadProgress,
                 onStartDownload = { viewModel.startTrackDownload(currentTrack) },
                 onCancelDownload = { viewModel.cancelTrackDownload(currentTrack.id) },
-                onDeleteDownload = { viewModel.deleteTrackDownload(currentTrack.id) }
+                onDeleteDownload = { viewModel.deleteTrackDownload(currentTrack.id) },
+                onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
+                onRemoveQueueItem = { index -> viewModel.removeQueueItem(index) },
+                sleepTimerState = sleepTimerState,
+                onStartSleepTimer = { minutes, endOfSong -> viewModel.startSleepTimer(minutes, endOfSong) },
+                onCancelSleepTimer = { viewModel.cancelSleepTimer() },
+                skippedSkitNotice = skippedSkitNotice,
+                onUndoSkip = { viewModel.undoSkitSkip() },
+                onDismissSkipNotice = { viewModel.dismissSkitNotice() }
             )
         } else {
             // Standard Tab Navigation Content inside Responsive Scaffold

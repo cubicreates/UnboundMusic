@@ -25,11 +25,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -113,10 +120,19 @@ fun NowPlayingScreen(
     downloadProgress: Double = 0.0,
     onStartDownload: () -> Unit = {},
     onCancelDownload: () -> Unit = {},
-    onDeleteDownload: () -> Unit = {}
+    onDeleteDownload: () -> Unit = {},
+    onMoveQueueItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onRemoveQueueItem: (index: Int) -> Unit = {},
+    sleepTimerState: com.cubicreates.unboundmusic.data.SleepTimerState = com.cubicreates.unboundmusic.data.SleepTimerState(),
+    onStartSleepTimer: (minutes: Int, endOfSong: Boolean) -> Unit = { _, _ -> },
+    onCancelSleepTimer: () -> Unit = {},
+    skippedSkitNotice: com.cubicreates.unboundmusic.viewmodel.SkitSkipNotice? = null,
+    onUndoSkip: () -> Unit = {},
+    onDismissSkipNotice: () -> Unit = {}
 ) {
     var showQueueSheet by remember { mutableStateOf(false) }
     var showFullLyrics by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -359,7 +375,65 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // SponsorBlock Non-Music Skit Skip Toast Pill
+            AnimatedVisibility(
+                visible = skippedSkitNotice != null,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { -20 }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { -20 })
+            ) {
+                skippedSkitNotice?.let { notice ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF1E1E1E).copy(alpha = 0.95f))
+                            .border(1.dp, UnboundPrimary.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FastForward,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = notice.message,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = OnSurface,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "UNDO",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary,
+                            modifier = Modifier
+                                .clickable(onClick = onUndoSkip)
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                        IconButton(
+                            onClick = onDismissSkipNotice,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                }
+            }
 
             // Tactile Progress Slider & Timers
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -548,6 +622,27 @@ fun NowPlayingScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+
+                // Bedtime Sleep Timer Button
+                IconButton(
+                    onClick = { showSleepTimerSheet = true },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(if (sleepTimerState.isActive) UnboundPrimary.copy(alpha = 0.2f) else SurfaceGlassHighest)
+                        .border(
+                            width = 1.dp,
+                            color = if (sleepTimerState.isActive) UnboundPrimary else BorderGlass,
+                            shape = CircleShape
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bedtime,
+                        contentDescription = "Sleep Timer",
+                        tint = if (sleepTimerState.isActive) UnboundPrimary else OnSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -600,7 +695,19 @@ fun NowPlayingScreen(
                 playbackMode = playbackMode,
                 onCycleMode = onCyclePlaybackMode,
                 onTrackSelect = onQueueTrackSelect,
+                onMoveItem = onMoveQueueItem,
+                onRemoveItem = onRemoveQueueItem,
                 onDismiss = { showQueueSheet = false }
+            )
+        }
+
+        // Bedtime Sleep Timer Modal Sheet
+        if (showSleepTimerSheet) {
+            SleepTimerSheet(
+                timerState = sleepTimerState,
+                onStartTimer = onStartSleepTimer,
+                onCancelTimer = onCancelSleepTimer,
+                onDismiss = { showSleepTimerSheet = false }
             )
         }
     }

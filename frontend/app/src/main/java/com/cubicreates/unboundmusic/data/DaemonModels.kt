@@ -295,4 +295,40 @@ data class LyricsPayloadDto(
     val source: String = ""
 )
 
+/**
+ * Phase 7: SponsorBlock music_offtopic skip interval model.
+ */
+data class SkipSegmentDto(
+    val category: String,
+    val startMs: Long,
+    val endMs: Long,
+    val action: String = "skip",
+    val uuid: String = ""
+)
+
+/**
+ * Phase 7: Bedtime sleep timer state.
+ */
+data class SleepTimerState(
+    val isActive: Boolean = false,
+    val remainingMs: Long = 0L,
+    val initialDurationMs: Long = 0L,
+    val endOfTrack: Boolean = false
+) {
+    val progress: Float
+        get() = if (initialDurationMs > 0) {
+            (remainingMs.toFloat() / initialDurationMs.toFloat()).coerceIn(0f, 1f)
+        } else 0f
+
+    val formattedRemaining: String
+        get() {
+            if (endOfTrack) return "End of Track"
+            val totalSec = (remainingMs / 1000).coerceAtLeast(0)
+            val minutes = totalSec / 60
+            val seconds = totalSec % 60
+            return String.format("%02d:%02d", minutes, seconds)
+        }
+}
+
+
 

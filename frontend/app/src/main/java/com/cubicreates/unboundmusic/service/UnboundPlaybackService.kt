@@ -21,6 +21,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -37,7 +38,16 @@ import com.cubicreates.unboundmusic.audio.CrossfadeFilterAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.audio.SleepFadeAudioProcessor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
@@ -49,6 +59,11 @@ class UnboundPlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     companion object {
         private const val TAG = "UnboundPlaybackService"
@@ -69,12 +84,6 @@ class UnboundPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with Media3 ExoPlayer & DSP Pipeline...")
-
-        // OkHttp client for streaming remote audio with connection pooling
-        val okHttpClient = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
 
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
@@ -117,6 +126,17 @@ class UnboundPlaybackService : MediaSessionService() {
                     AudioEffectController.attachAudioSession(audioSessionId)
                 }
             }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.w(TAG, "Playback error encountered: ${error.errorCodeName} (code=${error.errorCode})")
+                val is403 = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                        error.cause?.message?.contains("403") == true ||
+                        error.message?.contains("403") == true
+
+                if (is403) {
+                    rehydrateExpiredStream()
+                }
+            }
         })
         val initialSessionId = exoPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
         if (initialSessionId != C.AUDIO_SESSION_ID_UNSET && initialSessionId != 0) {
@@ -156,6 +176,7 @@ class UnboundPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "Destroying Unbound Playback Service.")
+        serviceScope.cancel()
         AudioEffectController.release()
         mediaSession?.run {
             player.release()
@@ -164,6 +185,46 @@ class UnboundPlaybackService : MediaSessionService() {
         mediaSession = null
         exoPlayer = null
         super.onDestroy()
+    }
+
+    private fun rehydrateExpiredStream() {
+        val player = exoPlayer ?: return
+        val currentItem = player.currentMediaItem ?: return
+        val currentPos = player.currentPosition
+        val mediaId = currentItem.mediaId
+        val trackTitle = currentItem.mediaMetadata.title?.toString() ?: ""
+        val trackArtist = currentItem.mediaMetadata.artist?.toString() ?: ""
+
+        Log.i(TAG, "Re-hydrating expired stream for '$trackTitle' ($mediaId) at $currentPos ms...")
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val targetUrl = if (mediaId.isNotBlank() && !mediaId.startsWith("http") && !mediaId.contains(" ")) {
+                    "http://127.0.0.1:45731/api/v1/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+                } else {
+                    "http://127.0.0.1:45731/api/v1/stream?title=${URLEncoder.encode(trackTitle, "UTF-8")}&artist=${URLEncoder.encode(trackArtist, "UTF-8")}"
+                }
+
+                val req = Request.Builder().url(targetUrl).build()
+                val resp = okHttpClient.newCall(req).execute()
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: ""
+                    val json = JSONObject(body)
+                    val freshUrl = json.optString("stream_url", "")
+                    if (freshUrl.isNotBlank()) {
+                        withContext(Dispatchers.Main) {
+                            val newItem = currentItem.buildUpon().setUri(Uri.parse(freshUrl)).build()
+                            player.setMediaItem(newItem, currentPos)
+                            player.prepare()
+                            player.play()
+                            Log.i(TAG, "Stream re-hydration successful. Resumed playback at $currentPos ms.")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to re-hydrate stream: ${e.message}")
+            }
+        }
     }
 
     private inner class UnboundMediaSessionCallback : MediaSession.Callback {

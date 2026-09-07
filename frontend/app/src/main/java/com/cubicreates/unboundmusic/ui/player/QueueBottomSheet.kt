@@ -1,8 +1,8 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.player
  * File: QueueBottomSheet.kt
- * Purpose: Up Next Queue bottom sheet supporting drag reorder, mode switcher (Normal, Loop, Shuffle, Reverse Play),
- *          and direct item tap-to-play.
+ * Purpose: Up Next Queue bottom sheet supporting reordering, item removal,
+ *          mode switcher (Normal, Loop, Shuffle, Reverse Play), and direct item tap-to-play.
  * Subsystem: Audio Playback Queue UI
  */
 
@@ -29,6 +29,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -68,6 +71,8 @@ fun QueueBottomSheet(
     playbackMode: PlaybackMode = PlaybackMode.NORMAL,
     onCycleMode: () -> Unit = {},
     onTrackSelect: (Int) -> Unit = {},
+    onMoveItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onRemoveItem: (index: Int) -> Unit = {},
     onDismiss: () -> Unit = {}
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -179,7 +184,7 @@ fun QueueBottomSheet(
                                     onTrackSelect(index)
                                     onDismiss()
                                 }
-                                .padding(10.dp),
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
@@ -187,12 +192,12 @@ fun QueueBottomSheet(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isCurrent) UnboundPrimary else OnSurfaceVariant,
-                                modifier = Modifier.width(24.dp)
+                                modifier = Modifier.width(22.dp)
                             )
 
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(38.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(UnboundSurfaceContainerHigh),
                                 contentAlignment = Alignment.Center
@@ -214,7 +219,7 @@ fun QueueBottomSheet(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
@@ -232,6 +237,52 @@ fun QueueBottomSheet(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                            }
+
+                            // Reorder and Delete Actions
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                if (index > 0) {
+                                    IconButton(
+                                        onClick = { onMoveItem(index, index - 1) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Move Up",
+                                            tint = OnSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                if (index < queue.size - 1) {
+                                    IconButton(
+                                        onClick = { onMoveItem(index, index + 1) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Move Down",
+                                            tint = OnSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { onRemoveItem(index) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Remove",
+                                        tint = OnSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

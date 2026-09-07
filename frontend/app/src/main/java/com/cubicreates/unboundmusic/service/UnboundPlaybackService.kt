@@ -111,6 +111,18 @@ class UnboundPlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
+        exoPlayer?.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
+                    AudioEffectController.attachAudioSession(audioSessionId)
+                }
+            }
+        })
+        val initialSessionId = exoPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
+        if (initialSessionId != C.AUDIO_SESSION_ID_UNSET && initialSessionId != 0) {
+            AudioEffectController.attachAudioSession(initialSessionId)
+        }
+
         // Activity intent for notification tap -> open app
         val activityIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -144,6 +156,7 @@ class UnboundPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "Destroying Unbound Playback Service.")
+        AudioEffectController.release()
         mediaSession?.run {
             player.release()
             release()

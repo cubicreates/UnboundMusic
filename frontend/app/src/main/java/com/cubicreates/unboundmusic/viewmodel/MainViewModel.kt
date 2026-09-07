@@ -22,6 +22,7 @@ import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.UserEqPresetDto
 import com.cubicreates.unboundmusic.data.VibeResult
 import com.cubicreates.unboundmusic.data.VibeSearchResponse
 import com.cubicreates.unboundmusic.data.VibeSearchUiState
@@ -37,6 +38,7 @@ import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
 import com.cubicreates.unboundmusic.ui.recap.RecapData
+import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +90,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isSearchingAutoEq = MutableStateFlow(false)
     val isSearchingAutoEq: StateFlow<Boolean> = _isSearchingAutoEq.asStateFlow()
+
+    // ==================== Phase 3: Theme Engine, DSP & Settings Studio ====================
+
+    private val _selectedTheme = MutableStateFlow(AppThemePreset.STUDIO_DARK)
+    val selectedTheme: StateFlow<AppThemePreset> = _selectedTheme.asStateFlow()
+
+    private val _bassBoostStrength = MutableStateFlow(0)
+    val bassBoostStrength: StateFlow<Int> = _bassBoostStrength.asStateFlow()
+
+    private val _virtualizerStrength = MutableStateFlow(0)
+    val virtualizerStrength: StateFlow<Int> = _virtualizerStrength.asStateFlow()
+
+    private val _loudnessGainMb = MutableStateFlow(0)
+    val loudnessGainMb: StateFlow<Int> = _loudnessGainMb.asStateFlow()
+
+    private val _customEqPresets = MutableStateFlow<List<UserEqPresetDto>>(emptyList())
+    val customEqPresets: StateFlow<List<UserEqPresetDto>> = _customEqPresets.asStateFlow()
+
+    private val _cachePurgeStatus = MutableStateFlow<String?>(null)
+    val cachePurgeStatus: StateFlow<String?> = _cachePurgeStatus.asStateFlow()
 
     // ==================== Artist & Album State ====================
 
@@ -256,6 +278,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             loadHomeFeed()
             refreshLibrary()
             checkAccountStatus()
+            loadAppSettings()
+            loadCustomEqPresets()
             delay(300)
 
             _startupPhase.value = "READY"
@@ -1049,6 +1073,117 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Apply AutoEq error: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== Phase 3: DSP & Settings Studio Actions ====================
+
+    fun setTheme(preset: AppThemePreset) {
+        _selectedTheme.value = preset
+        viewModelScope.launch(Dispatchers.IO) {
+            client.setAppSetting("theme_preset", preset.id)
+        }
+    }
+
+    fun setBassBoost(strength: Int) {
+        _bassBoostStrength.value = strength
+        serviceConnection.setBassBoost(strength)
+        viewModelScope.launch(Dispatchers.IO) {
+            client.setAppSetting("eq_bass_boost", strength.toString())
+        }
+    }
+
+    fun setVirtualizer(strength: Int) {
+        _virtualizerStrength.value = strength
+        serviceConnection.setVirtualizer(strength)
+        viewModelScope.launch(Dispatchers.IO) {
+            client.setAppSetting("eq_virtualizer", strength.toString())
+        }
+    }
+
+    fun setLoudness(gainMb: Int) {
+        _loudnessGainMb.value = gainMb
+        serviceConnection.setLoudness(gainMb)
+        viewModelScope.launch(Dispatchers.IO) {
+            client.setAppSetting("eq_loudness", gainMb.toString())
+        }
+    }
+
+    fun saveCustomEqPreset(name: String, curve: EqualizerCurve, bassBoost: Int, virtualizer: Int, loudness: Int) {
+        val preset = UserEqPresetDto(
+            id = "preset_" + System.currentTimeMillis(),
+            name = name,
+            bandGains = curve.bandsDb,
+            bassBoost = bassBoost,
+            virtualizer = virtualizer,
+            loudness = loudness
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            client.saveCustomEqPreset(preset)
+            loadCustomEqPresets()
+        }
+    }
+
+    fun loadCustomEqPresets() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getCustomEqPresets()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val list = client.parseEqPresets(resp)
+                    _customEqPresets.value = list
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Failed loading custom presets: ${e.message}")
+            }
+        }
+    }
+
+    fun loadAppSettings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getAppSettings()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val settings = client.parseSettings(resp)
+                    settings["theme_preset"]?.let { themeId ->
+                        _selectedTheme.value = AppThemePreset.fromId(themeId)
+                    }
+                    settings["eq_bass_boost"]?.toIntOrNull()?.let { bb ->
+                        _bassBoostStrength.value = bb
+                        serviceConnection.setBassBoost(bb)
+                    }
+                    settings["eq_virtualizer"]?.toIntOrNull()?.let { v ->
+                        _virtualizerStrength.value = v
+                        serviceConnection.setVirtualizer(v)
+                    }
+                    settings["eq_loudness"]?.toIntOrNull()?.let { l ->
+                        _loudnessGainMb.value = l
+                        serviceConnection.setLoudness(l)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Failed loading app settings: ${e.message}")
+            }
+        }
+    }
+
+    fun purgeCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.purgeStorageCache()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val result = client.parseCachePurgeResult(resp)
+                    if (result != null) {
+                        val mb = result.freedBytes / (1024 * 1024f)
+                        _cachePurgeStatus.value = String.format("Purged %.1f MB across %d categories", mb, result.purgedCategories.size)
+                    } else {
+                        _cachePurgeStatus.value = "Storage cache purged successfully"
+                    }
+                } else {
+                    _cachePurgeStatus.value = "Storage purge completed"
+                }
+            } catch (e: Exception) {
+                _cachePurgeStatus.value = "Purge error: ${e.message}"
             }
         }
     }

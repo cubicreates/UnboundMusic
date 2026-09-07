@@ -58,12 +58,13 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            UnboundMusicTheme {
-                val mainViewModel: MainViewModel = viewModel()
-                val isAppReady by mainViewModel.isAppReady.collectAsStateWithLifecycle()
-                val startupPhase by mainViewModel.startupPhase.collectAsStateWithLifecycle()
-                val startupProgress by mainViewModel.startupProgress.collectAsStateWithLifecycle()
+            val mainViewModel: MainViewModel = viewModel()
+            val selectedTheme by mainViewModel.selectedTheme.collectAsStateWithLifecycle()
+            val isAppReady by mainViewModel.isAppReady.collectAsStateWithLifecycle()
+            val startupPhase by mainViewModel.startupPhase.collectAsStateWithLifecycle()
+            val startupProgress by mainViewModel.startupProgress.collectAsStateWithLifecycle()
 
+            UnboundMusicTheme(themePreset = selectedTheme) {
                 Crossfade(
                     targetState = isAppReady,
                     animationSpec = tween(durationMillis = 350),

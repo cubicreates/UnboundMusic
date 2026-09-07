@@ -25,5 +25,19 @@ data class EqualizerCurve(
 
     companion object {
         val FLAT = EqualizerCurve(List(10) { 0f }, 0f)
+        val BASS_HEAVY = EqualizerCurve(listOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 1f, 2f), 0f)
+        val VOCAL_BOOST = EqualizerCurve(listOf(-2f, -1f, 0f, 1f, 3f, 4f, 3f, 1f, 0f, 0f), 0f)
+        val EDM = EqualizerCurve(listOf(5f, 4f, 2f, 0f, -1f, 1f, 2f, 3f, 4f, 4f), 0f)
+        val ROCK = EqualizerCurve(listOf(4f, 3f, 2f, 0f, -1f, -1f, 1f, 2f, 3f, 3f), 0f)
+        val STUDIO_CLEAN = EqualizerCurve(listOf(1f, 1f, 0f, 0f, 0f, 0f, 1f, 1f, 2f, 2f), 0f)
+
+        val PRESET_MAP: Map<String, EqualizerCurve> = mapOf(
+            "Flat" to FLAT,
+            "Bass Heavy" to BASS_HEAVY,
+            "Vocal Boost" to VOCAL_BOOST,
+            "EDM" to EDM,
+            "Rock" to ROCK,
+            "Studio Clean" to STUDIO_CLEAN
+        )
     }
 }

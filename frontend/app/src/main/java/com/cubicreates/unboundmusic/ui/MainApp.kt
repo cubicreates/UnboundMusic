@@ -88,6 +88,12 @@ fun MainApp(
     val equalizerCurve by viewModel.equalizerCurve.collectAsStateWithLifecycle()
     val autoEqResults by viewModel.autoEqResults.collectAsStateWithLifecycle()
     val isSearchingAutoEq by viewModel.isSearchingAutoEq.collectAsStateWithLifecycle()
+    val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
+    val bassBoostStrength by viewModel.bassBoostStrength.collectAsStateWithLifecycle()
+    val virtualizerStrength by viewModel.virtualizerStrength.collectAsStateWithLifecycle()
+    val loudnessGainMb by viewModel.loudnessGainMb.collectAsStateWithLifecycle()
+    val customEqPresets by viewModel.customEqPresets.collectAsStateWithLifecycle()
+    val cachePurgeStatus by viewModel.cachePurgeStatus.collectAsStateWithLifecycle()
     val artistProfile by viewModel.artistProfile.collectAsStateWithLifecycle()
     val isLoadingArtist by viewModel.isLoadingArtist.collectAsStateWithLifecycle()
     val recapData by viewModel.recapData.collectAsStateWithLifecycle()
@@ -259,8 +265,12 @@ fun MainApp(
                 onAutoEqClick = { showAutoEqPicker = true },
                 isYouTubeConnected = isYouTubeConnected,
                 accountName = accountName,
+                currentTheme = selectedTheme,
+                cachePurgeStatus = cachePurgeStatus,
+                onThemeSelected = { viewModel.setTheme(it) },
                 onYouTubeSyncClick = { showYouTubeLoginSheet = true },
-                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() }
+                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
+                onPurgeCacheClick = { viewModel.purgeCache() }
             )
         }
 
@@ -278,7 +288,17 @@ fun MainApp(
         if (showEqualizer) {
             EqualizerScreen(
                 initialCurve = equalizerCurve,
+                initialBassBoost = bassBoostStrength,
+                initialVirtualizer = virtualizerStrength,
+                initialLoudness = loudnessGainMb,
+                customPresets = customEqPresets,
                 onCurveChanged = { viewModel.setEqualizerCurve(it) },
+                onBassBoostChanged = { viewModel.setBassBoost(it) },
+                onVirtualizerChanged = { viewModel.setVirtualizer(it) },
+                onLoudnessChanged = { viewModel.setLoudness(it) },
+                onSaveCustomPreset = { name, curve, bb, v, l ->
+                    viewModel.saveCustomEqPreset(name, curve, bb, v, l)
+                },
                 onAutoEqClick = { showAutoEqPicker = true },
                 onClose = { showEqualizer = false }
             )

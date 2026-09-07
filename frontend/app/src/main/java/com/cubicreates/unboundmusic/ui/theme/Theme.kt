@@ -32,15 +32,17 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun UnboundMusicTheme(
+    themePreset: AppThemePreset = AppThemePreset.STUDIO_DARK,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = DarkColorScheme
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val colorScheme = resolveColorScheme(themePreset, context)
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = UnboundBackground.toArgb()
-            window.navigationBarColor = UnboundBackground.toArgb()
+            window.statusBarColor = colorScheme.background.toArgb()
+            window.navigationBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = false
         }

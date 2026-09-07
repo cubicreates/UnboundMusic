@@ -1,10 +1,11 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.settings
  * File: SettingsScreen.kt
- * Purpose: Comprehensive Settings & Utilities Hub for Unbound Music.
- *          Manages 10-Band EQ, Sleep Timer with fade-out, Last.fm scrobbler, Discord Rich Presence,
- *          Storage Rules, Spotify Importer, YouTube Account Sync, and GitHub Auto-Updates.
+ * Purpose: Studio Control Hub for Unbound Music.
+ *          Manages Google/YouTube Identity banner, 10-Band EQ & Hardware Audio DSP,
+ *          Adaptive Studio Theme selector, Spotify Importer, Storage Cache Purge, and GitHub Auto-Updates.
  * Subsystem: Settings / System Controls UI
+ * Concurrency: Thread-safe UI state updates.
  */
 
 package com.cubicreates.unboundmusic.ui.settings
@@ -34,11 +35,11 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
@@ -52,10 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -63,15 +67,16 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
-import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
-import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
     isYouTubeConnected: Boolean = false,
     accountName: String = "Local User",
+    currentTheme: AppThemePreset = AppThemePreset.STUDIO_DARK,
+    cachePurgeStatus: String? = null,
+    onThemeSelected: (AppThemePreset) -> Unit = {},
     onClose: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
     onAutoEqClick: () -> Unit = {},
@@ -80,11 +85,10 @@ fun SettingsScreen(
     onYouTubeSyncClick: () -> Unit = {},
     onDisconnectYouTubeClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit = {},
-    onClearCacheClick: () -> Unit = {}
+    onPurgeCacheClick: () -> Unit = {}
 ) {
     var discordRpcEnabled by remember { mutableStateOf(true) }
     var sponsorBlockEnabled by remember { mutableStateOf(true) }
-    var highResAudioEnabled by remember { mutableStateOf(true) }
 
     Box(
         modifier = modifier
@@ -120,7 +124,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "Settings",
+                    text = "Studio Settings",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = OnSurface
@@ -129,15 +133,85 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.size(40.dp))
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 0. User Identity & Google Studio Banner
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(
+                        width = 1.dp,
+                        color = if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.5f) else BorderGlass,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(if (isYouTubeConnected) UnboundPrimary else UnboundSurfaceContainerHigh),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (isYouTubeConnected && accountName.isNotBlank()) accountName.take(1).uppercase() else "U",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isYouTubeConnected) OnPrimary else OnSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isYouTubeConnected) accountName else "Local Offline Studio",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isYouTubeConnected) "YouTube Account Connected • Synced" else "Offline mode • Local audio playback",
+                            fontSize = 12.sp,
+                            color = if (isYouTubeConnected) UnboundPrimary else OnSurfaceVariant
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isYouTubeConnected) Color(0x33FF3B30) else UnboundPrimary.copy(alpha = 0.2f))
+                            .clickable {
+                                if (isYouTubeConnected) onDisconnectYouTubeClick() else onYouTubeSyncClick()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (isYouTubeConnected) "Disconnect" else "Connect",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isYouTubeConnected) Color(0xFFFF453A) else UnboundPrimary
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // 1. Audio & DSP Section
-            SettingsSectionHeader(title = "AUDIO & DSP")
+            SettingsSectionHeader(title = "AUDIO & PRO DSP")
 
             SettingsActionTile(
                 icon = Icons.Default.Tune,
-                title = "10-Band Parametric Equalizer",
-                subtitle = "Custom biquad frequency curves & preamp gain",
+                title = "Parametric EQ & Studio DSP",
+                subtitle = "10-Band EQ, Sub-Bass Boost, 3D Virtualizer, Loudness",
                 onClick = onEqualizerClick
             )
 
@@ -155,13 +229,86 @@ fun SettingsScreen(
             SettingsActionTile(
                 icon = Icons.Default.Bedtime,
                 title = "Sleep Timer & Fade-Out",
-                subtitle = "30s smooth exponential fade attenuation",
+                subtitle = "Smooth 30s exponential fade attenuation",
                 onClick = onSleepTimerClick
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 2. Integration & Scrobbling Section
+            // 2. Studio Theme Engine Selector
+            SettingsSectionHeader(title = "STUDIO THEME ENGINE")
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = null,
+                        tint = UnboundPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Visual Aesthetic",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppThemePreset.entries.forEach { preset ->
+                        val isSelected = currentTheme == preset
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) UnboundSurfaceContainerHigh else Color.Transparent)
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) preset.previewPrimary else BorderGlass,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { onThemeSelected(preset) }
+                                .padding(8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(preset.previewPrimary)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = preset.displayName.substringBefore(" "),
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) OnSurface else OnSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 3. Integration & Services Section
             SettingsSectionHeader(title = "SERVICES & INTEGRATIONS")
 
             SettingsActionTile(
@@ -175,9 +322,9 @@ fun SettingsScreen(
 
             SettingsActionTile(
                 icon = Icons.Default.Sync,
-                title = if (isYouTubeConnected) "YouTube Account: Connected" else "Connect YouTube Music",
-                subtitle = if (isYouTubeConnected) "Active: $accountName • Tap to disconnect" else "Sync liked songs, subscriptions & custom playlists",
-                onClick = if (isYouTubeConnected) onDisconnectYouTubeClick else onYouTubeSyncClick
+                title = if (isYouTubeConnected) "YouTube Library Sync" else "Connect YouTube Music",
+                subtitle = if (isYouTubeConnected) "Sync Liked songs, playlists, subscriptions" else "Ingest your cloud music collection",
+                onClick = onYouTubeSyncClick
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -195,21 +342,21 @@ fun SettingsScreen(
             SettingsToggleTile(
                 icon = Icons.Default.Info,
                 title = "SponsorBlock Audio Filter",
-                subtitle = "Skip non-music intro/outro segments automatically",
+                subtitle = "Skip non-music segments automatically",
                 checked = sponsorBlockEnabled,
                 onCheckedChange = { sponsorBlockEnabled = it }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // 3. Storage & Maintenance Section
+            // 4. Storage & Maintenance Section
             SettingsSectionHeader(title = "STORAGE & MAINTENANCE")
 
             SettingsActionTile(
                 icon = Icons.Default.DeleteSweep,
-                title = "Clear Audio Cache",
-                subtitle = "Free temporary streaming buffers without touching indexed tracks",
-                onClick = onClearCacheClick
+                title = "Purge Stream & Lyrics Cache",
+                subtitle = cachePurgeStatus ?: "Safely free temp streaming audio and lyric cache",
+                onClick = onPurgeCacheClick
             )
 
             Spacer(modifier = Modifier.height(10.dp))

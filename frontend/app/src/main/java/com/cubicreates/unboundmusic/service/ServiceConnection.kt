@@ -340,6 +340,26 @@ class ServiceConnection private constructor(private val context: Context) {
         )
     }
 
+    fun setEqualizerCurve(curve: EqualizerCurve) {
+        UnboundPlaybackService.activeEqualizerCurve = curve
+    }
+
+    fun getEqualizerCurve(): EqualizerCurve {
+        return UnboundPlaybackService.activeEqualizerCurve
+    }
+
+    fun setBassBoost(strength: Int) {
+        AudioEffectController.setBassBoost(strength)
+    }
+
+    fun setVirtualizer(strength: Int) {
+        AudioEffectController.setVirtualizer(strength)
+    }
+
+    fun setLoudness(gainMb: Int) {
+        AudioEffectController.setLoudness(gainMb)
+    }
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncState()
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncState()

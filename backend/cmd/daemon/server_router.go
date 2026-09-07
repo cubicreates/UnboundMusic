@@ -101,6 +101,29 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/account/liked", d.HandleGetAccountLiked)
 	mux.HandleFunc("/api/v1/track/like", d.HandleToggleTrackLike)
 
+	// Phase 3: Settings Studio, EQ Presets & Storage Cache Purge
+	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			d.HandleGetSettings(w, r)
+		case http.MethodPost:
+			d.HandleSetSetting(w, r)
+		default:
+			d.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		}
+	})
+	mux.HandleFunc("/api/v1/eq/presets", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			d.HandleGetEqPresets(w, r)
+		case http.MethodPost:
+			d.HandleSaveEqPreset(w, r)
+		default:
+			d.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		}
+	})
+	mux.HandleFunc("/api/v1/storage/purge_cache", d.HandlePurgeCache)
+
 	return d.corsMiddleware(mux)
 }
 

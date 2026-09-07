@@ -1,9 +1,11 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.equalizer
  * File: EqualizerScreen.kt
- * Purpose: Interactive 10-band software parametric equalizer with live frequency curve visualization,
- *          gain sliders (-12dB to +12dB), preamp gain (-15dB to +12dB), and AutoEq preset launcher.
+ * Purpose: Pro Audio Studio Equalizer & DSP Hub with 10-band parametric equalizer,
+ *          spline frequency curve, Sub-Bass Boost, 3D Spatial Virtualizer, Loudness Normalization,
+ *          built-in genre presets, custom user presets, and AutoEq headphone calibration.
  * Subsystem: Pro Audio DSP / Equalizer UI
+ * Concurrency: Thread-safe UI state updates.
  */
 
 package com.cubicreates.unboundmusic.ui.equalizer
@@ -11,6 +13,7 @@ package com.cubicreates.unboundmusic.ui.equalizer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,19 +30,26 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,7 +58,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -56,9 +65,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.cubicreates.unboundmusic.audio.EQUALIZER_BANDS_HZ
 import com.cubicreates.unboundmusic.audio.EQUALIZER_BAND_LABELS
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
+import com.cubicreates.unboundmusic.data.UserEqPresetDto
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -68,23 +77,51 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
-import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 @Composable
 fun EqualizerScreen(
     modifier: Modifier = Modifier,
     initialCurve: EqualizerCurve = EqualizerCurve.FLAT,
+    initialBassBoost: Int = 0,
+    initialVirtualizer: Int = 0,
+    initialLoudness: Int = 0,
+    customPresets: List<UserEqPresetDto> = emptyList(),
     onCurveChanged: (EqualizerCurve) -> Unit = {},
+    onBassBoostChanged: (Int) -> Unit = {},
+    onVirtualizerChanged: (Int) -> Unit = {},
+    onLoudnessChanged: (Int) -> Unit = {},
+    onSaveCustomPreset: (name: String, curve: EqualizerCurve, bassBoost: Int, virtualizer: Int, loudness: Int) -> Unit = { _, _, _, _, _ -> },
     onAutoEqClick: () -> Unit = {},
     onClose: () -> Unit = {}
 ) {
     var bands by remember { mutableStateOf(initialCurve.bandsDb.ifEmpty { List(10) { 0f } }) }
     var preamp by remember { mutableFloatStateOf(initialCurve.preampDb) }
+    var bassBoost by remember { mutableIntStateOf(initialBassBoost) }
+    var virtualizer by remember { mutableIntStateOf(initialVirtualizer) }
+    var loudness by remember { mutableIntStateOf(initialLoudness) }
+    var selectedPresetName by remember { mutableStateOf("Flat") }
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var newPresetName by remember { mutableStateOf("") }
 
     fun notifyUpdate(newBands: List<Float>, newPreamp: Float) {
         bands = newBands
         preamp = newPreamp
         onCurveChanged(EqualizerCurve(newBands, newPreamp))
+    }
+
+    fun applyPreset(name: String, curve: EqualizerCurve, bb: Int = 0, v: Int = 0, l: Int = 0) {
+        selectedPresetName = name
+        notifyUpdate(curve.bandsDb, curve.preampDb)
+        bassBoost = bb
+        onBassBoostChanged(bb)
+        virtualizer = v
+        onVirtualizerChanged(v)
+        loudness = l
+        onLoudnessChanged(l)
+    }
+
+    fun resetAll() {
+        applyPreset("Flat", EqualizerCurve.FLAT, 0, 0, 0)
     }
 
     Box(
@@ -130,7 +167,7 @@ fun EqualizerScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "10-Band Parametric EQ",
+                        text = "Studio DSP & Equalizer",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = OnSurface
@@ -138,9 +175,7 @@ fun EqualizerScreen(
                 }
 
                 IconButton(
-                    onClick = {
-                        notifyUpdate(List(10) { 0f }, 0f)
-                    },
+                    onClick = { resetAll() },
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
@@ -155,7 +190,97 @@ fun EqualizerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Presets Horizontal Carousel
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Built-in presets
+                EqualizerCurve.PRESET_MAP.forEach { (name, curve) ->
+                    val isSelected = selectedPresetName == name
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) UnboundPrimary else SurfaceGlassHighest)
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) UnboundPrimary else BorderGlass,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable {
+                                applyPreset(name, curve, bassBoost, virtualizer, loudness)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = name,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) OnPrimary else OnSurface
+                        )
+                    }
+                }
+
+                // Custom saved presets
+                customPresets.forEach { preset ->
+                    val isSelected = selectedPresetName == preset.name
+                    val curve = EqualizerCurve(preset.bandGains, 0f)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isSelected) UnboundPrimary else SurfaceGlassHighest)
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) UnboundPrimary else BorderGlass,
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable {
+                                applyPreset(preset.name, curve, preset.bassBoost, preset.virtualizer, preset.loudness)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = preset.name,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) OnPrimary else OnSurface
+                        )
+                    }
+                }
+
+                // Save Preset Action Chip
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceGlassHighest)
+                        .border(width = 1.dp, color = UnboundPrimary.copy(alpha = 0.5f), shape = RoundedCornerShape(20.dp))
+                        .clickable { showSaveDialog = true }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Save Preset",
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Save Preset",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = UnboundPrimary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             // AutoEq Quick-Calibrate Action Card
             Box(
@@ -207,13 +332,13 @@ fun EqualizerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Dynamic Spline Frequency Response Curve Graph
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(160.dp)
+                    .height(150.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(SurfaceGlassHighest)
                     .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
@@ -237,7 +362,6 @@ fun EqualizerScreen(
 
                         bands.forEachIndexed { i, gain ->
                             val x = i * stepX
-                            // Map -12dB..+12dB to bottom..top
                             val y = midY - (gain / 12f) * (midY * 0.8f)
                             if (i == 0) {
                                 path.moveTo(x, y)
@@ -257,7 +381,148 @@ fun EqualizerScreen(
                     }
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // STUDIO HARDWARE DSP EFFECTS SECTION
+            Text(
+                text = "STUDIO AUDIO DSP",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = OnSurfaceVariant,
+                letterSpacing = 0.1.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+            )
+
+            // Sub-Bass Boost Slider
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Sub-Bass Boost",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface
+                    )
+                    Text(
+                        text = "${bassBoost / 10}%",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = UnboundPrimary
+                    )
+                }
+                Slider(
+                    value = bassBoost.toFloat(),
+                    onValueChange = {
+                        bassBoost = it.toInt()
+                        onBassBoostChanged(bassBoost)
+                    },
+                    valueRange = 0f..1000f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = UnboundPrimary,
+                        activeTrackColor = UnboundPrimary,
+                        inactiveTrackColor = UnboundSurfaceContainerHigh
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 3D Spatial Virtualizer Slider
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "3D Spatial Virtualizer",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface
+                    )
+                    Text(
+                        text = "${virtualizer / 10}%",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = UnboundPrimary
+                    )
+                }
+                Slider(
+                    value = virtualizer.toFloat(),
+                    onValueChange = {
+                        virtualizer = it.toInt()
+                        onVirtualizerChanged(virtualizer)
+                    },
+                    valueRange = 0f..1000f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = UnboundPrimary,
+                        activeTrackColor = UnboundPrimary,
+                        inactiveTrackColor = UnboundSurfaceContainerHigh
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Loudness Normalization Slider
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Loudness Normalization",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface
+                    )
+                    Text(
+                        text = String.format("+%.1f dB", loudness / 100f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = UnboundPrimary
+                    )
+                }
+                Slider(
+                    value = loudness.toFloat(),
+                    onValueChange = {
+                        loudness = it.toInt()
+                        onLoudnessChanged(loudness)
+                    },
+                    valueRange = 0f..1500f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = UnboundPrimary,
+                        activeTrackColor = UnboundPrimary,
+                        inactiveTrackColor = UnboundSurfaceContainerHigh
+                    )
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Preamp Gain Slider (-15dB to +12dB)
             Column(
@@ -298,7 +563,7 @@ fun EqualizerScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // 10 Frequency Band Sliders
             Text(
@@ -354,6 +619,70 @@ fun EqualizerScreen(
                     )
                 }
             }
+        }
+
+        // Save Custom Preset Dialog
+        if (showSaveDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveDialog = false },
+                title = {
+                    Text(
+                        text = "Save Custom Preset",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "Save your 10-band curve, Bass Boost, Virtualizer, and Loudness settings.",
+                            fontSize = 13.sp,
+                            color = OnSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedTextField(
+                            value = newPresetName,
+                            onValueChange = { newPresetName = it },
+                            label = { Text("Preset Name") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = UnboundPrimary,
+                                unfocusedBorderColor = BorderGlass,
+                                focusedTextColor = OnSurface,
+                                unfocusedTextColor = OnSurface
+                            )
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newPresetName.isNotBlank()) {
+                                onSaveCustomPreset(
+                                    newPresetName.trim(),
+                                    EqualizerCurve(bands, preamp),
+                                    bassBoost,
+                                    virtualizer,
+                                    loudness
+                                )
+                                selectedPresetName = newPresetName.trim()
+                                showSaveDialog = false
+                                newPresetName = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary)
+                    ) {
+                        Text("Save", color = OnPrimary, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveDialog = false }) {
+                        Text("Cancel", color = OnSurfaceVariant)
+                    }
+                },
+                containerColor = UnboundSurfaceContainer
+            )
         }
     }
 }

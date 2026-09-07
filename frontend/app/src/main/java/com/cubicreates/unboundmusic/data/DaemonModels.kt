@@ -156,3 +156,25 @@ data class CascadeSearchResponse(
     val tracks: List<TrackItem>
 )
 
+/**
+ * Custom User Equalizer Preset representation.
+ */
+data class UserEqPresetDto(
+    val id: String,
+    val name: String,
+    val bandGains: List<Float>,
+    val bassBoost: Int = 0,
+    val virtualizer: Int = 0,
+    val loudness: Int = 0,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+/**
+ * Storage cache purge result.
+ */
+data class CachePurgeResult(
+    val freedBytes: Long,
+    val purgedCategories: List<String>
+)
+
+

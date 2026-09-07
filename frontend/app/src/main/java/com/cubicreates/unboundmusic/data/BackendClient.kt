@@ -738,6 +738,111 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         }
     }
 
+    // ==================== SECTION 12: Phase 3 Settings Studio & Audio DSP Hub ====================
+
+    /** Fetches all persisted application key-value settings. */
+    suspend fun getAppSettings(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/settings")
+    }
+
+    /** Stores or updates a key-value setting pair. */
+    suspend fun setAppSetting(key: String, value: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("key", key).put("value", value).toString()
+        post("/api/v1/settings", payload)
+    }
+
+    /** Retrieves all custom user equalizer presets. */
+    suspend fun getCustomEqPresets(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/eq/presets")
+    }
+
+    /** Persists a custom equalizer preset to SQLite via daemon. */
+    suspend fun saveCustomEqPreset(preset: UserEqPresetDto): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val gainsArray = org.json.JSONArray()
+        preset.bandGains.forEach { gainsArray.put(it.toDouble()) }
+        val payload = JSONObject()
+            .put("id", preset.id)
+            .put("name", preset.name)
+            .put("band_gains", gainsArray)
+            .put("bass_boost", preset.bassBoost)
+            .put("virtualizer", preset.virtualizer)
+            .put("loudness", preset.loudness)
+            .toString()
+        post("/api/v1/eq/presets", payload)
+    }
+
+    /** Triggers on-device storage cache purge across cache, tmp, and lyrics. */
+    suspend fun purgeStorageCache(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        post("/api/v1/storage/purge_cache", "{}")
+    }
+
+    /** Parses settings map from JSON response. */
+    fun parseSettings(jsonStr: String): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        try {
+            val root = JSONObject(jsonStr)
+            val settingsObj = root.optJSONObject("settings")
+            if (settingsObj != null) {
+                val keys = settingsObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    map[k] = settingsObj.optString(k, "")
+                }
+            }
+        } catch (_: Exception) {}
+        return map
+    }
+
+    /** Parses UserEqPresetDto list from JSON response. */
+    fun parseEqPresets(jsonStr: String): List<UserEqPresetDto> {
+        val list = mutableListOf<UserEqPresetDto>()
+        try {
+            val root = JSONObject(jsonStr)
+            val arr = root.optJSONArray("presets") ?: return list
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                val bandGains = mutableListOf<Float>()
+                val bandsArr = p.optJSONArray("band_gains")
+                if (bandsArr != null) {
+                    for (b in 0 until bandsArr.length()) {
+                        bandGains.add(bandsArr.optDouble(b, 0.0).toFloat())
+                    }
+                }
+                list.add(
+                    UserEqPresetDto(
+                        id = p.optString("id", ""),
+                        name = p.optString("name", "Custom"),
+                        bandGains = bandGains,
+                        bassBoost = p.optInt("bass_boost", 0),
+                        virtualizer = p.optInt("virtualizer", 0),
+                        loudness = p.optInt("loudness", 0)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    /** Parses CachePurgeResult from JSON response. */
+    fun parseCachePurgeResult(jsonStr: String): CachePurgeResult? {
+        return try {
+            val root = JSONObject(jsonStr)
+            val categories = mutableListOf<String>()
+            val arr = root.optJSONArray("purged_categories")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    categories.add(arr.optString(i))
+                }
+            }
+            CachePurgeResult(
+                freedBytes = root.optLong("freed_bytes", 0L),
+                purgedCategories = categories
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==================== HTTP Transport ====================
 
     private fun get(path: String): Pair<Int, String> {

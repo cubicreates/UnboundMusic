@@ -163,5 +163,19 @@ CREATE TABLE IF NOT EXISTS user_credentials (
     val TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_eq_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    band_levels_json TEXT NOT NULL,
+    bass_boost INTEGER DEFAULT 0,
+    virtualizer INTEGER DEFAULT 0
+);
 `
 

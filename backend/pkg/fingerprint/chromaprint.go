@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,13 +42,9 @@ func GenerateFingerprint(ctx context.Context, fpcalcPath, filePath string) (*Fin
 		return nil, fmt.Errorf("target path is a directory, not an audio file: %q", filePath)
 	}
 
-	bin := fpcalcPath
-	if strings.TrimSpace(bin) == "" {
-		resolved, err := exec.LookPath("fpcalc")
-		if err != nil {
-			return nil, fmt.Errorf("fpcalc binary not specified and not found in PATH: %w", err)
-		}
-		bin = resolved
+	bin, err := ResolveFpcalcBinary(fpcalcPath)
+	if err != nil {
+		return nil, err
 	}
 
 	cmd := exec.CommandContext(ctx, bin, "-json", filePath)
@@ -87,3 +84,45 @@ func ParseFpcalcJSON(output []byte) (*FingerprintResult, error) {
 
 	return &res, nil
 }
+
+// ResolveFpcalcBinary locates the fpcalc executable across PATH, backend/bin, and system paths.
+func ResolveFpcalcBinary(fpcalcPath string) (string, error) {
+	if strings.TrimSpace(fpcalcPath) != "" {
+		if _, err := os.Stat(fpcalcPath); err == nil {
+			return fpcalcPath, nil
+		}
+	}
+
+	if resolved, err := exec.LookPath("fpcalc"); err == nil {
+		return resolved, nil
+	}
+
+	candidates := []string{
+		"bin/fpcalc.exe",
+		"bin/fpcalc",
+		"../bin/fpcalc.exe",
+		"../bin/fpcalc",
+		"backend/bin/fpcalc.exe",
+		"backend/bin/fpcalc",
+	}
+
+	userProfile := os.Getenv("USERPROFILE")
+	if userProfile != "" {
+		candidates = append(candidates,
+			filepath.Join(userProfile, "Downloads", "chromaprint-fpcalc-1.6.1-windows-x86_64", "chromaprint-fpcalc-1.6.1-windows-x86_64", "fpcalc.exe"),
+			filepath.Join(userProfile, "Downloads", "chromaprint-fpcalc-1.6.1-windows-x86_64", "fpcalc.exe"),
+		)
+	}
+
+	for _, cand := range candidates {
+		if _, err := os.Stat(cand); err == nil {
+			if abs, err := filepath.Abs(cand); err == nil {
+				return abs, nil
+			}
+			return cand, nil
+		}
+	}
+
+	return "", errors.New("fpcalc binary not specified and not found in PATH, backend/bin, or Downloads")
+}
+

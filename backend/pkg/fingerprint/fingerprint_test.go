@@ -343,3 +343,16 @@ func TestGetAcoustIDClientKeyConfig(t *testing.T) {
 	}
 }
 
+// TestResolveFpcalcBinary tests binary discovery across fallbacks.
+func TestResolveFpcalcBinary(t *testing.T) {
+	bin, err := ResolveFpcalcBinary("")
+	if err != nil {
+		t.Logf("fpcalc binary not found on this machine: %v", err)
+	} else {
+		t.Logf("fpcalc binary successfully resolved at: %s", bin)
+		if _, err := os.Stat(bin); err != nil {
+			t.Errorf("resolved binary does not exist on disk: %v", err)
+		}
+	}
+}
+

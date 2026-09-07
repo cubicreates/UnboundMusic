@@ -40,3 +40,4 @@ inspiration/
 *.zst
 backend/assets/payload/
 frontend/app/src/main/assets/payload/
+backend/bin/

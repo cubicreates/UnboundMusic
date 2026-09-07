@@ -27,7 +27,7 @@ import (
 // Default AcoustID configuration constants
 const (
 	DefaultAcoustIDEndpoint  = "https://api.acoustid.org/v2/lookup"
-	DefaultAcoustIDClientKey = "8XaBELgH"
+	DefaultAcoustIDClientKey = "io2Fp7dEPV"
 	DefaultUserAgent         = "UnboundMusic/1.0 (Android; open-source)"
 	MinConfidenceScore       = 0.70
 )

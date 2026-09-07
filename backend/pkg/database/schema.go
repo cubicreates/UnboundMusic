@@ -105,5 +105,46 @@ CREATE TABLE IF NOT EXISTS taste_vectors (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS taste_events (
+    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist_id TEXT NOT NULL,
+    artist_name TEXT NOT NULL,
+    genre TEXT,
+    duration_ms INTEGER NOT NULL,
+    listened_ms INTEGER NOT NULL,
+    completion_ratio REAL NOT NULL,
+    score_delta REAL NOT NULL,
+    event_type TEXT NOT NULL,
+    timestamp INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_taste_events_artist ON taste_events(artist_id);
+CREATE INDEX IF NOT EXISTS idx_taste_events_track ON taste_events(track_id);
+CREATE INDEX IF NOT EXISTS idx_taste_events_time ON taste_events(timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS artist_affinity (
+    artist_id TEXT PRIMARY KEY,
+    artist_name TEXT NOT NULL,
+    affinity_score REAL DEFAULT 0.0,
+    play_count INTEGER DEFAULT 0,
+    skip_count INTEGER DEFAULT 0,
+    fast_skip_streak INTEGER DEFAULT 0,
+    is_banned INTEGER DEFAULT 0,
+    ban_until_timestamp INTEGER DEFAULT 0,
+    last_listened_timestamp INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_affinity_score ON artist_affinity(affinity_score DESC);
+CREATE INDEX IF NOT EXISTS idx_affinity_banned ON artist_affinity(is_banned);
+
+CREATE TABLE IF NOT EXISTS track_transitions (
+    source_track_id TEXT NOT NULL,
+    target_track_id TEXT NOT NULL,
+    transition_count INTEGER DEFAULT 1,
+    last_transition_timestamp INTEGER NOT NULL,
+    PRIMARY KEY (source_track_id, target_track_id)
+);
+CREATE INDEX IF NOT EXISTS idx_transitions_source ON track_transitions(source_track_id, transition_count DESC);
 `
 

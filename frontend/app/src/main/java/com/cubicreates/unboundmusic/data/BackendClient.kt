@@ -521,6 +521,110 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         VibeSearchResponse(vibeResult, radioTracks)
     }
 
+    /** Generates on-demand serendipity magic radio mix. */
+    suspend fun getMagicRadio(localHour: Int? = null, seedTrackId: String? = null): MagicRadioResult? = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            if (localHour != null) put("local_hour", localHour)
+            if (!seedTrackId.isNullOrBlank()) put("seed_track_id", seedTrackId)
+        }
+        val (code, json) = post("/api/v1/radio/magic", payload.toString())
+        if (code != 200 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val seedObj = root.getJSONObject("seed_track")
+            val seed = TrackItem(
+                id = seedObj.optString("id"),
+                title = seedObj.optString("title"),
+                artist = seedObj.optString("artist"),
+                album = seedObj.optString("album"),
+                coverUrl = seedObj.optString("thumbnail"),
+                durationMs = seedObj.optLong("duration_ms"),
+                source = seedObj.optString("source", "youtube")
+            )
+            val queueArr = root.optJSONArray("queue")
+            val queue = mutableListOf<TrackItem>()
+            if (queueArr != null) {
+                for (i in 0 until queueArr.length()) {
+                    val t = queueArr.getJSONObject(i)
+                    queue.add(
+                        TrackItem(
+                            id = t.optString("id"),
+                            title = t.optString("title"),
+                            artist = t.optString("artist"),
+                            album = t.optString("album"),
+                            coverUrl = t.optString("thumbnail"),
+                            durationMs = t.optLong("duration_ms"),
+                            source = t.optString("source", "youtube")
+                        )
+                    )
+                }
+            }
+            MagicRadioResult(
+                seedTrack = seed,
+                queue = queue,
+                source = root.optString("source", "youtube_hybrid"),
+                generatedMs = root.optLong("generated_ms", 0L)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Ingests physical listening event (skip, completion, replay) into on-device taste engine. */
+    suspend fun recordTasteEvent(
+        trackId: String,
+        title: String,
+        artistId: String,
+        artistName: String,
+        durationMs: Long,
+        listenedMs: Long,
+        eventType: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("track_id", trackId)
+            put("title", title)
+            put("artist_id", artistId)
+            put("artist_name", artistName)
+            put("duration_ms", durationMs)
+            put("listened_ms", listenedMs)
+            if (!eventType.isNullOrBlank()) put("event_type", eventType)
+        }
+        val (code, _) = post("/api/v1/analytics/taste_event", payload.toString())
+        code in 200..299
+    }
+
+    /** Retrieves on-device taste profile summary. */
+    suspend fun getTasteProfile(limit: Int = 10): TasteProfileResponse? = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/taste/profile?limit=$limit")
+        if (code != 200 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val artistsArr = root.optJSONArray("top_artists")
+            val list = mutableListOf<ArtistAffinityItem>()
+            if (artistsArr != null) {
+                for (i in 0 until artistsArr.length()) {
+                    val a = artistsArr.getJSONObject(i)
+                    list.add(
+                        ArtistAffinityItem(
+                            artistId = a.optString("artist_id"),
+                            artistName = a.optString("artist_name"),
+                            affinityScore = a.optDouble("affinity_score", 0.0),
+                            playCount = a.optInt("play_count", 0),
+                            skipCount = a.optInt("skip_count", 0),
+                            isBanned = a.optBoolean("is_banned", false)
+                        )
+                    )
+                }
+            }
+            TasteProfileResponse(
+                topArtists = list,
+                tasteDiversityScore = root.optDouble("taste_diversity_score", 5.0)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==================== HTTP Transport ====================
 
     private fun get(path: String): Pair<Int, String> {

@@ -105,3 +105,34 @@ data class StorageScanResponse(
     val unchangedTracks: Int,
     val elapsedMs: Long
 )
+
+/**
+ * Response payload from POST /api/v1/radio/magic.
+ */
+data class MagicRadioResult(
+    val seedTrack: TrackItem,
+    val queue: List<TrackItem>,
+    val source: String,
+    val generatedMs: Long
+)
+
+/**
+ * Top artist preference summary from GET /api/v1/taste/profile.
+ */
+data class ArtistAffinityItem(
+    val artistId: String,
+    val artistName: String,
+    val affinityScore: Double,
+    val playCount: Int,
+    val skipCount: Int,
+    val isBanned: Boolean
+)
+
+/**
+ * User taste profile and Shannon entropy diversity metrics.
+ */
+data class TasteProfileResponse(
+    val topArtists: List<ArtistAffinityItem>,
+    val tasteDiversityScore: Double
+)
+

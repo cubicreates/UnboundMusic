@@ -197,6 +197,11 @@ class ServiceConnection private constructor(private val context: Context) {
         }
     }
 
+    fun setQueue(tracks: List<TrackItem>) {
+        originalQueue = tracks.toMutableList()
+        syncState()
+    }
+
     fun setPlaybackMode(mode: PlaybackMode) {
         currentMode = mode
         val ctrl = controller ?: return

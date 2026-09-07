@@ -42,8 +42,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.Calendar
 
 /**
  * Central ViewModel orchestrating all app state: playback, search, lyrics, analytics, library.
@@ -341,6 +345,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+
+    // ==================== Phase 1: Magic Serendipity Radio & Telemetry ====================
+
+    private var lastMagicRadioTriggerTime = 0L
+    private val magicRadioMutex = Mutex()
+
+    /**
+     * Triggers the on-device Magic Serendipity Radio algorithm when the player is idle (< 300ms).
+     * Populates the 25-track queue, starts playback of the seed track, and invokes onReady to expand NowPlayingScreen.
+     */
+    fun triggerMagicRadio(onReady: () -> Unit) {
+        val now = System.currentTimeMillis()
+        if (now - lastMagicRadioTriggerTime < 500L) return
+        lastMagicRadioTriggerTime = now
+
+        viewModelScope.launch(Dispatchers.IO) {
+            magicRadioMutex.withLock {
+                try {
+                    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                    val result = client.getMagicRadio(localHour = hour)
+                    if (result != null && result.queue.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            serviceConnection.setQueue(result.queue)
+                            playTrack(result.seedTrack)
+                            onReady()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Magic radio error: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Ingests physical playback behavior telemetry (completions, skips, loops) into on-device taste engine.
+     */
+    fun logPlaybackTelemetry(track: TrackItem, listenedMs: Long, durationMs: Long, isCompleted: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val eventType = when {
+                isCompleted || (durationMs > 0 && listenedMs.toDouble() / durationMs >= 0.85) -> "COMPLETE"
+                listenedMs < 15000 -> "FAST_SKIP"
+                listenedMs < 45000 -> "MILD_SKIP"
+                else -> "COMPLETE"
+            }
+            client.recordTasteEvent(
+                trackId = track.title,
+                title = track.title,
+                artistId = track.artist,
+                artistName = track.artist,
+                durationMs = durationMs,
+                listenedMs = listenedMs,
+                eventType = eventType
+            )
+        }
+    }
 
     // ==================== Playback Commands ====================
 

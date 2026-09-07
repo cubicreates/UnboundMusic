@@ -14,8 +14,10 @@ import (
 	"sync/atomic"
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
+	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
+	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
@@ -26,6 +28,7 @@ type Daemon struct {
 	moodEng     *moods.Engine
 	aiRunner    *ai.Runner
 	ytClient    *ytmusic.Client
+	radioGen    *ytmusic.RadioGenerator
 	isScanning  int32
 }
 
@@ -50,12 +53,17 @@ func NewDaemon(
 		aiRunner = ai.NewRunner()
 	}
 
+	markov := analytics.NewMarkovTracker(repo)
+	reranker := recommender.NewReRanker()
+	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
+
 	return &Daemon{
 		repo:       repo,
 		exploreEng: exploreEng,
 		moodEng:    moodEng,
 		aiRunner:   aiRunner,
 		ytClient:   ytClient,
+		radioGen:   radioGen,
 	}
 }
 
@@ -74,6 +82,11 @@ func (d *Daemon) Routes() http.Handler {
 
 	// Edge AI Natural Language Vibe Search
 	mux.HandleFunc("/api/v1/search/vibe", d.HandleVibeSearch)
+
+	// Phase 1: Magic Serendipity Radio & Taste Telemetry
+	mux.HandleFunc("/api/v1/radio/magic", d.HandleMagicRadio)
+	mux.HandleFunc("/api/v1/analytics/taste_event", d.HandleRecordTasteEvent)
+	mux.HandleFunc("/api/v1/taste/profile", d.HandleGetTasteProfile)
 
 	return d.corsMiddleware(mux)
 }

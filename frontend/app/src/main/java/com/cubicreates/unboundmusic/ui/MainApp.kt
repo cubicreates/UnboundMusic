@@ -151,7 +151,13 @@ fun MainApp(
                             currentTab = selectedTab,
                             onTabSelected = { tab ->
                                 if (tab == NavigationTab.PLAYING) {
-                                    isPlayerExpanded = true
+                                    if (playbackState.isPlaying || playbackState.currentPositionMs > 0) {
+                                        isPlayerExpanded = true
+                                    } else {
+                                        viewModel.triggerMagicRadio {
+                                            isPlayerExpanded = true
+                                        }
+                                    }
                                 } else {
                                     selectedTab = tab
                                 }

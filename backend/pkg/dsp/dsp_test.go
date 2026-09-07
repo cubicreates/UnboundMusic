@@ -9,16 +9,34 @@
 package dsp
 
 import (
+	"math"
 	"testing"
 )
 
-// TestCalculateReplayGain validates RMS calculations and peak limiting.
+// TestCalculateReplayGain validates RMS calculations, K-weighting LUFS, and peak limiting.
 func TestCalculateReplayGain(t *testing.T) {
 	samples := []float32{0.1, 0.2, -0.2, 0.3, -0.3, 0.1}
 	res := CalculateReplayGain(samples, -14.0)
 
 	if res.RecommendedScale <= 0 {
 		t.Errorf("expected positive recommended scale multiplier, got %f", res.RecommendedScale)
+	}
+
+	if res.MeasuredLUFS == 0 {
+		t.Errorf("expected non-zero MeasuredLUFS")
+	}
+}
+
+// TestKWeightingFilter verifies high-pass sub-bass attenuation according to ITU-R BS.1770-4.
+func TestKWeightingFilter(t *testing.T) {
+	filter := &KWeightingFilter{}
+	// At 48kHz, 38Hz high-pass filter settles to zero DC within 2000 samples (~40ms)
+	var lastOutput float64
+	for i := 0; i < 2000; i++ {
+		lastOutput = filter.ProcessSample(1.0)
+	}
+	if math.Abs(lastOutput) > 0.01 {
+		t.Errorf("expected DC/sub-bass attenuation towards 0, got %f", lastOutput)
 	}
 }
 

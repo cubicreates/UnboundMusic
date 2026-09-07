@@ -24,8 +24,9 @@ const (
 
 // NormalizationResult holds loudness gain and peak calculations.
 type NormalizationResult struct {
-	OriginalRMSDBFS float64 `json:"original_rms_dbfs"`
-	TargetLUFS      float64 `json:"target_lufs"`
+	OriginalRMSDBFS  float64 `json:"original_rms_dbfs"`
+	MeasuredLUFS     float64 `json:"measured_lufs"`
+	TargetLUFS       float64 `json:"target_lufs"`
 	GainAdjustmentDB float64 `json:"gain_adjustment_db"`
 	RecommendedScale float64 `json:"recommended_scale"` // Multiplier for audio samples
 	PreventClipping  bool    `json:"prevent_clipping"`
@@ -39,7 +40,51 @@ type SilenceTrimResult struct {
 	TrimmedEndMs   int64 `json:"trimmed_end_ms"`
 }
 
-// CalculateReplayGain computes loudness adjustment to match standard target (-14 LUFS / -18 LUFS).
+// KWeightingFilter implements the 2-stage biquad filtering defined in ITU-R BS.1770-4.
+// Stage 1: High-shelf filter modeling the acoustic head effect (+4 dB boost above ~1.5 kHz).
+// Stage 2: High-pass RLB weighting filter (-3 dB cutoff at ~38 Hz).
+type KWeightingFilter struct {
+	s1_x1, s1_x2, s1_y1, s1_y2 float64
+	s2_x1, s2_x2, s2_y1, s2_y2 float64
+}
+
+// Standard BS.1770 filter coefficients for 48kHz audio.
+const (
+	// Stage 1 High-shelf
+	kStage1_b0 = 1.53512485958697
+	kStage1_b1 = -2.69169618940638
+	kStage1_b2 = 1.19839281085285
+	kStage1_a1 = -1.69065929318241
+	kStage1_a2 = 0.73248077421585
+
+	// Stage 2 High-pass (RLB)
+	kStage2_b0 = 1.0
+	kStage2_b1 = -2.0
+	kStage2_b2 = 1.0
+	kStage2_a1 = -1.99004745483398
+	kStage2_a2 = 0.99007225035621
+)
+
+func (f *KWeightingFilter) ProcessSample(x float64) float64 {
+	// Stage 1: High-shelf filter
+	y1 := kStage1_b0*x + kStage1_b1*f.s1_x1 + kStage1_b2*f.s1_x2 - kStage1_a1*f.s1_y1 - kStage1_a2*f.s1_y2
+	f.s1_x2 = f.s1_x1
+	f.s1_x1 = x
+	f.s1_y2 = f.s1_y1
+	f.s1_y1 = y1
+
+	// Stage 2: High-pass (RLB) filter
+	y2 := kStage2_b0*y1 + kStage2_b1*f.s2_x1 + kStage2_b2*f.s2_x2 - kStage2_a1*f.s2_y1 - kStage2_a2*f.s2_y2
+	f.s2_x2 = f.s2_x1
+	f.s2_x1 = y1
+	f.s2_y2 = f.s2_y1
+	f.s2_y1 = y2
+
+	return y2
+}
+
+// CalculateReplayGain computes loudness adjustment to match standard target (-14 LUFS / -18 LUFS)
+// using ITU-R BS.1770-4 K-weighting pre-filtering.
 func CalculateReplayGain(samples []float32, targetLUFS float64) NormalizationResult {
 	if len(samples) == 0 {
 		return NormalizationResult{TargetLUFS: targetLUFS, RecommendedScale: 1.0}
@@ -48,8 +93,11 @@ func CalculateReplayGain(samples []float32, targetLUFS float64) NormalizationRes
 		targetLUFS = -14.0 // Standard streaming target (Spotify / YouTube Music)
 	}
 
-	var sumSquares float64
+	var sumRawSquares float64
+	var sumKSquares float64
 	var peak float64
+
+	filter := &KWeightingFilter{}
 
 	for _, s := range samples {
 		val := float64(s)
@@ -57,16 +105,29 @@ func CalculateReplayGain(samples []float32, targetLUFS float64) NormalizationRes
 		if absVal > peak {
 			peak = absVal
 		}
-		sumSquares += val * val
+		sumRawSquares += val * val
+
+		kSample := filter.ProcessSample(val)
+		sumKSquares += kSample * kSample
 	}
 
-	rms := math.Sqrt(sumSquares / float64(len(samples)))
-	if rms <= 0.00001 {
-		return NormalizationResult{OriginalRMSDBFS: -100, TargetLUFS: targetLUFS, RecommendedScale: 1.0}
+	n := float64(len(samples))
+	rms := math.Sqrt(sumRawSquares / n)
+	rmsDBFS := -100.0
+	if rms > 0.00001 {
+		rmsDBFS = 20.0 * math.Log10(rms)
 	}
 
-	rmsDBFS := 20.0 * math.Log10(rms)
-	gainDB := targetLUFS - rmsDBFS
+	// ITU-R BS.1770-4 LUFS formula: -0.691 + 10 * log10(mean_square_k)
+	meanKSquare := sumKSquares / n
+	measuredLUFS := -100.0
+	if meanKSquare > 0.0000000001 {
+		measuredLUFS = -0.691 + 10.0*math.Log10(meanKSquare)
+	} else if rmsDBFS > -100 {
+		measuredLUFS = rmsDBFS
+	}
+
+	gainDB := targetLUFS - measuredLUFS
 
 	// Calculate linear multiplier
 	scale := math.Pow(10.0, gainDB/20.0)
@@ -80,6 +141,7 @@ func CalculateReplayGain(samples []float32, targetLUFS float64) NormalizationRes
 
 	return NormalizationResult{
 		OriginalRMSDBFS:  math.Round(rmsDBFS*10) / 10,
+		MeasuredLUFS:     math.Round(measuredLUFS*10) / 10,
 		TargetLUFS:       targetLUFS,
 		GainAdjustmentDB: math.Round(gainDB*10) / 10,
 		RecommendedScale: math.Round(scale*1000) / 1000,

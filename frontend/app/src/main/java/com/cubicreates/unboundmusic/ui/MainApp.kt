@@ -40,6 +40,7 @@ import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.player.NowPlayingScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
+import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
@@ -105,6 +106,17 @@ fun MainApp(
     val isLoadingArtist by viewModel.isLoadingArtist.collectAsStateWithLifecycle()
     val recapData by viewModel.recapData.collectAsStateWithLifecycle()
 
+    val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
+    val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsStateWithLifecycle()
+
+    val currentTask = downloadTasks[currentTrack.id]
+    val currentDownloadStatus = when {
+        currentTrack.id in downloadedTrackIds || currentTrack.source.contains("Downloads", ignoreCase = true) || currentTask?.status == "COMPLETED" -> DownloadUiStatus.DOWNLOADED
+        currentTask?.status == "DOWNLOADING" || currentTask?.status == "TAGGING" || currentTask?.status == "QUEUED" -> DownloadUiStatus.DOWNLOADING
+        else -> DownloadUiStatus.NOT_DOWNLOADED
+    }
+    val currentDownloadProgress = currentTask?.progress ?: 0.0
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -138,7 +150,12 @@ fun MainApp(
                 onSeekPositionMs = { viewModel.seekToPositionMs(it) },
                 onCyclePlaybackMode = { viewModel.cyclePlaybackMode() },
                 onEqualizerClick = { showEqualizer = true },
-                onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) }
+                onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) },
+                downloadStatus = currentDownloadStatus,
+                downloadProgress = currentDownloadProgress,
+                onStartDownload = { viewModel.startTrackDownload(currentTrack) },
+                onCancelDownload = { viewModel.cancelTrackDownload(currentTrack.id) },
+                onDeleteDownload = { viewModel.deleteTrackDownload(currentTrack.id) }
             )
         } else {
             // Standard Tab Navigation Content inside Responsive Scaffold
@@ -245,6 +262,10 @@ fun MainApp(
                                     youtubeCount = if (isYouTubeConnected) syncedYouTubeTracks.size else youtubeCount,
                                     tracks = libraryTracks,
                                     syncedYouTubeTracks = syncedYouTubeTracks,
+                                    downloadTasks = downloadTasks,
+                                    onStartDownload = { viewModel.startTrackDownload(it) },
+                                    onCancelDownload = { viewModel.cancelTrackDownload(it) },
+                                    onDeleteDownload = { viewModel.deleteTrackDownload(it) },
                                     onSourceClick = { source ->
                                         if (source.title == "Synced YouTube" && !isYouTubeConnected) {
                                             showYouTubeLoginSheet = true

@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.ui.components.DownloadButton
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
@@ -101,7 +102,12 @@ fun NowPlayingScreen(
     onSeekPositionMs: (Long) -> Unit = {},
     onCyclePlaybackMode: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
-    onQueueTrackSelect: (Int) -> Unit = {}
+    onQueueTrackSelect: (Int) -> Unit = {},
+    downloadStatus: com.cubicreates.unboundmusic.data.DownloadUiStatus = com.cubicreates.unboundmusic.data.DownloadUiStatus.NOT_DOWNLOADED,
+    downloadProgress: Double = 0.0,
+    onStartDownload: () -> Unit = {},
+    onCancelDownload: () -> Unit = {},
+    onDeleteDownload: () -> Unit = {}
 ) {
     var showQueueSheet by remember { mutableStateOf(false) }
     var showFullLyrics by remember { mutableStateOf(false) }
@@ -271,20 +277,35 @@ fun NowPlayingScreen(
                     )
                 }
 
-                IconButton(
-                    onClick = onFavoriteToggle,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceGlassHighest)
-                        .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = "Favorite",
-                        tint = if (isFavorite) UnboundPrimary else OnSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
+                    DownloadButton(
+                        status = downloadStatus,
+                        progress = downloadProgress,
+                        onStartDownload = onStartDownload,
+                        onCancelDownload = onCancelDownload,
+                        onDeleteDownload = onDeleteDownload,
+                        trackTitle = track.title,
+                        size = 48.dp
                     )
+
+                    IconButton(
+                        onClick = onFavoriteToggle,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(SurfaceGlassHighest)
+                            .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Favorite",
+                            tint = if (isFavorite) UnboundPrimary else OnSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 

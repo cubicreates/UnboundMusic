@@ -20,6 +20,9 @@ import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.AccountStatusData
 import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.DaypartingState
+import com.cubicreates.unboundmusic.data.DownloadStartRequest
+import com.cubicreates.unboundmusic.data.DownloadTaskDto
+import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
@@ -182,6 +185,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _youtubeCount = MutableStateFlow(4)
     val youtubeCount: StateFlow<Int> = _youtubeCount.asStateFlow()
 
+    // ==================== Phase 5: Offline Downloader & Storage Engine ====================
+
+    private val _downloadTasks = MutableStateFlow<Map<String, DownloadTaskDto>>(emptyMap())
+    val downloadTasks: StateFlow<Map<String, DownloadTaskDto>> = _downloadTasks.asStateFlow()
+
+    private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
+
+    private var isPollingDownloads = false
+
     // ==================== YouTube Account & Synced Library State ====================
 
     private val _isYouTubeConnected = MutableStateFlow(false)
@@ -268,6 +281,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Orchestrate startup hydration with splash screen telemetry
         startStartupHydration()
+
+        // Resume download polling if previous active tasks exist
+        startDownloadPollingLoop()
     }
 
     private fun startStartupHydration() {
@@ -861,17 +877,144 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val unboundMusicDir = File("/storage/emulated/0/Unbound/Music")
                 if (unboundMusicDir.exists()) {
-                    val (code, resp) = client.storageIndex(unboundMusicDir.absolutePath)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val json = JSONObject(resp)
-                        val total = json.optInt("total_indexed", json.optInt("indexed_tracks", 0))
-                        if (total > 0) {
-                            _downloadsCount.value = total
-                        }
+                    client.storageIndex(unboundMusicDir.absolutePath)
+                }
+
+                val scanPaths = listOf(
+                    "/storage/emulated/0/Download/",
+                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio/",
+                    "/storage/emulated/0/Telegram/Telegram Audio/",
+                    "/storage/emulated/0/Music/"
+                )
+                client.scanStorage(scanPaths)
+
+                val whatsapp = client.getLocalTracks("whatsapp")
+                val telegram = client.getLocalTracks("telegram")
+                val downloads = client.getLocalTracks("downloads")
+                val unboundDownloads = client.getLocalTracks("Unbound Downloads")
+
+                _whatsappCount.value = whatsapp.size
+                _telegramCount.value = telegram.size
+                _downloadsCount.value = downloads.size + unboundDownloads.size
+
+                val folders = mutableMapOf<String, List<LocalTrack>>()
+                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
+                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
+                val combinedDownloads = downloads + unboundDownloads
+                if (combinedDownloads.isNotEmpty()) folders["Downloads"] = combinedDownloads
+
+                _libraryFolders.value = folders
+
+                val allLocal = (whatsapp + telegram + combinedDownloads).map { it.toTrackItem() }
+                if (allLocal.isNotEmpty()) {
+                    _libraryTracks.value = allLocal
+                }
+
+                val dlIds = unboundDownloads.map { it.id }.toSet()
+                _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
+            } catch (e: Exception) {
+                Log.d(TAG, "Library refresh note: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== Phase 5: Offline Downloader Orchestration ====================
+
+    /** Initiates a physical background chunked download for an audio track. */
+    fun startTrackDownload(track: TrackItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.startDownload(
+                    videoId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    album = track.album,
+                    artworkUrl = track.coverUrl
+                )
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val task = client.parseDownloadTask(resp)
+                    if (task != null) {
+                        _downloadTasks.value = _downloadTasks.value + (task.videoId to task)
+                        startDownloadPollingLoop()
                     }
                 }
             } catch (e: Exception) {
-                Log.d(TAG, "Library refresh note: ${e.message}")
+                Log.e(TAG, "startTrackDownload failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Cancels an ongoing download and clears partial artifacts. */
+    fun cancelTrackDownload(videoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.cancelDownload(videoId)
+                val current = _downloadTasks.value.toMutableMap()
+                val task = current[videoId]
+                if (task != null) {
+                    current[videoId] = task.copy(status = "CANCELLED")
+                    _downloadTasks.value = current
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "cancelTrackDownload failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Removes an offline track from disk and local database. */
+    fun deleteTrackDownload(videoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.deleteDownload(videoId, true)
+                val current = _downloadTasks.value.toMutableMap()
+                current.remove(videoId)
+                _downloadTasks.value = current
+                _downloadedTrackIds.value = _downloadedTrackIds.value - videoId
+                refreshLibrary()
+            } catch (e: Exception) {
+                Log.e(TAG, "deleteTrackDownload failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Polls active downloads from Go daemon until all tasks are completed, failed, or cancelled. */
+    fun startDownloadPollingLoop() {
+        if (isPollingDownloads) return
+        isPollingDownloads = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                while (isActive) {
+                    val (code, resp) = client.getActiveDownloads()
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val activeTasks = client.parseActiveDownloads(resp)
+                        val taskMap = activeTasks.associateBy { it.videoId }
+                        _downloadTasks.value = taskMap
+
+                        val completedIds = activeTasks.filter { it.status == "COMPLETED" }.map { it.videoId }.toSet()
+                        if (completedIds.isNotEmpty()) {
+                            val prevCompleted = _downloadedTrackIds.value
+                            _downloadedTrackIds.value = prevCompleted + completedIds
+                            if (completedIds.any { it !in prevCompleted }) {
+                                refreshLibrary()
+                            }
+                        }
+
+                        val hasActive = activeTasks.any {
+                            it.status == "QUEUED" || it.status == "DOWNLOADING" || it.status == "TAGGING"
+                        }
+                        if (!hasActive) {
+                            break
+                        }
+                    } else {
+                        break
+                    }
+                    delay(1000)
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Download polling loop finished: ${e.message}")
+            } finally {
+                isPollingDownloads = false
             }
         }
     }

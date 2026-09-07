@@ -11,12 +11,15 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/cubicreates/unbound-engine/pkg/account"
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/database"
+	"github.com/cubicreates/unbound-engine/pkg/downloader"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
@@ -31,6 +34,7 @@ type Daemon struct {
 	ytClient    *ytmusic.Client
 	radioGen    *ytmusic.RadioGenerator
 	syncer      *account.Syncer
+	downloadMgr *downloader.Manager
 	isScanning  int32
 }
 
@@ -41,6 +45,7 @@ func NewDaemon(
 	moodEng *moods.Engine,
 	aiRunner *ai.Runner,
 	ytClient *ytmusic.Client,
+	downloadMgrs ...*downloader.Manager,
 ) *Daemon {
 	if ytClient == nil {
 		ytClient = ytmusic.NewClient()
@@ -60,14 +65,27 @@ func NewDaemon(
 	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
 	syncer := account.NewSyncer(repo, ytClient)
 
+	var downloadMgr *downloader.Manager
+	if len(downloadMgrs) > 0 && downloadMgrs[0] != nil {
+		downloadMgr = downloadMgrs[0]
+	} else {
+		homeDir, err := os.UserHomeDir()
+		baseDir := os.TempDir()
+		if err == nil {
+			baseDir = filepath.Join(homeDir, "Music", "Unbound")
+		}
+		downloadMgr = downloader.NewManager(baseDir, ytClient, repo)
+	}
+
 	return &Daemon{
-		repo:       repo,
-		exploreEng: exploreEng,
-		moodEng:    moodEng,
-		aiRunner:   aiRunner,
-		ytClient:   ytClient,
-		radioGen:   radioGen,
-		syncer:     syncer,
+		repo:        repo,
+		exploreEng:  exploreEng,
+		moodEng:     moodEng,
+		aiRunner:    aiRunner,
+		ytClient:    ytClient,
+		radioGen:    radioGen,
+		syncer:      syncer,
+		downloadMgr: downloadMgr,
 	}
 }
 
@@ -125,6 +143,15 @@ func (d *Daemon) Routes() http.Handler {
 		}
 	})
 	mux.HandleFunc("/api/v1/storage/purge_cache", d.HandlePurgeCache)
+
+	// Phase 5: Offline Physical Music Downloader & Storage Management
+	mux.HandleFunc("/api/v1/download/start", d.HandleStartDownload)
+	mux.HandleFunc("/api/v1/download/status", d.HandleGetDownloadStatus)
+	mux.HandleFunc("/api/v1/download/active", d.HandleGetActiveDownloads)
+	mux.HandleFunc("/api/v1/download/pause", d.HandlePauseDownload)
+	mux.HandleFunc("/api/v1/download/resume", d.HandleResumeDownload)
+	mux.HandleFunc("/api/v1/download/cancel", d.HandleCancelDownload)
+	mux.HandleFunc("/api/v1/download/delete", d.HandleDeleteDownload)
 
 	return d.corsMiddleware(mux)
 }

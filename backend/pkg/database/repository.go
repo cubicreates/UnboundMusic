@@ -332,6 +332,13 @@ func (r *Repository) GetLocalTrackByPath(ctx context.Context, filePath string) (
 	return &t, nil
 }
 
+// DeleteLocalTrack removes an indexed track from local_tracks by file path.
+func (r *Repository) DeleteLocalTrack(ctx context.Context, filePath string) error {
+	query := `DELETE FROM local_tracks WHERE file_path = ?;`
+	_, err := r.db.conn.ExecContext(ctx, query, filePath)
+	return err
+}
+
 // UpsertFingerprint stores an acoustic waveform hash with full MusicBrainz metadata.
 func (r *Repository) UpsertFingerprint(ctx context.Context, fp *models.FingerprintRecord) error {
 	if fp == nil || fp.Hash == "" {

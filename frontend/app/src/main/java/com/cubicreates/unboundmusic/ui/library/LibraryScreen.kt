@@ -42,6 +42,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +58,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.data.DownloadTaskDto
+import com.cubicreates.unboundmusic.data.DownloadUiStatus
+import com.cubicreates.unboundmusic.ui.components.DownloadButton
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.UnboundTopAppBar
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
@@ -87,7 +94,11 @@ fun LibraryScreen(
     onProfileClick: () -> Unit = {},
     onSourceClick: (IngestionSource) -> Unit = {},
     onTrackSelect: (TrackItem) -> Unit = {},
-    onRefresh: () -> Unit = {}
+    onRefresh: () -> Unit = {},
+    downloadTasks: Map<String, DownloadTaskDto> = emptyMap(),
+    onStartDownload: (TrackItem) -> Unit = {},
+    onCancelDownload: (String) -> Unit = {},
+    onDeleteDownload: (String) -> Unit = {}
 ) {
     var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
 
@@ -211,6 +222,7 @@ fun LibraryScreen(
             // 4. Indexed Tracks List
             val displayTracks = when (selectedSourceTitle) {
                 "Synced YouTube" -> syncedYouTubeTracks
+                "Downloads" -> tracks.filter { it.source.contains("Downloads", ignoreCase = true) || it.source.contains("Unbound", ignoreCase = true) }
                 null -> tracks
                 else -> tracks.filter { it.source.equals(selectedSourceTitle, ignoreCase = true) }
             }
@@ -227,10 +239,14 @@ fun LibraryScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    displayTracks.take(30).forEach { track ->
+                    displayTracks.take(40).forEach { track ->
                         LibraryTrackRow(
                             track = track,
-                            onClick = { onTrackSelect(track) }
+                            task = downloadTasks[track.id],
+                            onClick = { onTrackSelect(track) },
+                            onStartDownload = { onStartDownload(track) },
+                            onCancelDownload = { onCancelDownload(track.id) },
+                            onDeleteDownload = { onDeleteDownload(track.id) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -391,8 +407,19 @@ private fun SourceCard(
 @Composable
 private fun LibraryTrackRow(
     track: TrackItem,
-    onClick: () -> Unit
+    task: DownloadTaskDto?,
+    onClick: () -> Unit,
+    onStartDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onDeleteDownload: () -> Unit
 ) {
+    val status = when {
+        track.source.contains("Downloads", ignoreCase = true) || task?.status == "COMPLETED" -> DownloadUiStatus.DOWNLOADED
+        task?.status == "DOWNLOADING" || task?.status == "TAGGING" || task?.status == "QUEUED" -> DownloadUiStatus.DOWNLOADING
+        else -> DownloadUiStatus.NOT_DOWNLOADED
+    }
+    val progress = task?.progress ?: 0.0
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -446,6 +473,18 @@ private fun LibraryTrackRow(
                 overflow = TextOverflow.Ellipsis
             )
         }
+
+        DownloadButton(
+            status = status,
+            progress = progress,
+            onStartDownload = onStartDownload,
+            onCancelDownload = onCancelDownload,
+            onDeleteDownload = onDeleteDownload,
+            trackTitle = track.title,
+            size = 36.dp
+        )
+
+        Spacer(modifier = Modifier.width(6.dp))
 
         Icon(
             imageVector = Icons.Default.PlayArrow,

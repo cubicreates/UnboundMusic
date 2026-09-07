@@ -918,6 +918,115 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         return shelves
     }
 
+    // ==================== SECTION 14: Offline Downloader & Storage Engine ====================
+
+    /** Starts an asynchronous chunked download worker for the given track. */
+    suspend fun startDownload(
+        videoId: String,
+        title: String,
+        artist: String,
+        album: String = "",
+        artworkUrl: String = ""
+    ): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("video_id", videoId)
+            put("title", title)
+            put("artist", artist)
+            put("album", album)
+            put("artwork_url", artworkUrl)
+        }
+        post("/api/v1/download/start", payload.toString())
+    }
+
+    /** Queries the current progress and state of an offline download. */
+    suspend fun getDownloadStatus(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encoded = URLEncoder.encode(videoId, "UTF-8")
+        get("/api/v1/download/status?video_id=$encoded")
+    }
+
+    /** Returns all active, queued, or completed download tasks. */
+    suspend fun getActiveDownloads(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/download/active")
+    }
+
+    /** Pauses an ongoing download task. */
+    suspend fun pauseDownload(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply { put("video_id", videoId) }
+        post("/api/v1/download/pause", payload.toString())
+    }
+
+    /** Resumes a paused download task. */
+    suspend fun resumeDownload(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply { put("video_id", videoId) }
+        post("/api/v1/download/resume", payload.toString())
+    }
+
+    /** Cancels an active download and deletes partial .part artifacts. */
+    suspend fun cancelDownload(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply { put("video_id", videoId) }
+        post("/api/v1/download/cancel", payload.toString())
+    }
+
+    /** Purges a downloaded track from physical disk and SQLite database. */
+    suspend fun deleteDownload(videoId: String, deleteFile: Boolean = true): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("video_id", videoId)
+            put("delete_file", deleteFile)
+        }
+        post("/api/v1/download/delete", payload.toString())
+    }
+
+    /** Parses a DownloadTaskDto from JSON. */
+    fun parseDownloadTask(jsonStr: String): DownloadTaskDto? {
+        return try {
+            val obj = JSONObject(jsonStr)
+            DownloadTaskDto(
+                videoId = obj.optString("video_id", obj.optString("track_id", "")),
+                title = obj.optString("title", ""),
+                artist = obj.optString("artist", ""),
+                album = obj.optString("album", ""),
+                artworkUrl = obj.optString("artwork_url", ""),
+                targetFormat = obj.optString("target_format", "opus"),
+                status = obj.optString("status", "QUEUED"),
+                downloadedBytes = obj.optLong("downloaded_bytes", obj.optLong("bytes_written", 0L)),
+                totalBytes = obj.optLong("total_bytes", 0L),
+                progress = obj.optDouble("progress", obj.optDouble("percent", 0.0)),
+                localPath = obj.optString("local_path", ""),
+                error = obj.optString("error", "")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Parses a list of active download tasks from JSON array response. */
+    fun parseActiveDownloads(jsonStr: String): List<DownloadTaskDto> {
+        val list = mutableListOf<DownloadTaskDto>()
+        try {
+            val arr = org.json.JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                list.add(
+                    DownloadTaskDto(
+                        videoId = obj.optString("video_id", obj.optString("track_id", "")),
+                        title = obj.optString("title", ""),
+                        artist = obj.optString("artist", ""),
+                        album = obj.optString("album", ""),
+                        artworkUrl = obj.optString("artwork_url", ""),
+                        targetFormat = obj.optString("target_format", "opus"),
+                        status = obj.optString("status", "QUEUED"),
+                        downloadedBytes = obj.optLong("downloaded_bytes", obj.optLong("bytes_written", 0L)),
+                        totalBytes = obj.optLong("total_bytes", 0L),
+                        progress = obj.optDouble("progress", obj.optDouble("percent", 0.0)),
+                        localPath = obj.optString("local_path", ""),
+                        error = obj.optString("error", "")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
     // ==================== HTTP Transport ====================
 
     private fun get(path: String): Pair<Int, String> {

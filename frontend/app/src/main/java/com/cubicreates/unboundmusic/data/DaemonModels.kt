@@ -214,4 +214,42 @@ data class PlaylistShelfDto(
     val items: List<PlaylistItemDto>
 )
 
+/**
+ * Phase 5: Offline Download Task state model.
+ */
+data class DownloadTaskDto(
+    val videoId: String,
+    val title: String,
+    val artist: String,
+    val album: String = "",
+    val artworkUrl: String = "",
+    val targetFormat: String = "opus",
+    val status: String = "QUEUED",
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long = 0,
+    val progress: Double = 0.0,
+    val localPath: String = "",
+    val error: String = ""
+)
+
+/**
+ * Request payload to start a download task.
+ */
+data class DownloadStartRequest(
+    val videoId: String,
+    val title: String,
+    val artist: String,
+    val album: String = "",
+    val artworkUrl: String = ""
+)
+
+/**
+ * Status states for download button UI.
+ */
+enum class DownloadUiStatus {
+    NOT_DOWNLOADED,
+    DOWNLOADING,
+    DOWNLOADED
+}
+
 

@@ -52,3 +52,15 @@ func TestServerStatusEndpoint(t *testing.T) {
 		t.Errorf("expected ONLINE status, got %v", payload["status"])
 	}
 }
+
+// TestServerConfigDefaults verifies standard port and socket defaults.
+func TestServerConfigDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Port != 45731 {
+		t.Errorf("expected default port 45731, got %d", cfg.Port)
+	}
+	if cfg.SocketPath != "" {
+		t.Errorf("expected empty default socket path, got %q", cfg.SocketPath)
+	}
+}
+

@@ -26,7 +26,12 @@ import java.util.concurrent.TimeUnit
  * Singleton HTTP client communicating with the embedded Go engine daemon at 127.0.0.1:45731.
  * All methods return Pair<statusCode, responseBody> for uniform error handling.
  */
-class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
+class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
+
+    private val baseUrl: String = when {
+        baseUrlInput.startsWith("http://") || baseUrlInput.startsWith("https://") -> baseUrlInput.trimEnd('/')
+        else -> "http://${baseUrlInput.trimEnd('/')}"
+    }
 
     companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

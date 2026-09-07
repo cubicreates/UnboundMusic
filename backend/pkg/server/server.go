@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,6 +56,7 @@ import (
 // Config defines network listening options for the local engine server.
 type Config struct {
 	Port           int    `json:"port"`
+	SocketPath     string `json:"socket_path,omitempty"` // Unix domain socket path (e.g. "/path/to/engine.sock")
 	DatabasePath   string `json:"database_path"`
 	LibraryRoot    string `json:"library_root"`
 	AppStorageRoot string `json:"app_storage_root"`
@@ -65,6 +67,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Port:           45731,
+		SocketPath:     "",
 		DatabasePath:   "",
 		LibraryRoot:    "",
 		AppStorageRoot: "",
@@ -243,8 +246,18 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// Start begins listening on the configured localhost address.
+// Start begins listening on the configured localhost address or Unix domain socket.
 func (s *Server) Start() error {
+	if s.cfg.SocketPath != "" {
+		_ = os.Remove(s.cfg.SocketPath) // Clean up any stale socket
+		l, err := net.Listen("unix", s.cfg.SocketPath)
+		if err != nil {
+			return fmt.Errorf("failed to listen on unix domain socket %s: %w", s.cfg.SocketPath, err)
+		}
+		defer l.Close()
+		defer os.Remove(s.cfg.SocketPath)
+		return s.httpServer.Serve(l)
+	}
 	return s.httpServer.ListenAndServe()
 }
 

@@ -63,8 +63,17 @@ class MainActivity : ComponentActivity() {
             val isAppReady by mainViewModel.isAppReady.collectAsStateWithLifecycle()
             val startupPhase by mainViewModel.startupPhase.collectAsStateWithLifecycle()
             val startupProgress by mainViewModel.startupProgress.collectAsStateWithLifecycle()
+            val folderPrompt by mainViewModel.unboundFolderPrompt.collectAsStateWithLifecycle()
 
             UnboundMusicTheme(themePreset = selectedTheme) {
+                folderPrompt?.let { prompt ->
+                    com.cubicreates.unboundmusic.ui.components.UnboundFolderCleanupDialog(
+                        folderPaths = prompt.folderPaths,
+                        onConfirmDelete = { mainViewModel.confirmDeleteExistingUnboundFolder() },
+                        onKeepExisting = { mainViewModel.keepExistingUnboundFolder() }
+                    )
+                }
+
                 Crossfade(
                     targetState = isAppReady,
                     animationSpec = tween(durationMillis = 350),
@@ -88,7 +97,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Re-trigger daemon start if permissions were just granted
-        DaemonManager.getInstance(this).startDaemonAuto(force = false)
+        val prefs = getSharedPreferences("unbound_boot_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("has_checked_existing_folder", false)) {
+            DaemonManager.getInstance(this).startDaemonAuto(force = false)
+        }
     }
 }

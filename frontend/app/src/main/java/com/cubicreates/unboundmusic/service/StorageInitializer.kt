@@ -31,13 +31,9 @@ object StorageInitializer {
             val filesDir = context.filesDir
             val binDir = File(filesDir, "bin")
 
-            // Prioritize Unbound/.backend/models on storage with .nomedia hiding
-            val targetBaseDir = if (android.os.Environment.getExternalStorageState() == android.os.Environment.MEDIA_MOUNTED) {
-                android.os.Environment.getExternalStorageDirectory()
-            } else {
-                context.getExternalFilesDir(null) ?: filesDir
-            }
-            val backendDir = File(targetBaseDir, "Unbound/.backend")
+            // Canonical Unbound directory (automatically purged by OS on uninstall)
+            val unboundRoot = UnboundStorageManager.getCanonicalUnboundRoot(context)
+            val backendDir = File(unboundRoot, ".backend")
             val modelsDir = File(backendDir, "models")
 
             if (!binDir.exists()) binDir.mkdirs()

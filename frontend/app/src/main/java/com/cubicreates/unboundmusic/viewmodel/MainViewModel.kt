@@ -296,6 +296,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAppReady = MutableStateFlow(false)
     val isAppReady: StateFlow<Boolean> = _isAppReady.asStateFlow()
 
+    data class UnboundFolderPromptState(
+        val folderPaths: List<String>
+    )
+
+    private val _unboundFolderPrompt = MutableStateFlow<UnboundFolderPromptState?>(null)
+    val unboundFolderPrompt: StateFlow<UnboundFolderPromptState?> = _unboundFolderPrompt.asStateFlow()
+
     init {
         // Connect to Media3 playback service
         serviceConnection.connect()
@@ -323,22 +330,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startStartupHydration() {
         viewModelScope.launch(Dispatchers.IO) {
+            _startupPhase.value = "STORAGE_CHECK"
+            _startupProgress.value = 0.15f
+
+            val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
+            val hasChecked = prefs.getBoolean("has_checked_existing_folder", false)
+            val existingFolders = if (!hasChecked) {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.findExistingUnboundFolders(getApplication())
+            } else {
+                emptyList()
+            }
+
+            if (existingFolders.isNotEmpty()) {
+                _unboundFolderPrompt.value = UnboundFolderPromptState(
+                    folderPaths = existingFolders.map { it.absolutePath }
+                )
+                // Pause startup hydration until user decides via confirmDeleteExistingUnboundFolder or keepExistingUnboundFolder
+                return@launch
+            } else {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
+                deployDaemonAndHydrate()
+            }
+        }
+    }
+
+    fun confirmDeleteExistingUnboundFolder() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val state = _unboundFolderPrompt.value
+            if (state != null) {
+                val folders = state.folderPaths.map { java.io.File(it) }
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.deleteFolders(folders)
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
+            }
+            _unboundFolderPrompt.value = null
+            deployDaemonAndHydrate()
+        }
+    }
+
+    fun keepExistingUnboundFolder() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
+            _unboundFolderPrompt.value = null
+            deployDaemonAndHydrate()
+        }
+    }
+
+    private fun deployDaemonAndHydrate() {
+        viewModelScope.launch(Dispatchers.IO) {
             _startupPhase.value = "SYSTEM_INIT"
-            _startupProgress.value = 0.25f
-            delay(350)
+            _startupProgress.value = 0.35f
+
+            // Unpack assets and binaries
+            StorageInitializer.initialize(getApplication())
 
             _startupPhase.value = "DAEMON_CONNECT"
             _startupProgress.value = 0.60f
 
+            // Start Go Engine Daemon
+            daemonManager.startDaemonAuto(force = true)
+
             // Handshake with daemon
-            for (i in 1..6) {
+            for (i in 1..10) {
                 try {
                     val (code, _) = client.healthCheck()
                     if (code in 200..299) break
                 } catch (e: Exception) {
                     // Daemon booting
                 }
-                delay(120)
+                delay(150)
             }
 
             _startupPhase.value = "CACHE_HYDRATE"
@@ -947,12 +1010,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshLibrary() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val unboundMusicDir = File("/storage/emulated/0/Unbound/Music")
+                val canonicalRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                val unboundMusicDir = File(canonicalRoot, "Music")
                 if (unboundMusicDir.exists()) {
                     client.storageIndex(unboundMusicDir.absolutePath)
                 }
 
                 val scanPaths = listOf(
+                    unboundMusicDir.absolutePath,
                     "/storage/emulated/0/Download/",
                     "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio/",
                     "/storage/emulated/0/Telegram/Telegram Audio/",

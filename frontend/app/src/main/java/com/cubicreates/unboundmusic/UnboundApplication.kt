@@ -43,8 +43,5 @@ class UnboundApplication : Application() {
             .build()
 
         Coil.setImageLoader(imageLoader)
-
-        // Boot Go Engine Daemon
-        DaemonManager.getInstance(this).startDaemonAuto()
     }
 }

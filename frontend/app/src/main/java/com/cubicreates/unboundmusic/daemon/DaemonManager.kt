@@ -74,25 +74,7 @@ class DaemonManager private constructor(private val context: Context) {
 
         scope.launch {
             try {
-                val hasPerms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    Environment.isExternalStorageManager()
-                } else {
-                    context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                }
-
-                val targetBaseDir = if (hasPerms && Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED) {
-                    Environment.getExternalStorageDirectory()
-                } else {
-                    context.getExternalFilesDir(null) ?: context.filesDir
-                }
-
-                val unboundRoot = File(targetBaseDir, "Unbound")
-                val backendHiddenDir = File(unboundRoot, ".backend")
-                val sqliteDir = File(backendHiddenDir, "sqlite")
-                val musicDir = File(unboundRoot, "Music")
-
-                if (!sqliteDir.exists()) sqliteDir.mkdirs()
-                if (!musicDir.exists()) musicDir.mkdirs()
+                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
 
                 Log.d(TAG, "Starting Go Engine on port $DAEMON_PORT with storage path ${unboundRoot.absolutePath}")
 

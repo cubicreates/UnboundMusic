@@ -13,19 +13,33 @@ package com.cubicreates.unboundmusic.data
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /**
  * Singleton HTTP client communicating with the embedded Go engine daemon at 127.0.0.1:45731.
  * All methods return Pair<statusCode, responseBody> for uniform error handling.
  */
 class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
+
+    companion object {
+        val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        val sharedOkHttpClient: OkHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+                .retryOnConnectionFailure(true)
+                .build()
+        }
+    }
 
     // ==================== SECTION 1: System Health & Storage ====================
 
@@ -1065,53 +1079,47 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         return list
     }
 
-    // ==================== HTTP Transport ====================
+    // ==================== SECTION 9: Acoustic Fingerprinting ====================
+
+    /** Identifies an untagged local audio file using AcoustID + Chromaprint. */
+    suspend fun identifyFingerprint(filePath: String, fpcalcPath: String = ""): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val json = JSONObject().apply {
+            put("file_path", filePath)
+            if (fpcalcPath.isNotBlank()) put("fpcalc_path", fpcalcPath)
+        }.toString()
+        post("/api/v1/fingerprint/identify", json)
+    }
+
+    // ==================== HTTP Transport (High-Performance Pooled OkHttp) ====================
 
     private fun get(path: String): Pair<Int, String> {
-        val url = URL("$baseUrl$path")
-        val conn = url.openConnection() as HttpURLConnection
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .get()
+            .build()
         return try {
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 5000
-            conn.readTimeout = 10000
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val response = stream?.let {
-                BufferedReader(InputStreamReader(it)).use { r -> r.readText() }
-            } ?: ""
-            Pair(code, response)
+            sharedOkHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: ""
+                Pair(response.code, body)
+            }
         } catch (e: Exception) {
             Pair(-1, e.message ?: "Network error")
-        } finally {
-            conn.disconnect()
         }
     }
 
     private fun post(path: String, jsonBody: String): Pair<Int, String> {
-        val url = URL("$baseUrl$path")
-        val conn = url.openConnection() as HttpURLConnection
+        val body = jsonBody.toRequestBody(JSON_MEDIA_TYPE)
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .post(body)
+            .build()
         return try {
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            conn.connectTimeout = 5000
-            conn.readTimeout = 15000
-            conn.doOutput = true
-
-            OutputStreamWriter(conn.outputStream, "UTF-8").use { os ->
-                os.write(jsonBody)
-                os.flush()
+            sharedOkHttpClient.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string() ?: ""
+                Pair(response.code, responseBody)
             }
-
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            val response = stream?.let {
-                BufferedReader(InputStreamReader(it)).use { r -> r.readText() }
-            } ?: ""
-            Pair(code, response)
         } catch (e: Exception) {
             Pair(-1, e.message ?: "Network error")
-        } finally {
-            conn.disconnect()
         }
     }
 }

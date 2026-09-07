@@ -136,3 +136,23 @@ data class TasteProfileResponse(
     val tasteDiversityScore: Double
 )
 
+/**
+ * Connection state and sync metrics for YouTube Music from GET /api/v1/account/status.
+ */
+data class AccountStatusData(
+    val connected: Boolean,
+    val accountName: String,
+    val syncedTracksCount: Int,
+    val lastSynced: String = ""
+)
+
+/**
+ * Result from 4-stage intelligent search cascade GET /api/v1/search/cascade.
+ */
+data class CascadeSearchResponse(
+    val query: String,
+    val stageReached: Int,
+    val stageName: String,
+    val tracks: List<TrackItem>
+)
+

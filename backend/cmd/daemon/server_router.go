@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"sync/atomic"
 
+	"github.com/cubicreates/unbound-engine/pkg/account"
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/database"
@@ -29,6 +30,7 @@ type Daemon struct {
 	aiRunner    *ai.Runner
 	ytClient    *ytmusic.Client
 	radioGen    *ytmusic.RadioGenerator
+	syncer      *account.Syncer
 	isScanning  int32
 }
 
@@ -56,6 +58,7 @@ func NewDaemon(
 	markov := analytics.NewMarkovTracker(repo)
 	reranker := recommender.NewReRanker()
 	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
+	syncer := account.NewSyncer(repo, ytClient)
 
 	return &Daemon{
 		repo:       repo,
@@ -64,6 +67,7 @@ func NewDaemon(
 		aiRunner:   aiRunner,
 		ytClient:   ytClient,
 		radioGen:   radioGen,
+		syncer:     syncer,
 	}
 }
 
@@ -80,13 +84,22 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/storage/scan", d.HandleTriggerStorageScan)
 	mux.HandleFunc("/api/v1/storage/tracks", d.HandleGetLocalTracks)
 
-	// Edge AI Natural Language Vibe Search
+	// Search Endpoints (Standard & 4-Stage Intelligent Cascade)
+	mux.HandleFunc("/api/v1/search", d.HandleSearch)
+	mux.HandleFunc("/api/v1/search/cascade", d.HandleSearchCascade)
 	mux.HandleFunc("/api/v1/search/vibe", d.HandleVibeSearch)
 
 	// Phase 1: Magic Serendipity Radio & Taste Telemetry
 	mux.HandleFunc("/api/v1/radio/magic", d.HandleMagicRadio)
 	mux.HandleFunc("/api/v1/analytics/taste_event", d.HandleRecordTasteEvent)
 	mux.HandleFunc("/api/v1/taste/profile", d.HandleGetTasteProfile)
+
+	// Phase 2: YouTube Account Authentication & Library Ingestion
+	mux.HandleFunc("/api/v1/account/sync", d.HandleAccountSync)
+	mux.HandleFunc("/api/v1/account/status", d.HandleAccountStatus)
+	mux.HandleFunc("/api/v1/account/disconnect", d.HandleAccountDisconnect)
+	mux.HandleFunc("/api/v1/account/liked", d.HandleGetAccountLiked)
+	mux.HandleFunc("/api/v1/track/like", d.HandleToggleTrackLike)
 
 	return d.corsMiddleware(mux)
 }

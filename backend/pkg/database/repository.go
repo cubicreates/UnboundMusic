@@ -512,3 +512,101 @@ func (r *Repository) GetFeedCache(ctx context.Context, key string) (string, erro
 	}
 	return dataJSON, nil
 }
+
+// SaveSyncedTracks persists remote YouTube Liked Music tracks into the local SQLite database.
+func (r *Repository) SaveSyncedTracks(ctx context.Context, tracks []models.Track) error {
+	tx, err := r.db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO synced_tracks (id, title, artist, album, duration_ms, thumbnail_url, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO UPDATE SET
+			title = excluded.title,
+			artist = excluded.artist,
+			album = excluded.album,
+			duration_ms = excluded.duration_ms,
+			thumbnail_url = excluded.thumbnail_url,
+			synced_at = CURRENT_TIMESTAMP;
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, t := range tracks {
+		if t.ID == "" {
+			continue
+		}
+		if _, err := stmt.ExecContext(ctx, t.ID, t.Title, t.Artist, t.Album, t.DurationMs, t.ThumbnailURL); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetSyncedTracks retrieves all cached synced YouTube Music tracks.
+func (r *Repository) GetSyncedTracks(ctx context.Context) ([]models.Track, error) {
+	query := `
+		SELECT id, title, artist, album, duration_ms, thumbnail_url
+		FROM synced_tracks
+		ORDER BY synced_at DESC;
+	`
+	rows, err := r.db.conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tracks []models.Track
+	for rows.Next() {
+		var t models.Track
+		if err := rows.Scan(&t.ID, &t.Title, &t.Artist, &t.Album, &t.DurationMs, &t.ThumbnailURL); err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, t)
+	}
+	return tracks, rows.Err()
+}
+
+// SaveCredential persists an encrypted or raw user session credential key-value pair.
+func (r *Repository) SaveCredential(ctx context.Context, key, val string) error {
+	query := `
+		INSERT INTO user_credentials (key, val, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET
+			val = excluded.val,
+			updated_at = CURRENT_TIMESTAMP;
+	`
+	_, err := r.db.conn.ExecContext(ctx, query, key, val)
+	return err
+}
+
+// GetCredential retrieves a stored user session credential value by key.
+func (r *Repository) GetCredential(ctx context.Context, key string) (string, error) {
+	query := `SELECT val FROM user_credentials WHERE key = ? LIMIT 1;`
+	var val string
+	err := r.db.conn.QueryRowContext(ctx, query, key).Scan(&val)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return val, nil
+}
+
+// ClearSyncedData purges stored credentials and synced library data on user logout.
+func (r *Repository) ClearSyncedData(ctx context.Context) error {
+	_, err1 := r.db.conn.ExecContext(ctx, `DELETE FROM user_credentials;`)
+	_, err2 := r.db.conn.ExecContext(ctx, `DELETE FROM synced_tracks;`)
+	if err1 != nil {
+		return err1
+	}
+	return err2
+}
+

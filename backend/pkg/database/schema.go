@@ -146,5 +146,22 @@ CREATE TABLE IF NOT EXISTS track_transitions (
     PRIMARY KEY (source_track_id, target_track_id)
 );
 CREATE INDEX IF NOT EXISTS idx_transitions_source ON track_transitions(source_track_id, transition_count DESC);
+
+CREATE TABLE IF NOT EXISTS synced_tracks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT NOT NULL DEFAULT '',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT NOT NULL DEFAULT '',
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_synced_tracks_artist ON synced_tracks(artist);
+
+CREATE TABLE IF NOT EXISTS user_credentials (
+    key TEXT PRIMARY KEY,
+    val TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 

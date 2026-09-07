@@ -82,12 +82,15 @@ fun LibraryScreen(
     telegramCount: Int = 12,
     youtubeCount: Int = 4,
     tracks: List<TrackItem> = emptyList(),
+    syncedYouTubeTracks: List<TrackItem> = emptyList(),
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSourceClick: (IngestionSource) -> Unit = {},
     onTrackSelect: (TrackItem) -> Unit = {},
     onRefresh: () -> Unit = {}
 ) {
+    var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
+
     val sources = listOf(
         IngestionSource(
             title = "Downloads",
@@ -109,7 +112,7 @@ fun LibraryScreen(
         ),
         IngestionSource(
             title = "Synced YouTube",
-            countText = "$youtubeCount playlists",
+            countText = if (youtubeCount > 0) "$youtubeCount tracks" else "Connect Account",
             icon = Icons.Default.Sync,
             iconColor = Color(0xFFFFB4AB)
         )
@@ -194,7 +197,10 @@ fun LibraryScreen(
                             SourceCard(
                                 source = source,
                                 modifier = Modifier.weight(1f),
-                                onClick = { onSourceClick(source) }
+                                onClick = {
+                                    selectedSourceTitle = if (selectedSourceTitle == source.title) null else source.title
+                                    onSourceClick(source)
+                                }
                             )
                         }
                     }
@@ -203,10 +209,16 @@ fun LibraryScreen(
             }
 
             // 4. Indexed Tracks List
-            if (tracks.isNotEmpty()) {
+            val displayTracks = when (selectedSourceTitle) {
+                "Synced YouTube" -> syncedYouTubeTracks
+                null -> tracks
+                else -> tracks.filter { it.source.equals(selectedSourceTitle, ignoreCase = true) }
+            }
+
+            if (displayTracks.isNotEmpty()) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Indexed Music (${tracks.size})",
+                        text = if (selectedSourceTitle != null) "$selectedSourceTitle (${displayTracks.size})" else "Indexed Music (${displayTracks.size})",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = OnSurface,
@@ -215,7 +227,7 @@ fun LibraryScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    tracks.take(15).forEach { track ->
+                    displayTracks.take(30).forEach { track ->
                         LibraryTrackRow(
                             track = track,
                             onClick = { onTrackSelect(track) }

@@ -17,6 +17,23 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/models"
 )
 
+// Protobuf Search Filter Constants
+const (
+	FilterSong              = "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D"
+	FilterAlbum             = "EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D"
+	FilterArtist            = "EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D"
+	FilterPodcast           = "EgWKAQJQAWoKEAkQChAFEAMQBA%3D%3D"
+	FilterCommunityPlaylist = "EgeKAQQoAEABagoQAxAEEAoQCRAF"
+)
+
+// CascadeSearchResult models the output of the 4-stage search engine pipeline.
+type CascadeSearchResult struct {
+	Query        string         `json:"query"`
+	StageReached int            `json:"stage_reached"`
+	StageName    string         `json:"stage_name"`
+	Tracks       []models.Track `json:"tracks"`
+}
+
 // SearchRequestBody models the JSON envelope sent to /youtubei/v1/search.
 type SearchRequestBody struct {
 	Context ClientContext `json:"context"`
@@ -30,11 +47,16 @@ func (c *Client) Search(ctx context.Context, query string) ([]models.Track, erro
 		return nil, fmt.Errorf("search query cannot be empty")
 	}
 
+	return c.searchWithFilter(ctx, query, "EgWKAQIIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D")
+}
+
+// searchWithFilter queries the InnerTube search endpoint with optional protobuf filter tokens.
+func (c *Client) searchWithFilter(ctx context.Context, query, filterParams string) ([]models.Track, error) {
 	cfg := ConfigWebRemix
 	body := SearchRequestBody{
 		Context: c.buildContext(cfg),
 		Query:   query,
-		Params:  "EgWKAQIIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D", // Filter exclusively for pure audio song tracks
+		Params:  filterParams,
 	}
 
 	respBytes, err := c.post(ctx, "search", body, cfg)
@@ -43,6 +65,66 @@ func (c *Client) Search(ctx context.Context, query string) ([]models.Track, erro
 	}
 
 	return parseSearchResponse(respBytes)
+}
+
+// SearchCascade executes the intelligent 4-stage search engine cascade:
+// Stage 1: Official studio release query (FilterSong)
+// Stage 2: Fan lyric and audio video query
+// Stage 3: Broad community audio sweep
+// Stage 4: Clean "No Results" state without destructive loops
+func (c *Client) SearchCascade(ctx context.Context, query string) (*CascadeSearchResult, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	// [STAGE 1] Official Studio Release Query (FilterSong)
+	tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
+	if err == nil && len(tracks) > 0 {
+		return &CascadeSearchResult{
+			Query:        trimmed,
+			StageReached: 1,
+			StageName:    "Official Studio Release",
+			Tracks:       tracks,
+		}, nil
+	}
+
+	// [STAGE 2] Fan-Made Lyric & Audio Video Query
+	fanQuery := fmt.Sprintf("%s lyric video", trimmed)
+	tracks, err = c.searchWithFilter(ctx, fanQuery, "")
+	if err == nil && len(tracks) > 0 {
+		return &CascadeSearchResult{
+			Query:        trimmed,
+			StageReached: 2,
+			StageName:    "Fan Lyric & Community Audio",
+			Tracks:       tracks,
+		}, nil
+	}
+
+	// [STAGE 3] Broad YouTube Audio Sweep
+	cleanQuery := strings.Map(func(r rune) rune {
+		if strings.ContainsRune("!@#$%^&*()_+-=[]{};':\",.<>/?\\|", r) {
+			return ' '
+		}
+		return r
+	}, trimmed)
+	tracks, err = c.searchWithFilter(ctx, cleanQuery, "")
+	if err == nil && len(tracks) > 0 {
+		return &CascadeSearchResult{
+			Query:        trimmed,
+			StageReached: 3,
+			StageName:    "Broad Community Audio",
+			Tracks:       tracks,
+		}, nil
+	}
+
+	// [STAGE 4] Clean "No Results" State (Zero Destructive Loop)
+	return &CascadeSearchResult{
+		Query:        trimmed,
+		StageReached: 4,
+		StageName:    "No Results",
+		Tracks:       []models.Track{},
+	}, nil
 }
 
 // parseSearchResponse traverses the YouTube Music search JSON tree to extract track items.

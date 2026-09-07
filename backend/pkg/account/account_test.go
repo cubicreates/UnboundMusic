@@ -44,3 +44,32 @@ func TestLibrarySync(t *testing.T) {
 		t.Errorf("expected 1 liked track, got %d", lib.LikedTracksCount)
 	}
 }
+
+// TestSyncerConnectionLifecycle validates connection, status, and disconnection flow.
+func TestSyncerConnectionLifecycle(t *testing.T) {
+	syncer := NewSyncer(nil, nil)
+	status := syncer.GetStatus()
+	if status.Connected {
+		t.Errorf("expected initial status to be disconnected")
+	}
+
+	cookie := "SAPISID=test_sapisid_token; __Secure-3PAPISID=secure_token"
+	err := syncer.ConnectAccount(context.Background(), cookie)
+	if err != nil {
+		t.Fatalf("unexpected error connecting account: %v", err)
+	}
+
+	status = syncer.GetStatus()
+	if !status.Connected {
+		t.Errorf("expected status to be connected")
+	}
+
+	err = syncer.DisconnectAccount(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error disconnecting: %v", err)
+	}
+	if syncer.GetStatus().Connected {
+		t.Errorf("expected status to be disconnected after disconnect")
+	}
+}
+

@@ -40,6 +40,7 @@ import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.player.NowPlayingScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
+import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
@@ -60,7 +61,12 @@ fun MainApp(
     var showEqualizer by remember { mutableStateOf(false) }
     var showAutoEqPicker by remember { mutableStateOf(false) }
     var showRecap by remember { mutableStateOf(false) }
+    var showYouTubeLoginSheet by remember { mutableStateOf(false) }
     var viewingArtist by remember { mutableStateOf<String?>(null) }
+
+    val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
+    val accountName by viewModel.accountName.collectAsStateWithLifecycle()
+    val syncedYouTubeTracks by viewModel.syncedYouTubeTracks.collectAsStateWithLifecycle()
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
@@ -218,9 +224,16 @@ fun MainApp(
                                     downloadsCount = downloadsCount,
                                     whatsappCount = whatsappCount,
                                     telegramCount = telegramCount,
-                                    youtubeCount = youtubeCount,
+                                    youtubeCount = if (isYouTubeConnected) syncedYouTubeTracks.size else youtubeCount,
                                     tracks = libraryTracks,
-                                    onSourceClick = { viewModel.refreshLibrary() },
+                                    syncedYouTubeTracks = syncedYouTubeTracks,
+                                    onSourceClick = { source ->
+                                        if (source.title == "Synced YouTube" && !isYouTubeConnected) {
+                                            showYouTubeLoginSheet = true
+                                        } else {
+                                            viewModel.refreshLibrary()
+                                        }
+                                    },
                                     onTrackSelect = { track ->
                                         viewModel.playTrack(track)
                                         isPlayerExpanded = true
@@ -238,14 +251,26 @@ fun MainApp(
             }
         }
 
-
-
         // Modal 1: Settings Screen
         if (showSettings) {
             SettingsScreen(
                 onClose = { showSettings = false },
                 onEqualizerClick = { showEqualizer = true },
-                onAutoEqClick = { showAutoEqPicker = true }
+                onAutoEqClick = { showAutoEqPicker = true },
+                isYouTubeConnected = isYouTubeConnected,
+                accountName = accountName,
+                onYouTubeSyncClick = { showYouTubeLoginSheet = true },
+                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() }
+            )
+        }
+
+        // Modal 1.1: YouTube In-App WebView Login Sheet
+        if (showYouTubeLoginSheet) {
+            YouTubeLoginSheet(
+                onDismiss = { showYouTubeLoginSheet = false },
+                onCookieExtracted = { cookie ->
+                    viewModel.syncYouTubeAccount(cookie)
+                }
             )
         }
 

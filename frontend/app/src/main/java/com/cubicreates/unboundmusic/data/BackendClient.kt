@@ -625,6 +625,119 @@ class BackendClient(private val baseUrl: String = "http://127.0.0.1:45731") {
         }
     }
 
+    // ==================== SECTION 12: Account Authentication, Sync & Cascade Search ====================
+
+    /** Authenticates YouTube cookies with local Go engine and triggers library synchronization. */
+    suspend fun syncAccount(cookie: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("cookie", cookie).toString()
+        post("/api/v1/account/sync", payload)
+    }
+
+    /** Retrieves YouTube connection state, user account name, and synced track count. */
+    suspend fun getAccountStatus(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/account/status")
+    }
+
+    /** Clears stored YouTube cookies and local synced cache on device. */
+    suspend fun disconnectAccount(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        post("/api/v1/account/disconnect", "{}")
+    }
+
+    /** Retrieves all cached synced Liked Music tracks from Go daemon. */
+    suspend fun getLikedTracks(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/account/liked")
+    }
+
+    /** Dispatches a like or unlike mutation for a video ID directly to YouTube Music InnerTube. */
+    suspend fun toggleTrackLike(videoId: String, isLiked: Boolean): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().put("video_id", videoId).put("like", isLiked).toString()
+        post("/api/v1/track/like", payload)
+    }
+
+    /** Executes the 4-stage search cascade (official -> fan lyric/audio -> broad community sweep -> clean empty). */
+    suspend fun searchCascade(query: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encoded = URLEncoder.encode(query, "UTF-8")
+        get("/api/v1/search/cascade?q=$encoded")
+    }
+
+    /** Parses AccountStatusData payload from JSON string. */
+    fun parseAccountStatus(jsonStr: String): AccountStatusData? {
+        return try {
+            val root = JSONObject(jsonStr)
+            AccountStatusData(
+                connected = root.optBoolean("connected", false),
+                accountName = root.optString("account_name", "Local User"),
+                syncedTracksCount = root.optInt("synced_tracks_count", 0),
+                lastSynced = root.optString("last_synced", "")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Parses liked tracks array from JSON string. */
+    fun parseLikedTracks(jsonStr: String): List<TrackItem> {
+        val list = mutableListOf<TrackItem>()
+        try {
+            val root = JSONObject(jsonStr)
+            val arr = root.optJSONArray("tracks") ?: return list
+            for (i in 0 until arr.length()) {
+                val t = arr.optJSONObject(i) ?: continue
+                val id = t.optString("id", "")
+                if (id.isBlank()) continue
+                list.add(
+                    TrackItem(
+                        id = id,
+                        title = t.optString("title", "Unknown Track"),
+                        artist = t.optString("artist", "Unknown Artist"),
+                        album = t.optString("album", ""),
+                        durationMs = t.optLong("duration_ms", 0L),
+                        coverUrl = t.optString("thumbnail_url", ""),
+                        streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=$id",
+                        source = "YouTube Liked"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    /** Parses CascadeSearchResponse from JSON string. */
+    fun parseCascadeSearch(jsonStr: String): CascadeSearchResponse? {
+        return try {
+            val root = JSONObject(jsonStr)
+            val tracksList = mutableListOf<TrackItem>()
+            val arr = root.optJSONArray("tracks")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val t = arr.optJSONObject(i) ?: continue
+                    val id = t.optString("id", "")
+                    if (id.isBlank()) continue
+                    tracksList.add(
+                        TrackItem(
+                            id = id,
+                            title = t.optString("title", "Unknown"),
+                            artist = t.optString("artist", "Unknown"),
+                            album = t.optString("album", ""),
+                            durationMs = t.optLong("duration_ms", 0L),
+                            coverUrl = t.optString("thumbnail_url", ""),
+                            streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=$id",
+                            source = "Cascade Search"
+                        )
+                    )
+                }
+            }
+            CascadeSearchResponse(
+                query = root.optString("query", ""),
+                stageReached = root.optInt("stage_reached", 4),
+                stageName = root.optString("stage_name", "No Results"),
+                tracks = tracksList
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==================== HTTP Transport ====================
 
     private fun get(path: String): Pair<Int, String> {

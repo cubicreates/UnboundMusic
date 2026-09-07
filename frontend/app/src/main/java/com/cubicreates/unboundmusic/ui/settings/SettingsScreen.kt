@@ -70,12 +70,15 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    isYouTubeConnected: Boolean = false,
+    accountName: String = "Local User",
     onClose: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
     onAutoEqClick: () -> Unit = {},
     onSleepTimerClick: () -> Unit = {},
     onSpotifyImportClick: () -> Unit = {},
     onYouTubeSyncClick: () -> Unit = {},
+    onDisconnectYouTubeClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit = {},
     onClearCacheClick: () -> Unit = {}
 ) {
@@ -172,9 +175,9 @@ fun SettingsScreen(
 
             SettingsActionTile(
                 icon = Icons.Default.Sync,
-                title = "YouTube Account Sync",
-                subtitle = "Sync liked songs, subscriptions & custom playlists",
-                onClick = onYouTubeSyncClick
+                title = if (isYouTubeConnected) "YouTube Account: Connected" else "Connect YouTube Music",
+                subtitle = if (isYouTubeConnected) "Active: $accountName • Tap to disconnect" else "Sync liked songs, subscriptions & custom playlists",
+                onClick = if (isYouTubeConnected) onDisconnectYouTubeClick else onYouTubeSyncClick
             )
 
             Spacer(modifier = Modifier.height(10.dp))

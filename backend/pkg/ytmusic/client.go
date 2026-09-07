@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -49,6 +50,8 @@ type Client struct {
 	httpClient *http.Client
 	hl         string
 	gl         string
+	mu         sync.RWMutex
+	cookieStr  string
 }
 
 // NewClient instantiates a new YouTube Music scraper client with connection pooling and timeouts.
@@ -68,6 +71,27 @@ func NewClient() *Client {
 		hl: "en",
 		gl: "US",
 	}
+}
+
+// SetCredentials configures YouTube authentication cookies for user library and mutation requests.
+func (c *Client) SetCredentials(cookie string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cookieStr = cookie
+}
+
+// GetCredentials returns the current session cookie string.
+func (c *Client) GetCredentials() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cookieStr
+}
+
+// HasCredentials returns true if authentication cookies are active.
+func (c *Client) HasCredentials() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cookieStr != ""
 }
 
 // ClientConfig holds endpoint configuration for specific Innertube clients.
@@ -172,9 +196,28 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 	if cfg.BaseURL == "https://music.youtube.com/youtubei/v1" {
 		req.Header.Set("Origin", "https://music.youtube.com")
 		req.Header.Set("Referer", "https://music.youtube.com/")
+		req.Header.Set("x-origin", "https://music.youtube.com")
 	} else {
 		req.Header.Set("Origin", "https://www.youtube.com")
 		req.Header.Set("Referer", "https://www.youtube.com/")
+	}
+
+	// Attach authentication cookies and dynamic SAPISIDHASH if configured
+	c.mu.RLock()
+	rawCookie := c.cookieStr
+	c.mu.RUnlock()
+
+	if rawCookie != "" {
+		req.Header.Set("Cookie", rawCookie)
+		cookies := ParseCookies(rawCookie)
+		sapisid := cookies["SAPISID"]
+		if sapisid == "" {
+			sapisid = cookies["__Secure-3PAPISID"]
+		}
+		if sapisid != "" {
+			authHeader, _ := GenerateSAPISIDHash(sapisid, "https://music.youtube.com")
+			req.Header.Set("Authorization", authHeader)
+		}
 	}
 
 	resp, err := c.httpClient.Do(req)

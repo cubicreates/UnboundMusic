@@ -17,6 +17,8 @@ import androidx.lifecycle.viewModelScope
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.daemon.DaemonLifecycleState
 import com.cubicreates.unboundmusic.daemon.DaemonManager
+import com.cubicreates.unboundmusic.data.AccountStatusData
+import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MoodCapsule
@@ -140,6 +142,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _youtubeCount = MutableStateFlow(4)
     val youtubeCount: StateFlow<Int> = _youtubeCount.asStateFlow()
 
+    // ==================== YouTube Account & Synced Library State ====================
+
+    private val _isYouTubeConnected = MutableStateFlow(false)
+    val isYouTubeConnected: StateFlow<Boolean> = _isYouTubeConnected.asStateFlow()
+
+    private val _accountName = MutableStateFlow("Local User")
+    val accountName: StateFlow<String> = _accountName.asStateFlow()
+
+    private val _syncedYouTubeTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val syncedYouTubeTracks: StateFlow<List<TrackItem>> = _syncedYouTubeTracks.asStateFlow()
+
+    private val _isSyncingAccount = MutableStateFlow(false)
+    val isSyncingAccount: StateFlow<Boolean> = _isSyncingAccount.asStateFlow()
+
+    private val _cascadeSearchResponse = MutableStateFlow<CascadeSearchResponse?>(null)
+    val cascadeSearchResponse: StateFlow<CascadeSearchResponse?> = _cascadeSearchResponse.asStateFlow()
+
     // ==================== Lyrics State ====================
 
     private val _lyricsLines = MutableStateFlow<List<LyricLine>>(emptyList())
@@ -236,6 +255,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initializeColdStart("US", "en")
             loadHomeFeed()
             refreshLibrary()
+            checkAccountStatus()
             delay(300)
 
             _startupPhase.value = "READY"
@@ -809,6 +829,121 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Library refresh note: ${e.message}")
+            }
+        }
+    }
+
+    // ==================== YouTube Account & Synced Library ====================
+
+    /** Checks YouTube connection status from daemon and loads synced tracks if connected. */
+    fun checkAccountStatus() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getAccountStatus()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val status = client.parseAccountStatus(resp)
+                    if (status != null) {
+                        _isYouTubeConnected.value = status.connected
+                        _accountName.value = status.accountName
+                        if (status.connected) {
+                            loadSyncedYouTubeTracks()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Account status check note: ${e.message}")
+            }
+        }
+    }
+
+    /** Synchronizes YouTube account credentials and pulls liked music into the local library. */
+    fun syncYouTubeAccount(cookie: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSyncingAccount.value = true
+            try {
+                val (code, resp) = client.syncAccount(cookie)
+                if (code in 200..299) {
+                    _isYouTubeConnected.value = true
+                    checkAccountStatus()
+                    loadSyncedYouTubeTracks()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Account sync failed: ${e.message}")
+            } finally {
+                _isSyncingAccount.value = false
+            }
+        }
+    }
+
+    /** Disconnects YouTube account and purges credentials and synced library data. */
+    fun disconnectYouTubeAccount() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, _) = client.disconnectAccount()
+                if (code in 200..299) {
+                    _isYouTubeConnected.value = false
+                    _accountName.value = "Local User"
+                    _syncedYouTubeTracks.value = emptyList()
+                    _youtubeCount.value = 0
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Account disconnect failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Loads cached synced Liked Music tracks from the Go engine daemon. */
+    fun loadSyncedYouTubeTracks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getLikedTracks()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val tracks = client.parseLikedTracks(resp)
+                    _syncedYouTubeTracks.value = tracks
+                    _youtubeCount.value = tracks.size
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Load synced tracks note: ${e.message}")
+            }
+        }
+    }
+
+    /** Optimistically toggles like state and dispatches mutation to daemon. */
+    fun toggleTrackLike(track: TrackItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val willBeLiked = !_isFavorite.value
+            _isFavorite.value = willBeLiked
+            try {
+                client.toggleTrackLike(track.id, willBeLiked)
+                loadSyncedYouTubeTracks()
+            } catch (e: Exception) {
+                Log.w(TAG, "Track like toggle error: ${e.message}")
+            }
+        }
+    }
+
+    /** Executes 4-stage intelligent search cascade. */
+    fun executeCascadeSearch(query: String) {
+        if (query.isBlank()) {
+            _cascadeSearchResponse.value = null
+            _searchResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSearching.value = true
+            try {
+                val (code, resp) = client.searchCascade(query)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val cascade = client.parseCascadeSearch(resp)
+                    _cascadeSearchResponse.value = cascade
+                    if (cascade != null) {
+                        _searchResults.value = cascade.tracks
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Cascade search error: ${e.message}")
+            } finally {
+                _isSearching.value = false
             }
         }
     }

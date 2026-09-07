@@ -352,6 +352,17 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 1. Tier 1: Query LRCLIB for verified, true millisecond-synced lyrics
+	lrclibPayload, err := s.geniusClient.FetchLRCLIBSynced(r.Context(), title, artist, 0)
+	if err == nil && lrclibPayload != nil && len(lrclibPayload.Lines) > 0 {
+		lrclibPayload.TrackID = trackID
+		lrclibPayload.Source = "LRCLIB (Verified Synced)"
+		_ = s.repo.SaveLyrics(r.Context(), lrclibPayload)
+		writeJSON(w, http.StatusOK, lrclibPayload)
+		return
+	}
+
+	// 2. Tier 2: Query Genius for complete uncensored lyrics and apply on-device phonetic alignment
 	hit, err := s.geniusClient.SearchSong(r.Context(), title, artist)
 	if err == nil && hit != nil {
 		plainPayload, err := s.geniusClient.FetchLyrics(r.Context(), hit)
@@ -363,14 +374,6 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-
-	lrclibPayload, err := s.geniusClient.FetchLRCLIBSynced(r.Context(), title, artist, 0)
-	if err == nil && len(lrclibPayload.Lines) > 0 {
-		lrclibPayload.TrackID = trackID
-		_ = s.repo.SaveLyrics(r.Context(), lrclibPayload)
-		writeJSON(w, http.StatusOK, lrclibPayload)
-		return
 	}
 
 	writeError(w, http.StatusNotFound, "lyrics not found")

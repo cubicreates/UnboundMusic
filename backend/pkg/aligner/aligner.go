@@ -108,6 +108,6 @@ func (a *ForcedAligner) AlignLyrics(trackID, title, artist, plainText string, du
 		PlainLyrics:  plainText,
 		Lines:        structuredLines,
 		IsWordSynced: true,
-		Source:       "On-Device Forced Aligner (Genius + CTC)",
+		Source:       "On-Device Phonetic Alignment (Estimated)",
 	}, nil
 }

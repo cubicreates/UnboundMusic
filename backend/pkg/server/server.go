@@ -235,7 +235,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
-		Handler:      corsMiddleware(mux),
+		Handler:      RecoveryMiddleware(corsMiddleware(mux)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
@@ -292,11 +292,11 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go func() {
+	SafeGo("search_track_cacher", func() {
 		for _, t := range tracks {
 			_ = s.repo.SaveTrack(context.Background(), &t)
 		}
-	}()
+	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"query":  query,

@@ -41,3 +41,5 @@ inspiration/
 backend/assets/payload/
 frontend/app/src/main/assets/payload/
 backend/bin/
+*.exe
+fpcalc.exe

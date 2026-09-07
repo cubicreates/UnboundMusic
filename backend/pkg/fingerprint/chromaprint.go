@@ -98,6 +98,10 @@ func ResolveFpcalcBinary(fpcalcPath string) (string, error) {
 	}
 
 	candidates := []string{
+		"fpcalc.exe",
+		"../fpcalc.exe",
+		"fpcalc",
+		"../fpcalc",
 		"bin/fpcalc.exe",
 		"bin/fpcalc",
 		"../bin/fpcalc.exe",

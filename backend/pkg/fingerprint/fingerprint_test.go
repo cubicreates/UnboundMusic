@@ -324,3 +324,22 @@ func TestPipelineWithMockServer(t *testing.T) {
 		t.Errorf("expected artist 'Precached Artist', got %q", track.Artist)
 	}
 }
+
+// TestGetAcoustIDClientKeyConfig tests default vs environment override for AcoustID API key.
+func TestGetAcoustIDClientKeyConfig(t *testing.T) {
+	// Test default key
+	_ = os.Unsetenv("ACOUSTID_API_KEY")
+	if key := GetAcoustIDClientKey(); key != DefaultAcoustIDClientKey {
+		t.Errorf("expected default key %q, got %q", DefaultAcoustIDClientKey, key)
+	}
+
+	// Test environment override
+	customKey := "my_custom_acoustid_api_key_123"
+	_ = os.Setenv("ACOUSTID_API_KEY", customKey)
+	defer os.Unsetenv("ACOUSTID_API_KEY")
+
+	if key := GetAcoustIDClientKey(); key != customKey {
+		t.Errorf("expected custom key %q, got %q", customKey, key)
+	}
+}
+

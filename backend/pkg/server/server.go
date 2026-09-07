@@ -231,6 +231,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/classify", s.handleStorageClassify)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
+	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -1111,6 +1112,35 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// handleFingerprintIdentify identifies an untagged local audio file using AcoustID + Chromaprint.
+func (s *Server) handleFingerprintIdentify(w http.ResponseWriter, r *http.Request) {
+	type IdentifyReq struct {
+		FilePath   string `json:"file_path"`
+		FpcalcPath string `json:"fpcalc_path,omitempty"`
+	}
+
+	var req IdentifyReq
+	if r.Method == http.MethodPost && r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	} else {
+		req.FilePath = r.URL.Query().Get("file_path")
+		req.FpcalcPath = r.URL.Query().Get("fpcalc_path")
+	}
+
+	if strings.TrimSpace(req.FilePath) == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'file_path' is required")
+		return
+	}
+
+	track, err := fingerprint.IngestUntaggedFile(r.Context(), s.repo, req.FpcalcPath, req.FilePath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, track)
 }
 
 // corsMiddleware adds permissive headers for local IPC and web frontend callers.

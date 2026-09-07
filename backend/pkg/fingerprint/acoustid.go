@@ -17,6 +17,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,17 @@ var (
 	AcoustIDEndpoint  = DefaultAcoustIDEndpoint
 	AcoustIDClientKey = DefaultAcoustIDClientKey
 )
+
+// GetAcoustIDClientKey returns the active client key, checking ACOUSTID_API_KEY env var first.
+func GetAcoustIDClientKey() string {
+	if envKey := strings.TrimSpace(os.Getenv("ACOUSTID_API_KEY")); envKey != "" {
+		return envKey
+	}
+	if AcoustIDClientKey != "" {
+		return AcoustIDClientKey
+	}
+	return DefaultAcoustIDClientKey
+}
 
 // MusicBrainzMeta encapsulates resolved track metadata from AcoustID / MusicBrainz.
 type MusicBrainzMeta struct {
@@ -145,7 +157,7 @@ func LookupAcoustID(ctx context.Context, duration float64, fingerprint string) (
 	}
 
 	params := url.Values{}
-	params.Set("client", AcoustIDClientKey)
+	params.Set("client", GetAcoustIDClientKey())
 	params.Set("meta", "recordings+releasegroups+compress")
 	params.Set("duration", strconv.Itoa(durationSec))
 	params.Set("fingerprint", fingerprint)

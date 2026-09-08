@@ -87,3 +87,88 @@ Cocaine quarter piece, got war and peace inside my DNA
 		}
 	}
 }
+
+// TestEnergyGatedVADAlignment verifies that instrumental gaps (e.g. guitar solo between 20s and 60s)
+// prevent lyrics and syllables from advancing across the quiet/instrumental interval.
+func TestEnergyGatedVADAlignment(t *testing.T) {
+	aligner := NewForcedAligner()
+
+	plainText := "First vocal line before the guitar solo\nSecond vocal line after the guitar solo"
+	durationMs := int64(100000) // 100 seconds
+
+	// Define two vocal segments separated by a 40-second guitar solo [20000ms - 60000ms]
+	vocalSegments := []VocalSegment{
+		{StartMs: 5000, EndMs: 20000},  // First verse
+		{StartMs: 60000, EndMs: 80000}, // Second verse after 40s solo
+	}
+
+	payload, err := aligner.AlignLyricsWithVAD("solo_track", "Guitar Track", "Artist", plainText, durationMs, vocalSegments)
+	if err != nil {
+		t.Fatalf("AlignLyricsWithVAD failed: %v", err)
+	}
+
+	if len(payload.Lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(payload.Lines))
+	}
+
+	line1 := payload.Lines[0]
+	line2 := payload.Lines[1]
+
+	// Line 1 must finish by 20000ms (end of first vocal segment)
+	if line1.EndMs > 20000 {
+		t.Errorf("expected line 1 to end by 20000ms, got endMs=%d", line1.EndMs)
+	}
+
+	// Line 2 must not start before 60000ms (start of second vocal segment)
+	if line2.StartMs < 60000 {
+		t.Errorf("expected line 2 to start at or after 60000ms, got startMs=%d", line2.StartMs)
+	}
+
+	// Ensure no syllables in line 1 or line 2 land in the guitar solo window [20000, 60000]
+	for _, syl := range line1.Syllables {
+		if syl.StartMs >= 20000 {
+			t.Errorf("line 1 syllable %q leaked into guitar solo window at %dms", syl.Text, syl.StartMs)
+		}
+	}
+	for _, syl := range line2.Syllables {
+		if syl.StartMs < 60000 {
+			t.Errorf("line 2 syllable %q leaked into guitar solo window at %dms", syl.Text, syl.StartMs)
+		}
+	}
+}
+
+// TestComputeRMSWindowsAndVocalSegments verifies energy extraction from synthesized PCM samples.
+func TestComputeRMSWindowsAndVocalSegments(t *testing.T) {
+	sampleRate := 44100
+	// 1 second silence, 1 second tone (vocal), 2 seconds silence (solo), 1 second tone
+	totalSec := 5
+	samples := make([]int16, sampleRate*totalSec)
+
+	// Fill second 1..2 with loud 440Hz tone
+	for i := sampleRate; i < sampleRate*2; i++ {
+		samples[i] = 16000
+	}
+	// Fill second 4..5 with loud 440Hz tone
+	for i := sampleRate * 4; i < sampleRate*5; i++ {
+		samples[i] = 16000
+	}
+
+	windows := ComputeRMSWindows(samples, sampleRate, 100, 0.05)
+	if len(windows) != totalSec*10 {
+		t.Errorf("expected %d windows, got %d", totalSec*10, len(windows))
+	}
+
+	segments := ExtractVocalSegments(windows, 1000)
+	if len(segments) != 2 {
+		t.Fatalf("expected 2 distinct vocal segments separated by solo gap, got %d", len(segments))
+	}
+
+	// First segment should be ~1000ms - 2000ms
+	if segments[0].StartMs < 900 || segments[0].EndMs > 2100 {
+		t.Errorf("unexpected segment 0 bounds: [%d -> %d]", segments[0].StartMs, segments[0].EndMs)
+	}
+	// Second segment should be ~4000ms - 5000ms
+	if segments[1].StartMs < 3900 || segments[1].EndMs > 5100 {
+		t.Errorf("unexpected segment 1 bounds: [%d -> %d]", segments[1].StartMs, segments[1].EndMs)
+	}
+}

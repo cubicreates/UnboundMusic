@@ -97,3 +97,30 @@ func TestProxyMissingParam(t *testing.T) {
 		t.Errorf("expected 400 Bad Request on missing id, got %d", w.Code)
 	}
 }
+
+// TestStreamWithLookahead validates the preemptive lookahead buffer for streaming.
+func TestStreamWithLookahead(t *testing.T) {
+	dataSize := 1024 * 1024 // 1 MB
+	originalData := make([]byte, dataSize)
+	for i := 0; i < dataSize; i++ {
+		originalData[i] = byte(i % 256)
+	}
+
+	src := strings.NewReader(string(originalData))
+	var dst strings.Builder
+
+	written, err := StreamWithLookahead(context.Background(), &dst, src, 64*1024, 2)
+	if err != nil {
+		t.Fatalf("StreamWithLookahead failed: %v", err)
+	}
+
+	if written != int64(dataSize) {
+		t.Errorf("expected written bytes %d, got %d", dataSize, written)
+	}
+	if dst.Len() != dataSize {
+		t.Errorf("expected destination length %d, got %d", dataSize, dst.Len())
+	}
+	if dst.String() != string(originalData) {
+		t.Error("stream content mismatch between source and lookahead output")
+	}
+}

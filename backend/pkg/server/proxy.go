@@ -9,6 +9,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -124,7 +125,7 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		partFile, pErr := os.Create(partPath)
 		if pErr == nil {
 			multiWriter := io.MultiWriter(w, partFile)
-			_, _ = io.Copy(multiWriter, respUpstream.Body)
+			_, _ = StreamWithLookahead(r.Context(), multiWriter, respUpstream.Body, 256*1024, 2)
 			_ = partFile.Close()
 
 			// Check size and rename .part to .opus
@@ -138,8 +139,66 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Default streaming pipe
-	_, _ = io.Copy(w, respUpstream.Body)
+	// Stream with 2-chunk lookahead buffer (512 KB) to prevent audio underruns on flaky cellular links
+	_, _ = StreamWithLookahead(r.Context(), w, respUpstream.Body, 256*1024, 2)
+}
+
+// StreamWithLookahead pipes data from upstream Reader to downstream Writer using a 2-chunk lookahead buffer.
+func StreamWithLookahead(ctx context.Context, dst io.Writer, src io.Reader, chunkSize int, numLookaheadChunks int) (int64, error) {
+	if chunkSize <= 0 {
+		chunkSize = 256 * 1024 // 256 KB per chunk
+	}
+	if numLookaheadChunks <= 0 {
+		numLookaheadChunks = 2 // 2 chunks lookahead = 512 KB prefetch
+	}
+
+	type chunkResult struct {
+		data []byte
+		err  error
+	}
+
+	ch := make(chan chunkResult, numLookaheadChunks)
+
+	// Background producer goroutine: prefetches chunks from upstream
+	go func() {
+		defer close(ch)
+		for {
+			buf := make([]byte, chunkSize)
+			n, rErr := io.ReadFull(src, buf)
+			if n > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case ch <- chunkResult{data: buf[:n]}:
+				}
+			}
+			if rErr != nil {
+				if rErr != io.EOF && rErr != io.ErrUnexpectedEOF {
+					select {
+					case <-ctx.Done():
+					case ch <- chunkResult{err: rErr}:
+					}
+				}
+				return
+			}
+		}
+	}()
+
+	var totalWritten int64
+	for chunk := range ch {
+		if len(chunk.data) > 0 {
+			wN, wErr := dst.Write(chunk.data)
+			totalWritten += int64(wN)
+			if wErr != nil {
+				return totalWritten, wErr
+			}
+		}
+		if chunk.err != nil {
+			return totalWritten, chunk.err
+		}
+	}
+
+	return totalWritten, nil
 }
 
 // pruneAudioCacheIfNeeded enforces the 1 GB cache size ceiling by removing least recently modified files.

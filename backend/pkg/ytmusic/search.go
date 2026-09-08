@@ -79,6 +79,70 @@ func (c *Client) Search(ctx context.Context, query string) ([]models.Track, erro
 	return tracks, nil
 }
 
+// SearchWithCategory executes a search query targeting a specific category: "music", "podcast", or "all".
+func (c *Client) SearchWithCategory(ctx context.Context, query, category string) ([]models.Track, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	cat := strings.ToLower(strings.TrimSpace(category))
+	switch cat {
+	case "music":
+		// 1. Query with strict Song filter
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
+		if err != nil || len(tracks) == 0 {
+			// Fallback: regular search but strictly filtered
+			tracks, _ = c.searchWithFilter(ctx, trimmed, "")
+		}
+		// Strict music filter: remove non-music videos, vlogs, reviews, long video essays, podcasts, ads
+		var filtered []models.Track
+		nonMusicKeywords := []string{
+			"video essay", "reaction", "review", "vlog", "gameplay",
+			"walkthrough", "trailer", "unboxing", "full episode", "podcast",
+			"news", "press conference", "audiobook",
+		}
+		for _, t := range tracks {
+			lowerTitle := strings.ToLower(t.Title)
+			lowerArtist := strings.ToLower(t.Artist)
+
+			isNonMusic := false
+			for _, kw := range nonMusicKeywords {
+				if strings.Contains(lowerTitle, kw) || strings.Contains(lowerArtist, kw) {
+					isNonMusic = true
+					break
+				}
+			}
+			if isNonMusic {
+				continue
+			}
+
+			// Filter out videos longer than 20 minutes (1,200,000 ms)
+			if t.DurationMs > 1200000 {
+				continue
+			}
+
+			filtered = append(filtered, t)
+		}
+		if len(filtered) > 0 {
+			return filtered, nil
+		}
+		return tracks, nil
+
+	case "podcast", "podcasts":
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterPodcast)
+		if err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+		// Fallback to podcast query
+		podcastQuery := fmt.Sprintf("%s podcast", trimmed)
+		return c.searchWithFilter(ctx, podcastQuery, "")
+
+	default:
+		return c.Search(ctx, query)
+	}
+}
+
 // searchWithFilter queries the InnerTube search endpoint with optional protobuf filter tokens.
 func (c *Client) searchWithFilter(ctx context.Context, query, filterParams string) ([]models.Track, error) {
 	cfg := ConfigWebRemix

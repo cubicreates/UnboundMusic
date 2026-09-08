@@ -115,10 +115,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     // ==================== SECTION 2: Search & Streaming ====================
 
-    /** Searches YouTube Music catalog. Returns track list with videoId, title, artist, album, duration, thumbnail. */
-    suspend fun search(query: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+    /** Searches YouTube Music catalog with optional category ("all", "music", "podcast"). */
+    suspend fun search(query: String, type: String = "all"): Pair<Int, String> = withContext(Dispatchers.IO) {
         val encoded = URLEncoder.encode(query, "UTF-8")
-        get("/api/v1/search?q=$encoded")
+        val encodedType = URLEncoder.encode(type, "UTF-8")
+        get("/api/v1/search?q=$encoded&type=$encodedType")
     }
 
     /** Resolves a direct audio stream URL for a given video ID (or title+artist for zero-data interception). */

@@ -153,6 +153,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Search State ====================
 
+    private val _searchCategory = MutableStateFlow(com.cubicreates.unboundmusic.ui.search.SearchCategory.ALL)
+    val searchCategory: StateFlow<com.cubicreates.unboundmusic.ui.search.SearchCategory> = _searchCategory.asStateFlow()
+
+    fun setSearchCategory(category: com.cubicreates.unboundmusic.ui.search.SearchCategory) {
+        if (_searchCategory.value != category) {
+            _searchCategory.value = category
+            val currentQ = _searchQuery.value
+            if (currentQ.isNotBlank()) {
+                onSearchQueryChanged(currentQ)
+            }
+        }
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -783,7 +796,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isSearching.value = true
             try {
                 var foundTracks = false
-                val (code, resp) = client.search(query)
+                val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
                 if (code in 200..299 && resp.isNotBlank()) {
                     val json = JSONObject(resp)
                     val tracksArray = json.optJSONArray("tracks")

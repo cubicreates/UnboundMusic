@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -88,6 +89,12 @@ private const val IMG_NEON_NOIR = "https://lh3.googleusercontent.com/aida-public
 private const val IMG_VELVET_RNB = "https://lh3.googleusercontent.com/aida-public/AB6AXuBSJnsYO276b6VZ7n7LFagIeKmKHHuG6IEVYjF_pjp2JIV8dHBs80dkrCjjG626oVAhRoT0pLENqVIKiLZqeF_xmuxrIfZS54cHPQBRIrOj3x6_R6QjYDWTeMDb8OwPV9OfoUaFvLymzUkf0ghmIl8TB3mcfe8aGHGD2jMsGY7s6Rz7nhFTn69aLj9L8qY1RIP1ose4cRhb7qkN1d2shozxVLqWbD_hqAa-k6OZvsBgtEqdBN832OB5WA"
 private const val IMG_MINIMAL_TECHNO = "https://lh3.googleusercontent.com/aida-public/AB6AXuAnosEC-gnWsCAmEWPnFxuHS2fKqzJpXbYP2Te8W67oJwj0Pr_tECi8sJ2HCNCOeT4n6WkRuO0OFttj8LL-oU0jw1jr2FJkFUEvQwR7V8c48MrfoIUsR3Ns8H6UEiOVxxpPEZ4jXP4_7EFwVd3RF0HIFlEnVyjEZi0Gm6QbIwe0N7Oua6_D2FlOQpb5468cLAkpaD6eBJm3W0J5RNzKGmf4ute3p-m0Hq8_QA0HG-YdvdnPJ3rQlKAxHQ"
 
+enum class SearchCategory(val label: String, val apiParam: String) {
+    ALL("All", "all"),
+    MUSIC("Music", "music"),
+    PODCASTS("Podcasts", "podcast")
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
@@ -95,6 +102,9 @@ fun SearchScreen(
     searchResults: List<TrackItem> = emptyList(),
     isSearching: Boolean = false,
     vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
+    selectedCategory: SearchCategory = SearchCategory.ALL,
+    chartTracks: List<TrackItem> = emptyList(),
+    onCategorySelected: (SearchCategory) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit = {},
     onVibeSubmit: (String) -> Unit = {},
     onListenToSurroundings: () -> Unit = {},
@@ -233,7 +243,37 @@ fun SearchScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 3. Category Filter Pills: All | Music | Podcasts
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SearchCategory.values().forEach { cat ->
+                    val isSelected = cat == selectedCategory
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isSelected) UnboundPrimary else Color(0xFF242424),
+                        border = if (isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
+                        modifier = Modifier.clickable {
+                            onCategorySelected(cat)
+                        }
+                    ) {
+                        Text(
+                            text = cat.label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.Black else OnSurface,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Vibe AI Result Card (if active)
             if (vibeState is VibeSearchUiState.Success) {
@@ -367,126 +407,246 @@ fun SearchScreen(
                     }
                 }
             } else {
-                // Default Discovery Feed (Scrollable)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // 3. Listen to Surroundings Action
-                    Surface(
+                if (selectedCategory == SearchCategory.MUSIC) {
+                    // Category: Music -> Curated Top Charts & Trending Hits
+                    Column(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(24.dp))
-                            .clickable {
-                                isListening = !isListening
-                                onListenToSurroundings()
-                            },
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color(0xFF222222),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.5f))
+                            .fillMaxWidth()
+                            .weight(1f)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(UnboundPrimary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.GraphicEq,
-                                    contentDescription = "Shazam",
-                                    tint = OnPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            Text(
-                                text = if (isListening) "Listening to Audio..." else "Listen to Surroundings",
-                                color = UnboundPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // 4. Trending Vibe Tags
-                    Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = "TRENDING VIBES",
+                            text = "TOP CHARTS & TRENDING MUSIC",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = OnSurfaceVariant,
                             letterSpacing = 0.1.sp,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            modifier = Modifier.padding(vertical = 8.dp)
                         )
 
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            trendingVibes.forEach { vibe ->
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = Color(0xFF222222),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
-                                    modifier = Modifier.clickable { onVibeTagClick(vibe) }
-                                ) {
-                                    Text(
-                                        text = vibe,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = OnSurface,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        if (chartTracks.isNotEmpty()) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                itemsIndexed(chartTracks, key = { index, track -> "chart_${track.id}_$index" }) { _, track ->
+                                    SearchResultItem(
+                                        track = track,
+                                        onClick = { onTrackSelect(track, chartTracks) }
                                     )
+                                }
+                            }
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = UnboundPrimary, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                    }
+                } else if (selectedCategory == SearchCategory.PODCASTS) {
+                    // Category: Podcasts -> Popular Podcast Shows & Episodes
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(
+                            text = "POPULAR PODCAST SHOWS",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurfaceVariant,
+                            letterSpacing = 0.1.sp,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+
+                        val popularPodcasts = listOf(
+                            "The Joe Rogan Experience" to "Interviews with thought leaders, comedians, and experts.",
+                            "Huberman Lab" to "Science-based tools for everyday health and performance.",
+                            "Lex Fridman Podcast" to "Deep conversations on AI, science, and philosophy.",
+                            "Stuff You Should Know" to "How everything around us actually works.",
+                            "Crime Junkie" to "True crime investigations and gripping cases.",
+                            "SmartLess" to "Improvised comedy interviews and genuine stories.",
+                            "Science Vs" to "Separating viral trends and fads from scientific fact.",
+                            "The Daily" to "Daily in-depth journalism on key global developments."
+                        )
+
+                        popularPodcasts.forEach { (name, desc) ->
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp)
+                                    .clickable {
+                                        searchQuery = name
+                                        onSearchQueryChanged(name)
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF1E1E1E),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF2A2A2A)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Radio,
+                                            contentDescription = "Podcast",
+                                            tint = UnboundPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = name,
+                                            color = OnSurface,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = desc,
+                                            color = OnSurfaceVariant,
+                                            fontSize = 12.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // 5. Featured Vibes
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            text = "FEATURED VIBES",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurfaceVariant,
-                            letterSpacing = 0.1.sp,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                } else {
+                    // Default Discovery Feed (Scrollable) for ALL
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // 3. Listen to Surroundings Action
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(24.dp))
+                                .clickable {
+                                    isListening = !isListening
+                                    onListenToSurroundings()
+                                },
+                            shape = RoundedCornerShape(24.dp),
+                            color = Color(0xFF222222),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.5f))
                         ) {
-                            FeaturedVibeCard(
-                                title = "Neon Noir",
-                                description = "Moody synths & late night driving.",
-                                imageUrl = IMG_NEON_NOIR,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onGenreCardClick("Neon Noir") }
+                            Row(
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(UnboundPrimary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.GraphicEq,
+                                        contentDescription = "Shazam",
+                                        tint = OnPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                Text(
+                                    text = if (isListening) "Listening to Audio..." else "Listen to Surroundings",
+                                    color = UnboundPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // 4. Trending Vibe Tags
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "TRENDING VIBES",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceVariant,
+                                letterSpacing = 0.1.sp,
+                                modifier = Modifier.padding(bottom = 8.dp)
                             )
 
-                            FeaturedVibeCard(
-                                title = "Velvet R&B",
-                                description = "Silky vocals and heavy 808s.",
-                                imageUrl = IMG_VELVET_RNB,
-                                modifier = Modifier.weight(1f),
-                                onClick = { onGenreCardClick("Velvet R&B") }
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                trendingVibes.forEach { vibe ->
+                                    Surface(
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = Color(0xFF222222),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
+                                        modifier = Modifier.clickable { onVibeTagClick(vibe) }
+                                    ) {
+                                        Text(
+                                            text = vibe,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = OnSurface,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // 5. Featured Vibes
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                text = "FEATURED VIBES",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurfaceVariant,
+                                letterSpacing = 0.1.sp,
+                                modifier = Modifier.padding(bottom = 8.dp)
                             )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                FeaturedVibeCard(
+                                    title = "Neon Noir",
+                                    description = "Moody synths & late night driving.",
+                                    imageUrl = IMG_NEON_NOIR,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onGenreCardClick("Neon Noir") }
+                                )
+
+                                FeaturedVibeCard(
+                                    title = "Velvet R&B",
+                                    description = "Silky vocals and heavy 808s.",
+                                    imageUrl = IMG_VELVET_RNB,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { onGenreCardClick("Velvet R&B") }
+                                )
+                            }
                         }
                     }
                 }

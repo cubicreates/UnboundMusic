@@ -428,7 +428,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSearch handles catalog search queries.
+// handleSearch handles catalog search queries with optional category filtering (all, music, podcast).
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if strings.TrimSpace(query) == "" {
@@ -436,7 +436,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracks, err := s.ytClient.Search(r.Context(), query)
+	searchType := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	tracks, err := s.ytClient.SearchWithCategory(r.Context(), query, searchType)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -450,6 +451,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"query":  query,
+		"type":   searchType,
 		"count":  len(tracks),
 		"tracks": tracks,
 	})

@@ -92,6 +92,7 @@ fun MainApp(
     val canvasArtUrl by viewModel.canvasArtUrl.collectAsStateWithLifecycle()
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
+    val searchCategory by viewModel.searchCategory.collectAsStateWithLifecycle()
     val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
     val vibeSearchResult by viewModel.vibeSearchResult.collectAsStateWithLifecycle()
     val equalizerCurve by viewModel.equalizerCurve.collectAsStateWithLifecycle()
@@ -268,6 +269,9 @@ fun MainApp(
                                     searchResults = searchResults,
                                     isSearching = isSearching,
                                     vibeState = vibeSearchResult,
+                                    selectedCategory = searchCategory,
+                                    chartTracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                    onCategorySelected = { viewModel.setSearchCategory(it) },
                                     onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
                                     onVibeSubmit = { viewModel.submitVibeQuery(it) },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },

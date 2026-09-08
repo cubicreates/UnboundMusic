@@ -31,29 +31,25 @@ object StorageInitializer {
             val filesDir = context.filesDir
             val binDir = File(filesDir, "bin")
 
-            // Clean up any legacy public storage leftovers from previous versions (/storage/emulated/0/Unbound)
-            UnboundStorageManager.cleanupLegacyPublicStorage()
+            // Clean up any legacy orphan .backend inside public storage (/storage/emulated/0/Unbound/.backend)
+            UnboundStorageManager.cleanupOrphanBackendFromPublic()
 
-            // Canonical Unbound directory (app-specific external storage, automatically purged by OS on uninstall)
-            val unboundRoot = UnboundStorageManager.getCanonicalUnboundRoot(context)
-            val backendDir = File(unboundRoot, ".backend")
-            val modelsDir = File(backendDir, "models")
+            // Public Unbound directory (/storage/emulated/0/Unbound with Downloads, Music, Playlists, Recaps)
+            UnboundStorageManager.getPublicUnboundDir()
+
+            // App-specific internal/external backend directory (/Android/data/.../.backend)
+            val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+            val modelsDir = File(backendRoot, "models")
 
             if (!binDir.exists()) binDir.mkdirs()
-            if (!backendDir.exists()) backendDir.mkdirs()
+            if (!backendRoot.exists()) backendRoot.mkdirs()
             if (!modelsDir.exists()) modelsDir.mkdirs()
-
-            // Create .nomedia so Android MediaStore & gallery apps ignore .backend completely
-            val noMediaFile = File(backendDir, ".nomedia")
-            if (!noMediaFile.exists()) {
-                try { noMediaFile.createNewFile() } catch (_: Exception) {}
-            }
 
             // 1. Extract and set executable permissions for fpcalc & llama-cli (must be in app internal binDir for execve permissions)
             extractBinaryAsset(context, "bin/arm64-v8a/fpcalc", File(binDir, "fpcalc"))
             extractBinaryAsset(context, "bin/arm64-v8a/llama-cli", File(binDir, "llama-cli"))
 
-            // 2. Extract AI models archive into hidden Unbound/.backend/models/ if primary model missing
+            // 2. Extract AI models archive into hidden .backend/models/ if primary model missing
             val primaryModel = File(modelsDir, "smollm2_135m.gguf")
             if (!primaryModel.exists() || primaryModel.length() == 0L) {
                 Log.i(TAG, "AI model weights missing from ${modelsDir.absolutePath}. Extracting archive payload...")
@@ -75,8 +71,8 @@ object StorageInitializer {
      */
     suspend fun unpackModelsIfPending(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
-            val unboundRoot = UnboundStorageManager.getCanonicalUnboundRoot(context)
-            val modelsDir = File(unboundRoot, ".backend/models")
+            val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+            val modelsDir = File(backendRoot, "models")
             val primaryModel = File(modelsDir, "smollm2_135m.gguf")
             val zstFile = File(modelsDir, "models.zst")
 

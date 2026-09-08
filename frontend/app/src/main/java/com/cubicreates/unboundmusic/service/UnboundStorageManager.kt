@@ -86,17 +86,18 @@ object UnboundStorageManager {
     }
 
     /**
-     * Cleans up legacy public shared storage at /storage/emulated/0/Unbound if it exists,
-     * ensuring no orphan files or exposed .backend folders remain from previous versions.
+     * Cleans up any orphan .backend directory inside public storage (/storage/emulated/0/Unbound/.backend)
+     * left over from older versions, ensuring no hidden machinery clutter exists in user-visible storage.
+     * Note: This NEVER deletes user music, downloads, playlists, or recaps.
      */
-    fun cleanupLegacyPublicStorage(): Boolean {
+    fun cleanupOrphanBackendFromPublic(): Boolean {
         return try {
             val extStorage = Environment.getExternalStorageDirectory()
             if (extStorage != null && extStorage.exists()) {
-                val legacyPublic = File(extStorage, "Unbound")
-                if (legacyPublic.exists() && legacyPublic.isDirectory) {
-                    Log.i(TAG, "Legacy public Unbound folder detected at ${legacyPublic.absolutePath}. Purging...")
-                    legacyPublic.deleteRecursively()
+                val orphanBackend = File(File(extStorage, "Unbound"), ".backend")
+                if (orphanBackend.exists() && orphanBackend.isDirectory) {
+                    Log.i(TAG, "Legacy orphan .backend found in public storage at ${orphanBackend.absolutePath}. Purging...")
+                    orphanBackend.deleteRecursively()
                 } else {
                     false
                 }
@@ -104,55 +105,88 @@ object UnboundStorageManager {
                 false
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Legacy public storage cleanup note: ${e.message}")
+            Log.w(TAG, "Orphan backend cleanup note: ${e.message}")
             false
         }
     }
 
     /**
-     * Returns the canonical Unbound root folder inside app-specific external storage:
-     * /storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/Unbound
-     * 
-     * Advantages:
-     * 1. Automatic OS Uninstall: Android OS automatically and completely purges this directory upon app uninstallation.
-     * 2. Hidden Engine Machinery: Since Android 11, /Android/data/ is restricted from regular phone file managers,
-     *    preventing .backend from cluttering the phone's gallery/file explorer.
-     * 3. Laptop Docking Visibility: When connected to a laptop via USB (MTP), the folder is fully visible and accessible
-     *    under Android/data/com.cubicreates.unboundmusic/files/Unbound/.
-     * 4. Zero Permissions Required: App-specific external storage requires no runtime storage permissions.
+     * Public user-visible Unbound folder directly in Phone File Manager -> Internal Storage:
+     * /storage/emulated/0/Unbound/
+     * Subdirectories: Downloads/, Music/, Playlists/, Recaps/
      */
-    fun getCanonicalUnboundRoot(context: Context): File {
-        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val unboundDir = File(baseDir, "Unbound")
+    fun getPublicUnboundDir(): File {
+        val extStorage = Environment.getExternalStorageDirectory()
+        val unboundDir = if (extStorage != null && extStorage.exists() && extStorage.canWrite()) {
+            File(extStorage, "Unbound")
+        } else {
+            File("/storage/emulated/0/Unbound")
+        }
+
         if (!unboundDir.exists()) {
             unboundDir.mkdirs()
         }
 
-        val backendDir = File(unboundDir, ".backend")
+        File(unboundDir, "Downloads").mkdirs()
+        File(unboundDir, "Music").mkdirs()
+        File(unboundDir, "Playlists").mkdirs()
+        File(unboundDir, "Recaps").mkdirs()
+
+        return unboundDir
+    }
+
+    /**
+     * App-specific internal/external storage root for hidden engine machinery:
+     * /storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/.backend
+     * Contains: sqlite/, models/, logs/, cache/, daemon.sock, .nomedia
+     * 
+     * Advantages:
+     * 1. Automatic OS Uninstall: Android OS automatically and completely purges this directory upon app uninstallation.
+     * 2. Hidden Engine Machinery: /Android/data/ is restricted from regular phone file managers & galleries.
+     * 3. Laptop Docking Visibility: When connected to a laptop via USB (MTP), the folder is fully visible and accessible
+     *    under Android/data/com.cubicreates.unboundmusic/files/.backend/.
+     * 4. Zero Permissions Required: App-specific external storage requires no runtime storage permissions.
+     */
+    fun getBackendStorageRoot(context: Context): File {
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val backendDir = File(baseDir, ".backend")
+        if (!backendDir.exists()) {
+            backendDir.mkdirs()
+        }
+
         val sqliteDir = File(backendDir, "sqlite")
         val modelsDir = File(backendDir, "models")
         val logsDir = File(backendDir, "logs")
         val cacheDir = File(backendDir, "cache")
-        val downloadsDir = File(unboundDir, "Downloads")
-        val musicDir = File(unboundDir, "Music")
-        val playlistsDir = File(unboundDir, "Playlists")
-        val recapsDir = File(unboundDir, "Recaps")
 
-        if (!backendDir.exists()) backendDir.mkdirs()
         if (!sqliteDir.exists()) sqliteDir.mkdirs()
         if (!modelsDir.exists()) modelsDir.mkdirs()
         if (!logsDir.exists()) logsDir.mkdirs()
         if (!cacheDir.exists()) cacheDir.mkdirs()
-        if (!downloadsDir.exists()) downloadsDir.mkdirs()
-        if (!musicDir.exists()) musicDir.mkdirs()
-        if (!playlistsDir.exists()) playlistsDir.mkdirs()
-        if (!recapsDir.exists()) recapsDir.mkdirs()
 
         val nomedia = File(backendDir, ".nomedia")
         if (!nomedia.exists()) {
             try { nomedia.createNewFile() } catch (_: Exception) {}
         }
 
-        return unboundDir
+        return backendDir
+    }
+
+    /**
+     * Generates a pipe-delimited storage configuration string for the Go engine:
+     * "<publicRoot>|<backendRoot>"
+     */
+    fun getCombinedStorageConfig(context: Context): String {
+        val publicDir = getPublicUnboundDir()
+        val backendDir = getBackendStorageRoot(context)
+        return "${publicDir.absolutePath}|${backendDir.absolutePath}"
+    }
+
+    /**
+     * Returns the user-visible public root folder (/storage/emulated/0/Unbound)
+     * for public file storage operations (downloads, music, playlists, recaps).
+     */
+    fun getCanonicalUnboundRoot(context: Context): File {
+        return getPublicUnboundDir()
     }
 }

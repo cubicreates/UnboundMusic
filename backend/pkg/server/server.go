@@ -122,7 +122,7 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Initialize Storage Provisioner to ensure Unbound/.backend/ structure
-	provisioner := storage.NewProvisioner(cfg.LibraryRoot)
+	provisioner := storage.NewProvisioner(cfg.LibraryRoot, cfg.AppStorageRoot)
 	tree, _ := provisioner.ProvisionLayout()
 
 	dbPath := cfg.DatabasePath
@@ -141,8 +141,19 @@ func NewServer(cfg Config) (*Server, error) {
 	forcdAligner := aligner.NewForcedAligner()
 	playbackRouter := router.NewRouter(ytClient, repo)
 	recEngine := recommender.NewEngine(repo)
-	p2pDiscovery := p2p.NewDiscovery("node_local", "Unbound Desktop", cfg.Port)
-	edgeAI := ai.NewRunner(cfg.ModelsPath)
+	p2pDiscovery := p2p.NewDiscovery("node_local", "Unbound Mobile", cfg.Port)
+
+	modelsPath := cfg.ModelsPath
+	if modelsPath == "" {
+		if tree != nil && tree.ModelsPath != "" {
+			modelsPath = tree.ModelsPath
+		} else if filepath.Base(cfg.AppStorageRoot) == ".backend" {
+			modelsPath = filepath.Join(cfg.AppStorageRoot, "models")
+		} else {
+			modelsPath = filepath.Join(cfg.AppStorageRoot, ".backend", "models")
+		}
+	}
+	edgeAI := ai.NewRunner(modelsPath)
 	autoEqEngine := autoeq.NewEngine()
 	discordClient := discord.NewClient("")
 	sbClient := sponsorblock.NewClient()
@@ -299,7 +310,14 @@ func (s *Server) Start() error {
 
 	// Auto-unpack AI payload if models.zst is present and primary model is missing
 	go func() {
-		modelsDir := filepath.Join(s.cfg.AppStorageRoot, ".backend", "models")
+		modelsDir := s.cfg.ModelsPath
+		if modelsDir == "" {
+			if filepath.Base(s.cfg.AppStorageRoot) == ".backend" {
+				modelsDir = filepath.Join(s.cfg.AppStorageRoot, "models")
+			} else {
+				modelsDir = filepath.Join(s.cfg.AppStorageRoot, ".backend", "models")
+			}
+		}
 		primaryModel := filepath.Join(modelsDir, "smollm2_135m.gguf")
 		archivePath := filepath.Join(modelsDir, "models.zst")
 

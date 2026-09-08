@@ -34,13 +34,14 @@ type DirectoryTree struct {
 
 // Provisioner coordinates directory creation and path resolution.
 type Provisioner struct {
-	mu       sync.RWMutex
-	baseRoot string
-	tree     *DirectoryTree
+	mu          sync.RWMutex
+	baseRoot    string
+	backendRoot string
+	tree        *DirectoryTree
 }
 
-// NewProvisioner initializes a storage provisioner anchored at the provided base root.
-func NewProvisioner(baseRoot string) *Provisioner {
+// NewProvisioner initializes a storage provisioner anchored at the provided base root and optional backend root.
+func NewProvisioner(baseRoot string, backendRoot ...string) *Provisioner {
 	if baseRoot == "" {
 		home, err := os.UserHomeDir()
 		if err != nil || home == "" {
@@ -50,8 +51,14 @@ func NewProvisioner(baseRoot string) *Provisioner {
 		}
 	}
 
+	var bRoot string
+	if len(backendRoot) > 0 && backendRoot[0] != "" {
+		bRoot = backendRoot[0]
+	}
+
 	return &Provisioner{
-		baseRoot: baseRoot,
+		baseRoot:    baseRoot,
+		backendRoot: bRoot,
 	}
 }
 
@@ -84,7 +91,12 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 }
 
 func (p *Provisioner) createTree(root string, isFallback bool) (*DirectoryTree, error) {
-	backendRoot := filepath.Join(root, ".backend")
+	var backendRoot string
+	if p.backendRoot != "" && !isFallback {
+		backendRoot = p.backendRoot
+	} else {
+		backendRoot = filepath.Join(root, ".backend")
+	}
 
 	sqliteDir := filepath.Join(backendRoot, "sqlite")
 	modelsDir := filepath.Join(backendRoot, "models")

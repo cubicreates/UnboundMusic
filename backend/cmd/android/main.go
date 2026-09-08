@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/cubicreates/unbound-engine/pkg/server"
@@ -68,18 +69,35 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 		port = 45731
 	}
 
+	var publicRoot string
+	var backendRoot string
+
+	if strings.Contains(appStoragePath, "|") {
+		parts := strings.SplitN(appStoragePath, "|", 2)
+		publicRoot = parts[0]
+		backendRoot = parts[1]
+	} else if filepath.Base(appStoragePath) == ".backend" {
+		backendRoot = appStoragePath
+		publicRoot = "/storage/emulated/0/Unbound"
+	} else {
+		publicRoot = appStoragePath
+		backendRoot = filepath.Join(appStoragePath, ".backend")
+	}
+
+	_ = os.MkdirAll(publicRoot, 0755)
+	_ = os.MkdirAll(backendRoot, 0755)
+
 	socketPath := os.Getenv("UNBOUND_SOCKET_PATH")
-	if socketPath == "" && appStoragePath != "" {
-		sockDir := filepath.Join(appStoragePath, ".backend")
-		_ = os.MkdirAll(sockDir, 0755)
-		socketPath = filepath.Join(sockDir, "daemon.sock")
+	if socketPath == "" && backendRoot != "" {
+		socketPath = filepath.Join(backendRoot, "daemon.sock")
 	}
 
 	cfg := server.Config{
 		Port:           port,
 		SocketPath:     socketPath,
-		AppStorageRoot: appStoragePath,
-		LibraryRoot:    appStoragePath,
+		AppStorageRoot: backendRoot,
+		LibraryRoot:    publicRoot,
+		ModelsPath:     filepath.Join(backendRoot, "models"),
 	}
 
 	srv, err := server.NewServer(cfg)

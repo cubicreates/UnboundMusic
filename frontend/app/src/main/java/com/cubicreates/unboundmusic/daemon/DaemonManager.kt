@@ -105,12 +105,13 @@ class DaemonManager private constructor(private val context: Context) {
 
         scope.launch {
             try {
-                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
+                val storageConfig = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCombinedStorageConfig(context)
+                val publicRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir()
 
-                Log.d(TAG, "Starting Go Engine on port $DAEMON_PORT with storage path ${unboundRoot.absolutePath}")
+                Log.d(TAG, "Starting Go Engine on port $DAEMON_PORT with storage config $storageConfig")
 
                 val ret = try {
-                    startEngineNative(unboundRoot.absolutePath, DAEMON_PORT)
+                    startEngineNative(storageConfig, DAEMON_PORT)
                 } catch (e: UnsatisfiedLinkError) {
                     Log.e(TAG, "startEngineNative linkage failed: ${e.message}")
                     -2
@@ -132,7 +133,7 @@ class DaemonManager private constructor(private val context: Context) {
                 }
 
                 if (isAlive) {
-                    _state.value = DaemonLifecycleState.Running(DAEMON_PORT, unboundRoot.absolutePath)
+                    _state.value = DaemonLifecycleState.Running(DAEMON_PORT, publicRoot.absolutePath)
                     Log.i(TAG, "Production Go Engine is running and healthy on 127.0.0.1:$DAEMON_PORT")
                 } else {
                     _state.value = DaemonLifecycleState.Error("Daemon failed to answer health check within timeout.")

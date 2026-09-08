@@ -11,7 +11,9 @@ package fingerprint
 import (
 	"context"
 	"io/fs"
+	"log"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 )
@@ -39,6 +41,11 @@ func ScanDirectory(ctx context.Context, rootDir string, numWorkers int) (*ScanSu
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[PANIC RECOVERED] audio scanner worker: %v\nStack trace:\n%s", r, string(debug.Stack()))
+				}
+			}()
 			for path := range fileChan {
 				select {
 				case <-ctx.Done():

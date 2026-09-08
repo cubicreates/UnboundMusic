@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net"
 	"net/http"
@@ -145,7 +146,11 @@ func NewServer(cfg Config) (*Server, error) {
 	playlistImporter := importer.NewImporter()
 	scrobbler := lastfm.NewScrobbler("", "")
 	podcastEngine := podcasts.NewEngine(ytClient)
-	canvasCli := canvas.NewClient()
+	canvasCacheDir := ""
+	if tree != nil && tree.CachePath != "" {
+		canvasCacheDir = filepath.Join(tree.CachePath, "canvas")
+	}
+	canvasCli := canvas.NewClient(canvasCacheDir)
 	accSyncer := account.NewSyncer()
 	exploreEngine := explore.NewEngine(ytClient)
 	artistEngine := artist.NewEngine(ytClient)
@@ -252,7 +257,8 @@ func (s *Server) Start() error {
 		_ = os.Remove(s.cfg.SocketPath) // Clean up any stale socket
 		l, err := net.Listen("unix", s.cfg.SocketPath)
 		if err != nil {
-			return fmt.Errorf("failed to listen on unix domain socket %s: %w", s.cfg.SocketPath, err)
+			log.Printf("[IPC] Unix domain socket listen failed on %s (%v); falling back to TCP :%d", s.cfg.SocketPath, err, s.cfg.Port)
+			return s.httpServer.ListenAndServe()
 		}
 		defer l.Close()
 		defer os.Remove(s.cfg.SocketPath)

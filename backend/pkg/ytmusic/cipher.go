@@ -9,13 +9,17 @@
 package ytmusic
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // CipherOpType defines the transformation category.
@@ -42,6 +46,11 @@ var (
 	regexDecipherFunc = regexp.MustCompile(`(?s)\.split\(""\);\s*(?P<body>.*?)\s*;\s*return\s+[a-zA-Z0-9_$]+\.join\(""\)`)
 	regexOpCall       = regexp.MustCompile(`([a-zA-Z0-9_$]+)(?:\.([a-zA-Z0-9_$]+)|\["([^"]+)"\])\s*\(\s*[a-zA-Z0-9_$]+\s*(?:,\s*(\d+))?\s*\)`)
 )
+
+// SolveSignature executes YouTube cipher operations in chronological order on an obfuscated signature token.
+func SolveSignature(sig string, ops []CipherOp) string {
+	return ApplyCipherOps(sig, ops)
+}
 
 // ApplyCipherOps executes YouTube cipher operations in order on a signature string.
 func ApplyCipherOps(sig string, ops []CipherOp) string {
@@ -267,4 +276,44 @@ func ParseBitrate(val any) int {
 		}
 	}
 	return 0
+}
+
+// FetchAndExtractCipherOps downloads a YouTube player JavaScript file and extracts its dynamic cipher operations.
+func FetchAndExtractCipherOps(ctx context.Context, httpClient *http.Client, playerURL string) ([]CipherOp, error) {
+	if strings.TrimSpace(playerURL) == "" {
+		return nil, errors.New("empty player URL")
+	}
+
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, playerURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create player request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch player script: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("player script returned status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read player script: %w", err)
+	}
+
+	ops, err := ParsePlayerCipherJS(string(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	SetCachedCipherOps(ops)
+	return ops, nil
 }

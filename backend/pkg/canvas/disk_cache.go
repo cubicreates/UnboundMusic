@@ -13,9 +13,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -92,6 +94,12 @@ func (c *DiskLRUCache) DownloadAsync(key, remoteURL string) {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC RECOVERED] canvas download goroutine for key %s: %v\nStack trace:\n%s", key, r, string(debug.Stack()))
+			}
+		}()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 

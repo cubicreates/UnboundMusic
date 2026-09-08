@@ -12,9 +12,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -319,6 +321,13 @@ func (m *Manager) DeleteDownload(ctx context.Context, videoID string, deletePhys
 
 // runDownloadWorker coordinates 1 MB HTTP Range chunking, resume offsets, tagging, and atomic rename.
 func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PANIC RECOVERED] download worker for %s: %v\nStack trace:\n%s", task.VideoID, r, string(debug.Stack()))
+			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("internal worker panic: %v", r))
+		}
+	}()
+
 	m.updateTaskStatus(task, StatusDownloading, "")
 
 	// 1. Resolve stream URL if not pre-populated

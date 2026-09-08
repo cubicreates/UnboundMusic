@@ -32,6 +32,7 @@ import "C"
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/cubicreates/unbound-engine/pkg/server"
@@ -65,6 +66,7 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 
 	cfg := server.Config{
 		Port:           port,
+		SocketPath:     os.Getenv("UNBOUND_SOCKET_PATH"),
 		AppStorageRoot: appStoragePath,
 		LibraryRoot:    appStoragePath,
 	}
@@ -77,12 +79,16 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 
 	activeServer = srv
 
-	go func() {
-		fmt.Printf("[UNBOUND JNI] Embedded Go Engine listening on 127.0.0.1:%d (Storage: %s)\n", port, appStoragePath)
+	server.SafeGo("android-embedded-server", func() {
+		if cfg.SocketPath != "" {
+			fmt.Printf("[UNBOUND JNI] Embedded Go Engine listening on unix:%s (Storage: %s)\n", cfg.SocketPath, appStoragePath)
+		} else {
+			fmt.Printf("[UNBOUND JNI] Embedded Go Engine listening on 127.0.0.1:%d (Storage: %s)\n", port, appStoragePath)
+		}
 		if err := srv.Start(); err != nil {
 			fmt.Printf("[UNBOUND JNI] Server exited: %v\n", err)
 		}
-	}()
+	})
 
 	return 1
 }

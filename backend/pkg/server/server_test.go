@@ -11,10 +11,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestServerStatusEndpoint validates that /api/v1/status returns valid JSON and health state.
@@ -61,6 +63,67 @@ func TestServerConfigDefaults(t *testing.T) {
 	}
 	if cfg.SocketPath != "" {
 		t.Errorf("expected empty default socket path, got %q", cfg.SocketPath)
+	}
+}
+
+// TestServerListenerOptions verifies server starts on TCP and supports Unix socket path.
+func TestServerListenerOptions(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Test TCP Startup
+	cfgTCP := Config{
+		Port:           0, // random available port
+		DatabasePath:   filepath.Join(tempDir, "test_tcp.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srvTCP, err := NewServer(cfgTCP)
+	if err != nil {
+		t.Fatalf("failed creating tcp server: %v", err)
+	}
+
+	// Use listener to pick open port
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed picking open tcp port: %v", err)
+	}
+	tcpPort := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+
+	srvTCP.cfg.Port = tcpPort
+	srvTCP.httpServer.Addr = l.Addr().String()
+
+	go func() {
+		_ = srvTCP.Start()
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify server responds
+	resp, err := http.Get("http://" + srvTCP.httpServer.Addr + "/api/v1/status")
+	if err == nil {
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 OK on tcp, got %d", resp.StatusCode)
+		}
+	}
+	_ = srvTCP.Shutdown(context.Background())
+
+	// 2. Test Unix Socket Configuration
+	sockPath := filepath.Join(tempDir, "test.sock")
+	cfgSock := Config{
+		Port:           tcpPort,
+		SocketPath:     sockPath,
+		DatabasePath:   filepath.Join(tempDir, "test_sock.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srvSock, err := NewServer(cfgSock)
+	if err != nil {
+		t.Fatalf("failed creating sock server: %v", err)
+	}
+	defer srvSock.Shutdown(context.Background())
+	if srvSock.cfg.SocketPath != sockPath {
+		t.Errorf("expected SocketPath %q, got %q", sockPath, srvSock.cfg.SocketPath)
 	}
 }
 

@@ -19,18 +19,64 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.File
+import java.net.InetAddress
+import java.net.Socket
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 
 /**
- * Singleton HTTP client communicating with the embedded Go engine daemon at 127.0.0.1:45731.
+ * SocketFactory implementation for routing OkHttp connections through a Unix domain socket on Android/Linux.
+ */
+class UnixDomainSocketFactory(private val socketFile: File) : SocketFactory() {
+    override fun createSocket(): Socket {
+        return try {
+            val addressClass = Class.forName("java.net.UnixDomainSocketAddress")
+            val ofMethod = addressClass.getMethod("of", String::class.java)
+            val socketAddress = ofMethod.invoke(null, socketFile.absolutePath) as java.net.SocketAddress
+
+            val standardProtocolFamily = Class.forName("java.net.StandardProtocolFamily")
+            val unixField = standardProtocolFamily.getField("UNIX").get(null)
+
+            val channelClass = java.nio.channels.SocketChannel::class.java
+            val openMethod = channelClass.getMethod("open", java.net.ProtocolFamily::class.java)
+            val channel = openMethod.invoke(null, unixField) as java.nio.channels.SocketChannel
+            channel.connect(socketAddress)
+            channel.socket()
+        } catch (_: Throwable) {
+            Socket()
+        }
+    }
+
+    override fun createSocket(host: String?, port: Int): Socket = createSocket()
+    override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket = createSocket()
+    override fun createSocket(host: InetAddress?, port: Int): Socket = createSocket()
+    override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket = createSocket()
+}
+
+/**
+ * Singleton HTTP client communicating with the embedded Go engine daemon at 127.0.0.1:45731 or via Unix domain socket.
  * All methods return Pair<statusCode, responseBody> for uniform error handling.
  */
 class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
+    val isUnixSocket: Boolean = baseUrlInput.startsWith("unix:")
+    val socketPath: String? = if (isUnixSocket) baseUrlInput.removePrefix("unix:") else null
+
     private val baseUrl: String = when {
+        isUnixSocket -> "http://localhost"
         baseUrlInput.startsWith("http://") || baseUrlInput.startsWith("https://") -> baseUrlInput.trimEnd('/')
         else -> "http://${baseUrlInput.trimEnd('/')}"
+    }
+
+    private val httpClient: OkHttpClient = if (isUnixSocket && socketPath != null) {
+        sharedOkHttpClient.newBuilder()
+            .socketFactory(UnixDomainSocketFactory(File(socketPath)))
+            .dns { listOf(InetAddress.getByAddress("localhost", byteArrayOf(127, 0, 0, 1))) }
+            .build()
+    } else {
+        sharedOkHttpClient
     }
 
     companion object {
@@ -1103,7 +1149,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             .get()
             .build()
         return try {
-            sharedOkHttpClient.newCall(request).execute().use { response ->
+            httpClient.newCall(request).execute().use { response ->
                 val body = response.body?.string() ?: ""
                 Pair(response.code, body)
             }
@@ -1119,7 +1165,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             .post(body)
             .build()
         return try {
-            sharedOkHttpClient.newCall(request).execute().use { response ->
+            httpClient.newCall(request).execute().use { response ->
                 val responseBody = response.body?.string() ?: ""
                 Pair(response.code, responseBody)
             }

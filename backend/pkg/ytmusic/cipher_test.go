@@ -9,6 +9,10 @@
 package ytmusic
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +98,54 @@ function wR(a) {
 	}
 	if ops[2].Type != OpSplice || ops[2].Param != 3 {
 		t.Errorf("expected op[2] to be OpSplice(3), got %v(%d)", ops[2].Type, ops[2].Param)
+	}
+}
+
+// TestSolveSignature verifies the high-level SolveSignature interface.
+func TestSolveSignature(t *testing.T) {
+	ops := []CipherOp{
+		{Type: OpReverse},
+	}
+	result := SolveSignature("hello", ops)
+	if result != "olleh" {
+		t.Errorf("expected 'olleh', got %q", result)
+	}
+}
+
+// TestFetchAndExtractCipherOps verifies remote player JS fetching and caching.
+func TestFetchAndExtractCipherOps(t *testing.T) {
+	jsSnippet := `
+var vR = {
+	wS: function(a) { a.reverse() }
+};
+function wR(a) {
+	a = a.split("");
+	vR.wS(a, 0);
+	return a.join("")
+}
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(jsSnippet))
+	}))
+	defer srv.Close()
+
+	ops, err := FetchAndExtractCipherOps(context.Background(), srv.Client(), srv.URL+"/base.js")
+	if err != nil {
+		t.Fatalf("expected successful fetch and parse, got %v", err)
+	}
+
+	if len(ops) != 1 || ops[0].Type != OpReverse {
+		t.Errorf("expected 1 OpReverse op, got %+v", ops)
+	}
+
+	// Verify DecipherURL utilizes cached ops
+	decURL, err := DecipherURL("", "url=http://example.com/stream&s=12345", "")
+	if err != nil {
+		t.Fatalf("decipher failed: %v", err)
+	}
+	if !strings.Contains(decURL, "sig=54321") {
+		t.Errorf("expected sig=54321 in deciphered url, got %s", decURL)
 	}
 }

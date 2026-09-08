@@ -10,6 +10,8 @@ package downloader
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -157,3 +159,60 @@ func TestInjectMetadataAndIndex(t *testing.T) {
 		t.Errorf("expected FilePath %s, got %s", dummyAudioPath, indexed.FilePath)
 	}
 }
+
+func TestEncodeFLACPictureBlock(t *testing.T) {
+	mockImgData := []byte("fake-jpeg-binary-image-stream-content")
+	mimeType := "image/jpeg"
+
+	encoded := EncodeFLACPictureBlock(mockImgData, mimeType)
+	if encoded == "" {
+		t.Fatalf("expected non-empty Base64 string")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("failed to decode base64: %v", err)
+	}
+
+	// Verify FLAC picture structure (Big Endian):
+	// Picture type (uint32 = 3: Front Cover)
+	// MIME length (uint32) + MIME string
+	// Description length (uint32 = 0)
+	// Width (uint32 = 0)
+	// Height (uint32 = 0)
+	// Color depth (uint32 = 0)
+	// Indexed colors (uint32 = 0)
+	// Data length (uint32) + Data
+	expectedMinLen := 4 + 4 + len(mimeType) + 4 + 4 + 4 + 4 + 4 + 4 + len(mockImgData)
+	if len(decoded) != expectedMinLen {
+		t.Fatalf("decoded length = %d, want %d", len(decoded), expectedMinLen)
+	}
+
+	picType := binary.BigEndian.Uint32(decoded[0:4])
+	if picType != 3 {
+		t.Errorf("picture type = %d, want 3 (front cover)", picType)
+	}
+
+	mimeLen := binary.BigEndian.Uint32(decoded[4:8])
+	if int(mimeLen) != len(mimeType) {
+		t.Errorf("mime length = %d, want %d", mimeLen, len(mimeType))
+	}
+
+	mime := string(decoded[8 : 8+mimeLen])
+	if mime != mimeType {
+		t.Errorf("mime = %q, want %q", mime, mimeType)
+	}
+
+	// Offset after description (4 bytes) + width, height, depth, indexed (16 bytes)
+	offset := 8 + int(mimeLen) + 4 + 16
+	dataLen := binary.BigEndian.Uint32(decoded[offset : offset+4])
+	if int(dataLen) != len(mockImgData) {
+		t.Errorf("data length = %d, want %d", dataLen, len(mockImgData))
+	}
+
+	imgData := decoded[offset+4 : offset+4+int(dataLen)]
+	if string(imgData) != string(mockImgData) {
+		t.Errorf("image data mismatch")
+	}
+}
+

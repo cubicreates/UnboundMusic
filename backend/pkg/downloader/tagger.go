@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -91,6 +92,38 @@ func BuildVorbisCommentBlock(vendor string, comments map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// EncodeFLACPictureBlock serializes raw image data into a standard RFC 7845 / FLAC METADATA_BLOCK_PICTURE Base64 string.
+func EncodeFLACPictureBlock(imageData []byte, mimeType string) string {
+	if len(imageData) == 0 {
+		return ""
+	}
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	buf := new(bytes.Buffer)
+	// 1. Picture type (uint32, 3 = Cover Front)
+	_ = binary.Write(buf, binary.BigEndian, uint32(3))
+	// 2. MIME type length (uint32) and MIME string
+	_ = binary.Write(buf, binary.BigEndian, uint32(len(mimeType)))
+	buf.WriteString(mimeType)
+	// 3. Description length (uint32, 0)
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))
+	// 4. Width (uint32, 0)
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))
+	// 5. Height (uint32, 0)
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))
+	// 6. Color depth (uint32, 0)
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))
+	// 7. Indexed colors (uint32, 0)
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))
+	// 8. Picture data length (uint32) and raw image bytes
+	_ = binary.Write(buf, binary.BigEndian, uint32(len(imageData)))
+	buf.Write(imageData)
+
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
 // InjectMetadataAndIndex harvests 1080x1080 master artwork, generates companion art, and indexes into SQLite local_tracks.
 func InjectMetadataAndIndex(
 	ctx context.Context,
@@ -108,6 +141,7 @@ func InjectMetadataAndIndex(
 	}
 
 	// 1. Harvest and save 1080x1080 master artwork companion file
+	var rawCoverBytes []byte
 	if task.ArtworkURL != "" {
 		upscaledURL := UpscaleThumbnailMasterArt(task.ArtworkURL)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, upscaledURL, nil)
@@ -115,17 +149,13 @@ func InjectMetadataAndIndex(
 			resp, err := httpClient.Do(req)
 			if err == nil && resp.StatusCode == http.StatusOK {
 				defer resp.Body.Close()
-				coverPath := task.LocalPath + ".cover.jpg"
-				// Also write next to targetFile if different
-				coverOut, err := os.Create(coverPath)
-				if err == nil {
-					_, _ = io.Copy(coverOut, resp.Body)
-					_ = coverOut.Close()
-				}
-				if targetFile != task.LocalPath {
-					targetCover := targetFile + ".cover.jpg"
-					if _, err := os.Stat(coverPath); err == nil {
-						data, _ := os.ReadFile(coverPath)
+				data, readErr := io.ReadAll(resp.Body)
+				if readErr == nil && len(data) > 0 {
+					rawCoverBytes = data
+					coverPath := task.LocalPath + ".cover.jpg"
+					_ = os.WriteFile(coverPath, data, 0644)
+					if targetFile != task.LocalPath {
+						targetCover := targetFile + ".cover.jpg"
 						_ = os.WriteFile(targetCover, data, 0644)
 					}
 				}
@@ -135,7 +165,7 @@ func InjectMetadataAndIndex(
 		}
 	}
 
-	// 2. Generate Vorbis metadata comment block
+	// 2. Generate Vorbis metadata comment block with RFC 7845 METADATA_BLOCK_PICTURE
 	comments := map[string]string{
 		"TITLE":       task.Title,
 		"ARTIST":      task.Artist,
@@ -143,6 +173,9 @@ func InjectMetadataAndIndex(
 		"SOURCE":      SourceFolderDownloads,
 		"ENCODED_BY":  "Unbound Music Engine",
 		"UNBOUND_VID": task.VideoID,
+	}
+	if len(rawCoverBytes) > 0 {
+		comments["METADATA_BLOCK_PICTURE"] = EncodeFLACPictureBlock(rawCoverBytes, "image/jpeg")
 	}
 	_ = BuildVorbisCommentBlock("Unbound Engine v2.0", comments)
 

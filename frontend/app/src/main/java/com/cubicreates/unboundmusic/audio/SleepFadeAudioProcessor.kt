@@ -29,7 +29,6 @@ class SleepFadeAudioProcessor(
         return inputAudioFormat
     }
 
-    override fun isActive(): Boolean = true
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val remaining = inputBuffer.remaining()

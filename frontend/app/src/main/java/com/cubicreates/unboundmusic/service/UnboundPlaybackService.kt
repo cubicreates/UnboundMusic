@@ -87,8 +87,9 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with Media3 ExoPlayer & DSP Pipeline...")
 
+        val mobileUserAgent = "UnboundMusic/1.0 (Linux; Android ${android.os.Build.VERSION.RELEASE}; Mobile)"
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
+            .setUserAgent(mobileUserAgent)
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
@@ -103,7 +104,6 @@ class UnboundPlaybackService : MediaSessionService() {
                     .setAudioProcessors(
                         arrayOf(equalizerProcessor, sleepFadeProcessor, crossfadeProcessor)
                     )
-                    .setEnableFloatOutput(false) // Software DSP pipeline processes 16-bit PCM
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .build()
             }

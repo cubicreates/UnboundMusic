@@ -655,6 +655,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Secondary fallback: search track title + artist to find matching YouTube stream
+        if (track.title.isNotBlank()) {
+            try {
+                val searchQuery = "${track.title} ${track.artist}".trim()
+                val (searchCode, searchResp) = client.search(searchQuery)
+                if (searchCode in 200..299 && searchResp.isNotBlank()) {
+                    val searchJson = JSONObject(searchResp)
+                    val tracksArr = searchJson.optJSONArray("tracks") ?: searchJson.optJSONArray("results")
+                    if (tracksArr != null && tracksArr.length() > 0) {
+                        val firstMatch = tracksArr.getJSONObject(0)
+                        val matchId = firstMatch.optString("id", firstMatch.optString("video_id", ""))
+                        if (matchId.isNotBlank() && matchId.length == 11) {
+                            val (streamCode, streamResp) = client.getStream(videoId = matchId)
+                            if (streamCode in 200..299 && streamResp.isNotBlank()) {
+                                val json = JSONObject(streamResp)
+                                val resolved = json.optString("stream_url", "")
+                                if (resolved.isNotBlank()) {
+                                    Log.i(TAG, "Stream resolved via search fallback for '${track.title}'")
+                                    return resolved
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Search fallback resolution failed: ${e.message}")
+            }
+        }
+
         // Fallback: return existing stream URL if valid, otherwise empty string
         val fallback = track.streamUrl
         return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://")) {

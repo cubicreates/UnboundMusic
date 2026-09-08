@@ -34,6 +34,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/discord"
 	"github.com/cubicreates/unbound-engine/pkg/downloader"
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
+	"github.com/cubicreates/unbound-engine/pkg/events"
 	"github.com/cubicreates/unbound-engine/pkg/explore"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
@@ -108,6 +109,7 @@ type Server struct {
 	provisioner  *storage.Provisioner
 	indexer      *storage.Indexer
 	downloader   *downloader.Manager
+	events       *events.EventBus
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -164,6 +166,8 @@ func NewServer(cfg Config) (*Server, error) {
 		downloadDir = tree.DownloadPath
 	}
 	dlManager := downloader.NewManager(downloadDir, ytClient)
+	eventBus := events.NewEventBus(128)
+	dlManager.SetEventBus(eventBus)
 
 	s := &Server{
 		cfg:          cfg,
@@ -194,10 +198,12 @@ func NewServer(cfg Config) (*Server, error) {
 		provisioner:  provisioner,
 		indexer:      indexer,
 		downloader:   dlManager,
+		events:       eventBus,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/search", s.handleSearch)
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
 	mux.HandleFunc("/api/v1/lyrics", s.handleLyrics)
@@ -298,6 +304,58 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, payload)
+}
+
+// EventBus returns the server's real-time event bus.
+func (s *Server) EventBus() *events.EventBus {
+	return s.events
+}
+
+// handleEvents streams real-time Server-Sent Events (SSE) to connected clients.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported by client connection")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if s.events == nil {
+		s.events = events.NewEventBus(128)
+	}
+
+	ch := s.events.Subscribe()
+	defer s.events.Unsubscribe(ch)
+
+	// Send initial connection handshake
+	initEvt := events.Event{
+		Type:      "connected",
+		Payload:   map[string]string{"status": "READY"},
+		Timestamp: time.Now(),
+	}
+	_, _ = w.Write(initEvt.SSEMessage())
+	flusher.Flush()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case evt, open := <-ch:
+			if !open {
+				return
+			}
+			_, err := w.Write(evt.SSEMessage())
+			if err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }
 
 // handleSearch handles catalog search queries.

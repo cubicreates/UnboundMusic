@@ -71,6 +71,11 @@ type DownloadTask struct {
 	pauseSignal chan struct{}
 }
 
+// EventBroadcaster allows pushing download state notifications to external subscribers.
+type EventBroadcaster interface {
+	Publish(eventType string, payload any)
+}
+
 // Manager coordinates file downloads, HTTP Range workers, and destination directories.
 type Manager struct {
 	mu          sync.RWMutex
@@ -80,6 +85,14 @@ type Manager struct {
 	tasks       map[string]*DownloadTask
 	httpClient  *http.Client
 	chunkSize   int64
+	eventBus    EventBroadcaster
+}
+
+// SetEventBus wires an event broadcaster for real-time notifications.
+func (m *Manager) SetEventBus(bus EventBroadcaster) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventBus = bus
 }
 
 // NewManager creates a download manager saving to the specified download directory.
@@ -493,7 +506,17 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 					task.Percent = task.Progress
 				}
 				task.UpdatedAt = time.Now()
+				bus := m.eventBus
 				m.mu.Unlock()
+
+				if bus != nil {
+					bus.Publish("download_progress", map[string]any{
+						"video_id":   task.VideoID,
+						"downloaded": currentOffset,
+						"total":      task.TotalBytes,
+						"progress":   task.Progress,
+					})
+				}
 			}
 			if rErr != nil {
 				readErr = rErr
@@ -545,21 +568,31 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 	task.Progress = 100.0
 	task.Percent = 100.0
 	task.UpdatedAt = time.Now()
+	bus := m.eventBus
 	m.mu.Unlock()
+
+	if bus != nil {
+		bus.Publish("download_completed", task)
+	}
 }
 
 func (m *Manager) updateTaskStatus(task *DownloadTask, status, errMsg string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	// If task was already paused or cancelled, do not overwrite with FAILED
 	if status == StatusFailed && (task.Status == StatusPaused || task.Status == StatusCancelled) {
+		m.mu.Unlock()
 		return
 	}
 
 	task.Status = status
 	task.Error = errMsg
 	task.UpdatedAt = time.Now()
+	bus := m.eventBus
+	m.mu.Unlock()
+
+	if bus != nil {
+		bus.Publish(fmt.Sprintf("download_%s", strings.ToLower(status)), task)
+	}
 }
 
 // tagAndRegisterTrack delegates to tagger for cover art harvesting and SQLite registration.

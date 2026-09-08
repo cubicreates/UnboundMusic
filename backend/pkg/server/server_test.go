@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -124,6 +125,68 @@ func TestServerListenerOptions(t *testing.T) {
 	defer srvSock.Shutdown(context.Background())
 	if srvSock.cfg.SocketPath != sockPath {
 		t.Errorf("expected SocketPath %q, got %q", sockPath, srvSock.cfg.SocketPath)
+	}
+}
+
+// TestServerEventsEndpoint verifies Server-Sent Events (SSE) streaming and event broadcasts.
+func TestServerEventsEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_events.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	ts := httptest.NewServer(srv.httpServer.Handler)
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/events", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to connect to SSE stream: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Errorf("expected Content-Type text/event-stream, got %s", resp.Header.Get("Content-Type"))
+	}
+
+	buf := make([]byte, 1024)
+	n, err := resp.Body.Read(buf)
+	if err != nil && n == 0 {
+		t.Fatalf("failed to read initial SSE handshake: %v", err)
+	}
+	initChunk := string(buf[:n])
+	if !strings.Contains(initChunk, "event: connected") {
+		t.Errorf("expected initial 'event: connected', got %s", initChunk)
+	}
+
+	// Broadcast test event via EventBus
+	srv.EventBus().Publish("test_broadcast", map[string]string{"message": "hello"})
+
+	n, err = resp.Body.Read(buf)
+	if err != nil && n == 0 {
+		t.Fatalf("failed to read broadcast event: %v", err)
+	}
+	evtChunk := string(buf[:n])
+	if !strings.Contains(evtChunk, "event: test_broadcast") || !strings.Contains(evtChunk, "hello") {
+		t.Errorf("expected test_broadcast event with hello, got %s", evtChunk)
 	}
 }
 

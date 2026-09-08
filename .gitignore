@@ -43,3 +43,5 @@ frontend/app/src/main/assets/payload/
 backend/bin/
 *.exe
 fpcalc.exe
+apk_test/
+

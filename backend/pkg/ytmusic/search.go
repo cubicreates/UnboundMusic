@@ -47,7 +47,36 @@ func (c *Client) Search(ctx context.Context, query string) ([]models.Track, erro
 		return nil, fmt.Errorf("search query cannot be empty")
 	}
 
-	return c.searchWithFilter(ctx, query, "EgWKAQIIAWoQEAMQBBAJEAoQBRAREBAQFQ%3D%3D")
+	// 1. First attempt: unconstrained search to capture Top Result card (e.g. Adele - Hello)
+	tracks, err := c.searchWithFilter(ctx, query, "")
+	if err == nil && len(tracks) >= 5 {
+		return tracks, nil
+	}
+
+	// 2. Secondary enrichment: search with explicit Song filter
+	songTracks, songErr := c.searchWithFilter(ctx, query, FilterSong)
+	if songErr == nil && len(songTracks) > 0 {
+		seen := make(map[string]bool)
+		var combined []models.Track
+		for _, t := range tracks {
+			if !seen[t.ID] {
+				seen[t.ID] = true
+				combined = append(combined, t)
+			}
+		}
+		for _, t := range songTracks {
+			if !seen[t.ID] {
+				seen[t.ID] = true
+				combined = append(combined, t)
+			}
+		}
+		return combined, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return tracks, nil
 }
 
 // searchWithFilter queries the InnerTube search endpoint with optional protobuf filter tokens.
@@ -101,24 +130,19 @@ func (c *Client) SearchCascade(ctx context.Context, query string) (*CascadeSearc
 		}, nil
 	}
 
-	// [STAGE 3] Broad YouTube Audio Sweep
-	cleanQuery := strings.Map(func(r rune) rune {
-		if strings.ContainsRune("!@#$%^&*()_+-=[]{};':\",.<>/?\\|", r) {
-			return ' '
-		}
-		return r
-	}, trimmed)
-	tracks, err = c.searchWithFilter(ctx, cleanQuery, "")
+	// [STAGE 3] Broad Community Audio Sweep
+	broadQuery := fmt.Sprintf("%s audio", trimmed)
+	tracks, err = c.searchWithFilter(ctx, broadQuery, "")
 	if err == nil && len(tracks) > 0 {
 		return &CascadeSearchResult{
 			Query:        trimmed,
 			StageReached: 3,
-			StageName:    "Broad Community Audio",
+			StageName:    "Broad Audio Sweep",
 			Tracks:       tracks,
 		}, nil
 	}
 
-	// [STAGE 4] Clean "No Results" State (Zero Destructive Loop)
+	// [STAGE 4] Graceful empty result
 	return &CascadeSearchResult{
 		Query:        trimmed,
 		StageReached: 4,
@@ -127,21 +151,17 @@ func (c *Client) SearchCascade(ctx context.Context, query string) (*CascadeSearc
 	}, nil
 }
 
-// parseSearchResponse traverses the YouTube Music search JSON tree to extract track items.
+// parseSearchResponse traverses InnerTube JSON, extracting top result cards and tracks from shelves.
 func parseSearchResponse(data []byte) ([]models.Track, error) {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("failed to parse search JSON: %w", err)
 	}
 
 	var tracks []models.Track
+	seenIDs := make(map[string]bool)
 
-	contents, ok := raw["contents"].(map[string]any)
-	if !ok {
-		return tracks, nil
-	}
-
-	tabbed, ok := contents["tabbedSearchResultsRenderer"].(map[string]any)
+	tabbed, ok := root["contents"].(map[string]any)["tabbedSearchResultsRenderer"].(map[string]any)
 	if !ok {
 		return tracks, nil
 	}
@@ -167,30 +187,125 @@ func parseSearchResponse(data []byte) ([]models.Track, error) {
 			continue
 		}
 
-		musicShelf, ok := secMap["musicShelfRenderer"].(map[string]any)
-		if !ok {
-			continue
-		}
-
-		shelfContents, ok := musicShelf["contents"].([]any)
-		if !ok {
-			continue
-		}
-
-		for _, item := range shelfContents {
-			itemMap, ok := item.(map[string]any)
-			if !ok {
-				continue
+		// 1. Extract Top Result card (musicCardShelfRenderer)
+		if cardShelf, ok := secMap["musicCardShelfRenderer"].(map[string]any); ok {
+			cardTrack := extractTrackFromCardShelf(cardShelf)
+			if cardTrack != nil && cardTrack.ID != "" && !seenIDs[cardTrack.ID] {
+				seenIDs[cardTrack.ID] = true
+				tracks = append(tracks, *cardTrack)
 			}
+		}
 
-			track := extractTrackFromResponsiveItem(itemMap)
-			if track != nil && track.ID != "" {
-				tracks = append(tracks, *track)
+		// 2. Extract Shelf contents (musicShelfRenderer)
+		if musicShelf, ok := secMap["musicShelfRenderer"].(map[string]any); ok {
+			if shelfContents, ok := musicShelf["contents"].([]any); ok {
+				for _, item := range shelfContents {
+					if itemMap, ok := item.(map[string]any); ok {
+						track := extractTrackFromResponsiveItem(itemMap)
+						if track != nil && track.ID != "" && !seenIDs[track.ID] {
+							seenIDs[track.ID] = true
+							tracks = append(tracks, *track)
+						}
+					}
+				}
+			}
+		}
+
+		// 3. Extract Item section contents (itemSectionRenderer)
+		if itemSec, ok := secMap["itemSectionRenderer"].(map[string]any); ok {
+			if secContents, ok := itemSec["contents"].([]any); ok {
+				for _, item := range secContents {
+					if itemMap, ok := item.(map[string]any); ok {
+						track := extractTrackFromResponsiveItem(itemMap)
+						if track != nil && track.ID != "" && !seenIDs[track.ID] {
+							seenIDs[track.ID] = true
+							tracks = append(tracks, *track)
+						}
+					}
+				}
 			}
 		}
 	}
 
 	return tracks, nil
+}
+
+// extractTrackFromCardShelf parses a musicCardShelfRenderer (Top Result card) into a Track model.
+func extractTrackFromCardShelf(card map[string]any) *models.Track {
+	track := &models.Track{}
+
+	// Extract Title and Video ID from title runs
+	if titleObj, ok := card["title"].(map[string]any); ok {
+		track.Title = extractRunsText(titleObj)
+		if runs, ok := titleObj["runs"].([]any); ok && len(runs) > 0 {
+			if r0, ok := runs[0].(map[string]any); ok {
+				if nav, ok := r0["navigationEndpoint"].(map[string]any); ok {
+					if watch, ok := nav["watchEndpoint"].(map[string]any); ok {
+						if vid, ok := watch["videoId"].(string); ok {
+							track.ID = vid
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to buttons for Video ID
+	if track.ID == "" {
+		if btns, ok := card["buttons"].([]any); ok {
+			for _, btn := range btns {
+				if bMap, ok := btn.(map[string]any); ok {
+					if btnRen, ok := bMap["buttonRenderer"].(map[string]any); ok {
+						if cmd, ok := btnRen["command"].(map[string]any); ok {
+							if watch, ok := cmd["watchEndpoint"].(map[string]any); ok {
+								if vid, ok := watch["videoId"].(string); ok {
+									track.ID = vid
+									break
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if track.ID == "" {
+		return nil
+	}
+
+	// Extract Artist and Album from subtitle runs
+	if subObj, ok := card["subtitle"].(map[string]any); ok {
+		runs := extractRunsList(subObj)
+		for _, r := range runs {
+			r = strings.TrimSpace(r)
+			if r == "" || r == "•" || r == "Song" || r == "Video" || r == "Album" {
+				continue
+			}
+			if track.Artist == "" {
+				track.Artist = r
+			} else if track.Album == "" && !strings.Contains(r, ":") {
+				track.Album = r
+			}
+		}
+	}
+
+	// Extract Thumbnail
+	if thumbObj, ok := card["thumbnail"].(map[string]any); ok {
+		if musicThumb, ok := thumbObj["musicThumbnailRenderer"].(map[string]any); ok {
+			if thumb, ok := musicThumb["thumbnail"].(map[string]any); ok {
+				if thumbs, ok := thumb["thumbnails"].([]any); ok && len(thumbs) > 0 {
+					if lastThumb, ok := thumbs[len(thumbs)-1].(map[string]any); ok {
+						if u, ok := lastThumb["url"].(string); ok {
+							track.ThumbnailURL = u
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return track
 }
 
 // extractTrackFromResponsiveItem parses a single musicResponsiveListItemRenderer into a Track model.
@@ -235,15 +350,28 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		// Column 1: Artist, Album, Duration
 		if len(flexColumns) > 1 {
 			if col1, ok := flexColumns[1].(map[string]any)["musicResponsiveListItemFlexColumnRenderer"].(map[string]any); ok {
-				runs := extractRunsList(col1["text"])
-				if len(runs) > 0 {
-					track.Artist = runs[0]
+				rawRuns := extractRunsList(col1["text"])
+				var meaningfulRuns []string
+				for _, r := range rawRuns {
+					r = strings.TrimSpace(r)
+					if r == "" || r == "•" || r == "," || r == "Song" || r == "Video" || r == "Album" || r == "EP" || r == "Single" {
+						continue
+					}
+					meaningfulRuns = append(meaningfulRuns, r)
 				}
-				if len(runs) > 1 {
-					track.Album = runs[1]
+				if len(meaningfulRuns) > 0 {
+					track.Artist = meaningfulRuns[0]
 				}
-				if len(runs) > 2 {
-					track.DurationMs = parseDurationToMs(runs[len(runs)-1])
+				if len(meaningfulRuns) > 1 {
+					last := meaningfulRuns[len(meaningfulRuns)-1]
+					if strings.Contains(last, ":") {
+						track.DurationMs = parseDurationToMs(last)
+						if len(meaningfulRuns) > 2 {
+							track.Album = meaningfulRuns[1]
+						}
+					} else {
+						track.Album = meaningfulRuns[1]
+					}
 				}
 			}
 		}

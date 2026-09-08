@@ -46,28 +46,76 @@ data class TrackItem(
 
 val defaultTopTracks = listOf(
     TrackItem(
-        title = "Midnight Echoes",
-        artist = "The Synthetics",
-        coverUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuBw5t8Y1FbT4VMMSu_CQulQmGp9NUOJtIVO_QccREqF1-VNYU6GSYAWuoMmByxWZYoNCn3L5IxeFmiWiWLUmyFCraDaVtb-HwEt5URRvChTfV_uZsWzpihUxqK4Gy3WMtop5guc_DZL4kp3vhdB0h_k3m2I2LXz0F2u1n5LrmMN5pZD-zKepe463HeSdPU3rdcdbPdcy5MgEhVyqFfezTqKihs709zw-y3IippDKYvra8nmAm8Rj0MShw",
-        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        id = "T6eKbf38x8I",
+        title = "Not Like Us",
+        artist = "Kendrick Lamar",
+        coverUrl = "https://i.ytimg.com/vi/T6eKbf38x8I/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 274000,
+        source = "youtube"
     ),
     TrackItem(
-        title = "Neon Ascend",
-        artist = "Luna Ray",
-        coverUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuDUk5k7o-AFNK6nRPQLO5ZGVX_ObIOJ_PHSsN-sNtK4NTAYxOyw-WiVgLr9dQmynk574XuTXZXahLLiTXcoehxJ7Q7mF5lYjKniWrh0ec_JLyxPbr7FPqL6ySfS5dPrCh_dq4oq00dLjRdFk_zzMEorsM0qU7IqVw9Nx-nJb6Vf7a2MiiEHTwhZE86Fcq7tOYBB6TAmlQGuEo1jQM1lBrvV1Dt6dTyZrXOuAMonapF1zwF7BFmk3fRs-A",
-        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"
+        id = "eVli-tstM5E",
+        title = "Espresso",
+        artist = "Sabrina Carpenter",
+        coverUrl = "https://i.ytimg.com/vi/eVli-tstM5E/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 175000,
+        source = "youtube"
     ),
     TrackItem(
-        title = "Silent Orbit",
-        artist = "Vanguard",
-        coverUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuDNhWWPTV2nAizIBx8UKBUTnFPWLoJX037Pv8X0RXMWsdwloS-8re433mK-O7us-lxGr4fwPefTcgEjmlwJNI04LWNIgzamgbTt1iFXVKtmO5YMqYl4_NUO8kWRtH8Tt5RWsxif3bssGv_PLj36VvAKzum8E_OSemNc-9FBIKYcFJxSrBuKcmLThk-GZ328_H5W_zR6zAUnW1NpikP16sQ-5_iHaibEYbM7KOVm1jFBll6pY0Vl3yNQBw",
-        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"
+        id = "4QIZ6g8I_8Y",
+        title = "I Had Some Help",
+        artist = "Post Malone ft. Morgan Wallen",
+        coverUrl = "https://i.ytimg.com/vi/4QIZ6g8I_8Y/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 178000,
+        source = "youtube"
     ),
     TrackItem(
-        title = "Raw Canvas",
-        artist = "Art School Dropout",
-        coverUrl = "https://lh3.googleusercontent.com/aida-public/AB6AXuBHG_W6rq5159KDGoP7W7B01Z73bLi41TVG9urI3QqTH_xJYP6lP8IdVBg6SHRNGHMf_cms-px7n5JXwpI7m4Yu8H5V4NM2DpAB9-YSsyP82-lJyW2O4F-OMQJg-b7buVkh7GnSEqxs-VxeMzPWC6sBQx7rBKJUAyzWM-Mb1XSHUqA7j7bYV-n4p6M_HxF7-6g_J68Uh3FfJPj__AvEFLDNVbJ8NfBLXeqiJIJ4y09XS6jAA5OmqaS91A",
-        streamUrl = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3"
+        id = "d5gxZXCj68g",
+        title = "BIRDS OF A FEATHER",
+        artist = "Billie Eilish",
+        coverUrl = "https://i.ytimg.com/vi/d5gxZXCj68g/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 194000,
+        source = "youtube"
+    ),
+    TrackItem(
+        id = "YQHsXMglC9A",
+        title = "Hello",
+        artist = "Adele",
+        coverUrl = "https://i.ytimg.com/vi/YQHsXMglC9A/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 367000,
+        source = "youtube"
+    ),
+    TrackItem(
+        id = "Oa_RSwwpPaA",
+        title = "Beautiful Things",
+        artist = "Benson Boone",
+        coverUrl = "https://i.ytimg.com/vi/Oa_RSwwpPaA/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 180000,
+        source = "youtube"
+    ),
+    TrackItem(
+        id = "044B_2wG13Q",
+        title = "MILLION DOLLAR BABY",
+        artist = "Tommy Richman",
+        coverUrl = "https://i.ytimg.com/vi/044B_2wG13Q/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 155000,
+        source = "youtube"
+    ),
+    TrackItem(
+        id = "t7bQwwqW-Hc",
+        title = "A Bar Song (Tipsy)",
+        artist = "Shaboozey",
+        coverUrl = "https://i.ytimg.com/vi/t7bQwwqW-Hc/hqdefault.jpg",
+        streamUrl = "",
+        durationMs = 171000,
+        source = "youtube"
     )
 )
 

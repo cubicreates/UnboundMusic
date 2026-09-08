@@ -194,10 +194,12 @@ func classifyMethod(name, body string, methodTypes map[string]CipherOpType) {
 	}
 }
 
-// DecipherURL resolves encrypted signature ciphers and n-parameter throttling on YouTube streaming URLs.
+// DecipherURL resolves encrypted signature ciphers on YouTube streaming URLs.
 func DecipherURL(rawStreamURL, signatureCipher, cipher string) (string, error) {
 	if rawStreamURL != "" {
-		return applyNTransform(rawStreamURL), nil
+		// Valid raw stream URL from YouTube player response already has valid cryptographic parameters.
+		// Never mutate or corrupt its parameters.
+		return rawStreamURL, nil
 	}
 
 	targetCipher := signatureCipher
@@ -237,7 +239,7 @@ func DecipherURL(rawStreamURL, signatureCipher, cipher string) (string, error) {
 		baseURL = parsedURL.String()
 	}
 
-	return applyNTransform(baseURL), nil
+	return baseURL, nil
 }
 
 // decryptSignature executes dynamic operations if available, falling back to clean reversal.
@@ -283,20 +285,9 @@ func applyNTransform(streamURL string) string {
 	return u.String()
 }
 
-// transformNParam executes modular arithmetic and character rotations on the n-token.
+// transformNParam safely preserves the signed n-token intact.
 func transformNParam(n string) string {
-	chars := []rune(n)
-	length := len(chars)
-	if length == 0 {
-		return n
-	}
-
-	var output []rune
-	for i := 0; i < length; i++ {
-		idx := (i * 3) % length
-		output = append(output, chars[idx])
-	}
-	return string(output)
+	return n
 }
 
 // ParseBitrate extracts numeric kilobits per second from bitrate string or integer.

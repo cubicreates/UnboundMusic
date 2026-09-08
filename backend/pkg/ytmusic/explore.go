@@ -104,10 +104,51 @@ func (e *ExploreEngine) FetchRegionalCharts(ctx context.Context, countryCode, la
 		return nil, fmt.Errorf("failed fetching regional charts from InnerTube: %w", err)
 	}
 
-	// 3. Parse response
-	tracks, err := ParseBrowseTracks(respBytes)
+	// 3. Parse response: extract songs or unpack Top 100 chart playlist
+	parsedItems, err := ParseBrowseTracks(respBytes)
 	if err != nil {
-		return nil, err
+		parsedItems = nil
+	}
+
+	var tracks []models.TrackItem
+	for _, it := range parsedItems {
+		// Valid playable YouTube tracks have video IDs (not playlist containers)
+		if it.ID != "" && !strings.HasPrefix(it.ID, "VL") && !strings.HasPrefix(it.ID, "PL") && !strings.HasPrefix(it.ID, "MPRE") {
+			tracks = append(tracks, it)
+		}
+	}
+
+	// If the browse feed contained playlist containers and no direct tracks, unpack the top chart playlist
+	if len(tracks) == 0 {
+		for _, it := range parsedItems {
+			if strings.HasPrefix(it.ID, "VLPL") || strings.HasPrefix(it.ID, "VLOL") || strings.HasPrefix(it.ID, "PL") {
+				unpacked, err := e.FetchBrowse(ctx, it.ID, countryCode, langCode)
+				if err == nil && len(unpacked) > 0 {
+					tracks = unpacked
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to well-known Billboard / Hot 100 regional playlist IDs if needed
+	if len(tracks) == 0 {
+		knownPlaylists := []string{
+			"VLPL4fGSI1pDJn40WjZ6utkIuj2rNg-7iGsq", // Top 100 Music Videos
+			"VLPL4fGSI1pDJn5oibdgJt8Hy0-dr2B7kSs2", // Daily Top Music Videos
+			"VLPL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4_", // Global / US Hot 100
+		}
+		for _, plID := range knownPlaylists {
+			unpacked, err := e.FetchBrowse(ctx, plID, countryCode, langCode)
+			if err == nil && len(unpacked) > 0 {
+				tracks = unpacked
+				break
+			}
+		}
+	}
+
+	if len(tracks) == 0 {
+		return nil, fmt.Errorf("no playable chart tracks found in regional browse")
 	}
 
 	// 4. Save to SQLite feed_cache

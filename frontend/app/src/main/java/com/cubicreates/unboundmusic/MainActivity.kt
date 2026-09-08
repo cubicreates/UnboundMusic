@@ -54,7 +54,8 @@ class MainActivity : ComponentActivity() {
         val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions[Manifest.permission.READ_MEDIA_AUDIO] == true
         } else {
-            permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+            permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true ||
+            permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] == true
         }
         if (audioGranted) {
             mainViewModel.rescanLocalStorage()
@@ -137,6 +138,13 @@ class MainActivity : ComponentActivity() {
             ) {
                 permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }
+            }
         }
 
         if (permissionsToRequest.isNotEmpty()) {
@@ -149,5 +157,19 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         DaemonManager.getInstance(this).startDaemonAuto(force = false)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Environment.isExternalStorageManager()) {
+                mainViewModel.rescanLocalStorage()
+            }
+        } else {
+            val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+            } else {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+            if (audioGranted) {
+                mainViewModel.rescanLocalStorage()
+            }
+        }
     }
 }

@@ -12,10 +12,14 @@ package com.cubicreates.unboundmusic.service
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -72,6 +76,7 @@ class ServiceConnection private constructor(private val context: Context) {
 
     private var currentMode = PlaybackMode.NORMAL
     private var originalQueue = mutableListOf<TrackItem>()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         private const val TAG = "ServiceConnection"
@@ -111,7 +116,7 @@ class ServiceConnection private constructor(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed connecting MediaController: ${e.message}")
             }
-        }, MoreExecutors.directExecutor())
+        }, ContextCompat.getMainExecutor(context))
     }
 
     fun disconnect() {
@@ -140,6 +145,11 @@ class ServiceConnection private constructor(private val context: Context) {
     // --- Playback Commands ---
 
     fun playTrack(track: TrackItem, streamUrl: String? = null) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { playTrack(track, streamUrl) }
+            return
+        }
+
         val targetUrl = streamUrl ?: track.streamUrl
         if (targetUrl.isBlank()) {
             Log.w(TAG, "No stream URL available for track: ${track.title}")
@@ -176,14 +186,31 @@ class ServiceConnection private constructor(private val context: Context) {
         originalQueue.clear()
         originalQueue.add(track)
 
-        controller?.apply {
-            setMediaItem(mediaItem)
-            prepare()
-            play()
+        val ctrl = controller
+        if (ctrl == null) {
+            Log.w(TAG, "MediaController not ready yet, connecting and deferring playTrack...")
+            connect()
+            controllerFuture?.addListener({
+                controller?.apply {
+                    setMediaItem(mediaItem)
+                    prepare()
+                    play()
+                }
+            }, ContextCompat.getMainExecutor(context))
+            return
         }
+
+        ctrl.setMediaItem(mediaItem)
+        ctrl.prepare()
+        ctrl.play()
     }
 
     fun playQueue(tracks: List<TrackItem>, startIndex: Int = 0) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { playQueue(tracks, startIndex) }
+            return
+        }
+
         originalQueue = tracks.toMutableList()
         val mediaItems = tracks.mapNotNull { track ->
             val url = track.streamUrl
@@ -212,11 +239,23 @@ class ServiceConnection private constructor(private val context: Context) {
                 .build()
         }
 
-        controller?.apply {
-            setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
-            prepare()
-            play()
+        val ctrl = controller
+        if (ctrl == null) {
+            Log.w(TAG, "MediaController not ready yet, connecting and deferring playQueue...")
+            connect()
+            controllerFuture?.addListener({
+                controller?.apply {
+                    setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
+                    prepare()
+                    play()
+                }
+            }, ContextCompat.getMainExecutor(context))
+            return
         }
+
+        ctrl.setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
+        ctrl.prepare()
+        ctrl.play()
     }
 
     fun setQueue(tracks: List<TrackItem>) {
@@ -269,16 +308,28 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun togglePlayPause() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { togglePlayPause() }
+            return
+        }
         controller?.let { ctrl ->
             if (ctrl.isPlaying) ctrl.pause() else ctrl.play()
         }
     }
 
     fun seekTo(positionMs: Long) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { seekTo(positionMs) }
+            return
+        }
         controller?.seekTo(positionMs)
     }
 
     fun seekToFraction(fraction: Float) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { seekToFraction(fraction) }
+            return
+        }
         controller?.let { ctrl ->
             val targetMs = (ctrl.duration * fraction.coerceIn(0f, 1f)).toLong()
             ctrl.seekTo(targetMs)
@@ -286,14 +337,26 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun next() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { next() }
+            return
+        }
         controller?.seekToNextMediaItem()
     }
 
     fun previous() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { previous() }
+            return
+        }
         controller?.seekToPreviousMediaItem()
     }
 
     fun stop() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { stop() }
+            return
+        }
         controller?.stop()
     }
 
@@ -455,5 +518,9 @@ class ServiceConnection private constructor(private val context: Context) {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncState()
         override fun onRepeatModeChanged(repeatMode: Int) = syncState()
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = syncState()
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e(TAG, "ExoPlayer playback error: ${error.errorCodeName} (${error.errorCode}): ${error.message}", error)
+            syncState()
+        }
     }
 }

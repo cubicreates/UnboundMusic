@@ -61,8 +61,10 @@ class UnboundPlaybackService : MediaSessionService() {
     private var exoPlayer: ExoPlayer? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .build()
 
     companion object {
@@ -86,6 +88,7 @@ class UnboundPlaybackService : MediaSessionService() {
         Log.i(TAG, "Initializing Unbound Playback Service with Media3 ExoPlayer & DSP Pipeline...")
 
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36")
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 

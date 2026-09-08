@@ -583,10 +583,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val streamUrl = resolveStreamUrl(track)
                 val resolvedTrack = track.copy(streamUrl = streamUrl)
-                _currentTrack.value = resolvedTrack
+                withContext(Dispatchers.Main) {
+                    _currentTrack.value = resolvedTrack
+                }
 
-                // Play via Media3 service
-                serviceConnection.playTrack(resolvedTrack, streamUrl)
+                if (streamUrl.isNotBlank()) {
+                    // Play via Media3 service
+                    serviceConnection.playTrack(resolvedTrack, streamUrl)
+                } else {
+                    Log.e(TAG, "Failed to resolve stream URL for track: ${track.title}")
+                    if (track.streamUrl.isNotBlank()) {
+                        serviceConnection.playTrack(track)
+                    }
+                }
 
                 // Fetch lyrics, canvas visuals, and SponsorBlock skip segments in parallel
                 launch { fetchLyrics(resolvedTrack) }
@@ -595,8 +604,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
-                // Fallback: play with existing URL
-                serviceConnection.playTrack(track)
+                if (track.streamUrl.isNotBlank()) {
+                    serviceConnection.playTrack(track)
+                }
             }
         }
     }
@@ -604,32 +614,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Resolves a stream URL for a track via the Go daemon /api/v1/stream endpoint.
      * Implements zero-data interception: checks local storage first, falls back to remote.
+     * Retries up to 3 times if the daemon is cold-starting.
      */
     private suspend fun resolveStreamUrl(track: TrackItem): String {
-        // If the track already has a local file:// or http stream, use it directly
+        // If the track already has a local file:// or valid http stream, use it directly
         if (track.streamUrl.startsWith("file://") ||
             (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
             return track.streamUrl
         }
 
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
-        try {
-            val (code, resp) = client.getStream(
-                videoId = track.id,
-                title = track.title,
-                artist = track.artist
-            )
-            if (code in 200..299 && resp.isNotBlank()) {
-                val json = JSONObject(resp)
-                val resolved = json.optString("stream_url", "")
-                val streamType = json.optString("stream_type", "REMOTE")
-                if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://"))) {
-                    Log.i(TAG, "Stream resolved: type=$streamType for '${track.title}'")
-                    return resolved
+        for (attempt in 1..3) {
+            try {
+                val (code, resp) = client.getStream(
+                    videoId = track.id,
+                    title = track.title,
+                    artist = track.artist
+                )
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val json = JSONObject(resp)
+                    val resolved = json.optString("stream_url", "")
+                    val streamType = json.optString("stream_type", "REMOTE")
+                    if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://"))) {
+                        Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}'")
+                        return resolved
+                    }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Stream resolution via daemon failed: ${e.message}")
+            if (attempt < 3) {
+                kotlinx.coroutines.delay(300)
+            }
         }
 
         // Fallback: return existing stream URL if valid, otherwise empty string

@@ -36,13 +36,7 @@ class DaemonManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     val client: BackendClient by lazy {
-        val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
-        val sockFile = File(unboundRoot, ".backend/daemon.sock")
-        if (Build.VERSION.SDK_INT >= 21) {
-            BackendClient("unix:${sockFile.absolutePath}")
-        } else {
-            BackendClient("http://127.0.0.1:$DAEMON_PORT")
-        }
+        BackendClient("http://127.0.0.1:$DAEMON_PORT")
     }
 
     private val _state = MutableStateFlow<DaemonLifecycleState>(DaemonLifecycleState.Idle)

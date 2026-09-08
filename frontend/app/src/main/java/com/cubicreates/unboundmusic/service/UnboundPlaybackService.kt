@@ -87,9 +87,7 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with Media3 ExoPlayer & DSP Pipeline...")
 
-        val mobileUserAgent = "UnboundMusic/1.0 (Linux; Android ${android.os.Build.VERSION.RELEASE}; Mobile)"
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent(mobileUserAgent)
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
@@ -136,14 +134,8 @@ class UnboundPlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.w(TAG, "Playback error encountered: ${error.errorCodeName} (code=${error.errorCode})")
-                val is403 = error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-                        error.cause?.message?.contains("403") == true ||
-                        error.message?.contains("403") == true
-
-                if (is403) {
-                    rehydrateExpiredStream()
-                }
+                Log.w(TAG, "Playback error encountered: ${error.errorCodeName} (code=${error.errorCode}) - ${error.message}")
+                rehydrateExpiredStream()
             }
         })
         val initialSessionId = exoPlayer?.audioSessionId ?: C.AUDIO_SESSION_ID_UNSET
@@ -206,17 +198,30 @@ class UnboundPlaybackService : MediaSessionService() {
         val trackTitle = currentItem.mediaMetadata.title?.toString() ?: ""
         val trackArtist = currentItem.mediaMetadata.artist?.toString() ?: ""
 
-        if (lastRehydratedMediaId == mediaId && rehydrateAttempts >= 1) {
-            Log.w(TAG, "Already attempted rehydration for $mediaId. Halting to prevent infinite crash loop.")
+        if (lastRehydratedMediaId == mediaId && rehydrateAttempts >= 2) {
+            Log.w(TAG, "Already attempted rehydration twice for $mediaId. Halting to prevent loop.")
             return
         }
         lastRehydratedMediaId = mediaId
         rehydrateAttempts++
 
-        Log.i(TAG, "Re-hydrating expired stream for '$trackTitle' ($mediaId) at $currentPos ms (attempt $rehydrateAttempts)...")
+        Log.i(TAG, "Re-hydrating stream for '$trackTitle' ($mediaId) at $currentPos ms (attempt $rehydrateAttempts)...")
 
         serviceScope.launch(Dispatchers.IO) {
             try {
+                // If attempt 2, or if direct resolution previously failed, use localhost proxy stream directly
+                if (rehydrateAttempts >= 2 && mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.startsWith("local:")) {
+                    val proxyUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+                    withContext(Dispatchers.Main) {
+                        val newItem = currentItem.buildUpon().setUri(Uri.parse(proxyUrl)).build()
+                        player.setMediaItem(newItem, currentPos)
+                        player.prepare()
+                        player.play()
+                        Log.i(TAG, "Switched to resilient localhost proxy stream for $mediaId at $currentPos ms.")
+                    }
+                    return@launch
+                }
+
                 val targetUrl = if (mediaId.isNotBlank() && !mediaId.startsWith("http") && !mediaId.contains(" ")) {
                     "http://127.0.0.1:45731/api/v1/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
                 } else {
@@ -225,18 +230,24 @@ class UnboundPlaybackService : MediaSessionService() {
 
                 val req = Request.Builder().url(targetUrl).build()
                 val resp = okHttpClient.newCall(req).execute()
+                var resolvedUrl = ""
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: ""
                     val json = JSONObject(body)
-                    val freshUrl = json.optString("stream_url", "")
-                    if (freshUrl.isNotBlank()) {
-                        withContext(Dispatchers.Main) {
-                            val newItem = currentItem.buildUpon().setUri(Uri.parse(freshUrl)).build()
-                            player.setMediaItem(newItem, currentPos)
-                            player.prepare()
-                            player.play()
-                            Log.i(TAG, "Stream re-hydration successful. Resumed playback at $currentPos ms.")
-                        }
+                    resolvedUrl = json.optString("stream_url", "")
+                }
+
+                if (resolvedUrl.isBlank() && mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.startsWith("local:")) {
+                    resolvedUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+                }
+
+                if (resolvedUrl.isNotBlank()) {
+                    withContext(Dispatchers.Main) {
+                        val newItem = currentItem.buildUpon().setUri(Uri.parse(resolvedUrl)).build()
+                        player.setMediaItem(newItem, currentPos)
+                        player.prepare()
+                        player.play()
+                        Log.i(TAG, "Stream re-hydration successful. Resumed playback at $currentPos ms.")
                     }
                 }
             } catch (e: Exception) {

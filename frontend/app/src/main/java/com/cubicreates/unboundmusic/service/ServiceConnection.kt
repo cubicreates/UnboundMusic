@@ -142,6 +142,8 @@ class ServiceConnection private constructor(private val context: Context) {
         UnboundPlaybackService.crossfadeProcessor.filterType = type
     }
 
+    fun isPlayerReady(): Boolean = controller != null && (controller?.mediaItemCount ?: 0) > 0
+
     // --- Playback Commands ---
 
     fun playTrack(track: TrackItem, streamUrl: String? = null) {
@@ -191,10 +193,15 @@ class ServiceConnection private constructor(private val context: Context) {
             Log.w(TAG, "MediaController not ready yet, connecting and deferring playTrack...")
             connect()
             controllerFuture?.addListener({
-                controller?.apply {
-                    setMediaItem(mediaItem)
-                    prepare()
-                    play()
+                try {
+                    val activeCtrl = controller ?: controllerFuture?.get()
+                    activeCtrl?.apply {
+                        setMediaItem(mediaItem)
+                        prepare()
+                        play()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Deferred playTrack failed: ${e.message}")
                 }
             }, ContextCompat.getMainExecutor(context))
             return
@@ -244,10 +251,15 @@ class ServiceConnection private constructor(private val context: Context) {
             Log.w(TAG, "MediaController not ready yet, connecting and deferring playQueue...")
             connect()
             controllerFuture?.addListener({
-                controller?.apply {
-                    setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
-                    prepare()
-                    play()
+                try {
+                    val activeCtrl = controller ?: controllerFuture?.get()
+                    activeCtrl?.apply {
+                        setMediaItems(mediaItems, startIndex, C.TIME_UNSET)
+                        prepare()
+                        play()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Deferred playQueue failed: ${e.message}")
                 }
             }, ContextCompat.getMainExecutor(context))
             return
@@ -313,6 +325,10 @@ class ServiceConnection private constructor(private val context: Context) {
             return
         }
         controller?.let { ctrl ->
+            if (ctrl.mediaItemCount == 0) {
+                Log.w(TAG, "Cannot togglePlayPause: ExoPlayer timeline has 0 media items.")
+                return
+            }
             if (ctrl.isPlaying) ctrl.pause() else ctrl.play()
         }
     }

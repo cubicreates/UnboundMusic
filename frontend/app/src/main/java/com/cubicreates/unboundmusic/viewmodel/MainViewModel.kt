@@ -677,17 +677,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Resolves a stream URL for a track via the Go daemon /api/v1/stream endpoint.
      * Implements zero-data interception: checks local storage first, falls back to remote.
-     * Retries up to 3 times if the daemon is cold-starting.
+     * Retries up to 5 times if the daemon is cold-starting.
      */
     private suspend fun resolveStreamUrl(track: TrackItem): String {
-        // If the track already has a local file:// or valid http stream, use it directly
+        // If the track already has a local file://, content://, localhost proxy, or valid http stream, use it directly
         if (track.streamUrl.startsWith("file://") ||
+            track.streamUrl.startsWith("content://") ||
+            track.streamUrl.contains("127.0.0.1") ||
             (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
             return track.streamUrl
         }
 
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
-        for (attempt in 1..3) {
+        for (attempt in 1..5) {
             try {
                 val (code, resp) = client.getStream(
                     videoId = track.id,
@@ -698,7 +700,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val json = JSONObject(resp)
                     val resolved = json.optString("stream_url", "")
                     val streamType = json.optString("stream_type", "REMOTE")
-                    if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://"))) {
+                    if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://") || resolved.startsWith("content://"))) {
                         Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}'")
                         return resolved
                     }
@@ -706,8 +708,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
             }
-            if (attempt < 3) {
-                kotlinx.coroutines.delay(300)
+            if (attempt < 5) {
+                kotlinx.coroutines.delay(400)
             }
         }
 
@@ -732,6 +734,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     return resolved
                                 }
                             }
+                            // Direct localhost proxy fallback for matched video ID
+                            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$matchId"
                         }
                     }
                 }
@@ -740,9 +744,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Tertiary fallback: if track.id is a valid 11-char YouTube ID, use the embedded Go daemon proxy stream endpoint directly
+        if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
+            Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
+            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+        }
+
         // Fallback: return existing stream URL if valid, otherwise empty string
         val fallback = track.streamUrl
-        return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://")) {
+        return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://") || fallback.startsWith("content://")) {
             fallback
         } else {
             ""
@@ -762,7 +772,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlayPause() {
-        serviceConnection.togglePlayPause()
+        val state = serviceConnection.playbackState.value
+        if (!serviceConnection.isPlayerReady() || state.mediaItemCount == 0 || state.durationMs <= 0L) {
+            playTrack(_currentTrack.value)
+        } else {
+            serviceConnection.togglePlayPause()
+        }
     }
 
     fun toggleFavorite() {

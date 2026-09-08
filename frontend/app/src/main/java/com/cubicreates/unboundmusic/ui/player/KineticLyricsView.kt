@@ -11,8 +11,13 @@ package com.cubicreates.unboundmusic.ui.player
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -117,26 +122,12 @@ fun KineticLyricsView(
             // Instrumental Track Pure Audio Badge
             InstrumentalBadge(modifier = Modifier.align(Alignment.Center))
         } else if (lyricsLines.isEmpty()) {
-            // Loading / Aligning State
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Harvesting Synced Lyrics...",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = UnboundPrimary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Querying 3-tier cascade (LRCLIB, YouTube, Genius)",
-                        fontSize = 13.sp,
-                        color = OnSurfaceVariant
-                    )
-                }
-            }
+            // Subtle pulsing shimmer lines while auto-fetching/aligning lyrics
+            LyricsShimmerPlaceholder(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 110.dp, bottom = 220.dp, start = 24.dp, end = 24.dp)
+            )
         } else {
             // Kinetic Line-by-Line Synchronized Lyrics List
             LazyColumn(
@@ -368,17 +359,6 @@ fun KineticLyricsView(
                     }
                 }
             }
-
-            // Source Attribution Line
-            if (lyricsSource.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "SOURCE: $lyricsSource",
-                    fontSize = 10.sp,
-                    color = OnSurfaceVariant.copy(alpha = 0.6f),
-                    letterSpacing = 0.5.sp
-                )
-            }
         }
     }
 }
@@ -451,5 +431,36 @@ private fun InstrumentalBadge(modifier: Modifier = Modifier) {
             fontSize = 12.sp,
             color = OnSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun LyricsShimmerPlaceholder(modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition(label = "lyrics_shimmer")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "shimmer_alpha"
+    )
+
+    val widths = listOf(0.70f, 0.88f, 0.55f, 0.82f, 0.65f, 0.78f, 0.48f)
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(28.dp)
+    ) {
+        widths.forEach { widthFraction ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(widthFraction)
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.White.copy(alpha = alpha))
+            )
+        }
     }
 }

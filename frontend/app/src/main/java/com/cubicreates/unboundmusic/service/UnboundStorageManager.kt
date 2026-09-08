@@ -86,32 +86,44 @@ object UnboundStorageManager {
     }
 
     /**
-     * Returns the canonical Unbound root folder.
-     * Prioritizes the public user-visible root at /storage/emulated/0/Unbound so that
-     * the folder is immediately accessible and visible in the device file manager.
-     * If external storage is inaccessible or unwritable, gracefully falls back to app-specific external storage.
+     * Cleans up legacy public shared storage at /storage/emulated/0/Unbound if it exists,
+     * ensuring no orphan files or exposed .backend folders remain from previous versions.
      */
-    fun getCanonicalUnboundRoot(context: Context): File {
-        // 1. Prioritize public shared storage root (/storage/emulated/0/Unbound)
-        val publicRoot = try {
+    fun cleanupLegacyPublicStorage(): Boolean {
+        return try {
             val extStorage = Environment.getExternalStorageDirectory()
             if (extStorage != null && extStorage.exists()) {
-                val candidate = File(extStorage, "Unbound")
-                if (!candidate.exists()) {
-                    candidate.mkdirs()
+                val legacyPublic = File(extStorage, "Unbound")
+                if (legacyPublic.exists() && legacyPublic.isDirectory) {
+                    Log.i(TAG, "Legacy public Unbound folder detected at ${legacyPublic.absolutePath}. Purging...")
+                    legacyPublic.deleteRecursively()
+                } else {
+                    false
                 }
-                if (candidate.exists() && candidate.canWrite()) {
-                    candidate
-                } else null
-            } else null
+            } else {
+                false
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Public Unbound root creation attempt: ${e.message}")
-            null
+            Log.w(TAG, "Legacy public storage cleanup note: ${e.message}")
+            false
         }
+    }
 
-        // 2. Fall back to app external or internal files dir if public root is inaccessible
-        val baseDir = publicRoot ?: (context.getExternalFilesDir(null) ?: context.filesDir)
-        val unboundDir = if (baseDir.name == "Unbound") baseDir else File(baseDir, "Unbound")
+    /**
+     * Returns the canonical Unbound root folder inside app-specific external storage:
+     * /storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/Unbound
+     * 
+     * Advantages:
+     * 1. Automatic OS Uninstall: Android OS automatically and completely purges this directory upon app uninstallation.
+     * 2. Hidden Engine Machinery: Since Android 11, /Android/data/ is restricted from regular phone file managers,
+     *    preventing .backend from cluttering the phone's gallery/file explorer.
+     * 3. Laptop Docking Visibility: When connected to a laptop via USB (MTP), the folder is fully visible and accessible
+     *    under Android/data/com.cubicreates.unboundmusic/files/Unbound/.
+     * 4. Zero Permissions Required: App-specific external storage requires no runtime storage permissions.
+     */
+    fun getCanonicalUnboundRoot(context: Context): File {
+        val baseDir = context.getExternalFilesDir(null) ?: context.filesDir
+        val unboundDir = File(baseDir, "Unbound")
         if (!unboundDir.exists()) {
             unboundDir.mkdirs()
         }
@@ -119,14 +131,22 @@ object UnboundStorageManager {
         val backendDir = File(unboundDir, ".backend")
         val sqliteDir = File(backendDir, "sqlite")
         val modelsDir = File(backendDir, "models")
+        val logsDir = File(backendDir, "logs")
+        val cacheDir = File(backendDir, "cache")
         val downloadsDir = File(unboundDir, "Downloads")
         val musicDir = File(unboundDir, "Music")
+        val playlistsDir = File(unboundDir, "Playlists")
+        val recapsDir = File(unboundDir, "Recaps")
 
         if (!backendDir.exists()) backendDir.mkdirs()
         if (!sqliteDir.exists()) sqliteDir.mkdirs()
         if (!modelsDir.exists()) modelsDir.mkdirs()
+        if (!logsDir.exists()) logsDir.mkdirs()
+        if (!cacheDir.exists()) cacheDir.mkdirs()
         if (!downloadsDir.exists()) downloadsDir.mkdirs()
         if (!musicDir.exists()) musicDir.mkdirs()
+        if (!playlistsDir.exists()) playlistsDir.mkdirs()
+        if (!recapsDir.exists()) recapsDir.mkdirs()
 
         val nomedia = File(backendDir, ".nomedia")
         if (!nomedia.exists()) {

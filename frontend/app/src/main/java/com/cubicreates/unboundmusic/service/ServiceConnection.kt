@@ -341,7 +341,12 @@ class ServiceConnection private constructor(private val context: Context) {
             mainHandler.post { next() }
             return
         }
-        controller?.seekToNextMediaItem()
+        val ctrl = controller
+        if (ctrl != null && ctrl.hasNextMediaItem()) {
+            ctrl.seekToNextMediaItem()
+        } else {
+            onSkipToNextListener?.invoke()
+        }
     }
 
     fun previous() {
@@ -349,7 +354,12 @@ class ServiceConnection private constructor(private val context: Context) {
             mainHandler.post { previous() }
             return
         }
-        controller?.seekToPreviousMediaItem()
+        val ctrl = controller
+        if (ctrl != null && ctrl.hasPreviousMediaItem()) {
+            ctrl.seekToPreviousMediaItem()
+        } else {
+            onSkipToPreviousListener?.invoke()
+        }
     }
 
     fun stop() {
@@ -470,8 +480,8 @@ class ServiceConnection private constructor(private val context: Context) {
             repeatMode = ctrl.repeatMode,
             shuffleModeEnabled = ctrl.shuffleModeEnabled,
             playbackMode = currentMode,
-            hasNext = ctrl.hasNextMediaItem(),
-            hasPrevious = ctrl.hasPreviousMediaItem(),
+            hasNext = ctrl.hasNextMediaItem() || originalQueue.size > 1 || onSkipToNextListener != null,
+            hasPrevious = ctrl.hasPreviousMediaItem() || originalQueue.size > 1 || onSkipToPreviousListener != null,
             mediaItemCount = ctrl.mediaItemCount,
             queue = if (queueList.isNotEmpty()) queueList else originalQueue
         )
@@ -512,6 +522,8 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     var onTrackEndedListener: (() -> Unit)? = null
+    var onSkipToNextListener: (() -> Unit)? = null
+    var onSkipToPreviousListener: (() -> Unit)? = null
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncState()

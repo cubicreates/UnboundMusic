@@ -111,11 +111,29 @@ object UnboundStorageManager {
     }
 
     /**
+     * Broadcasts a file/directory scan to Android's MediaScannerConnection so the Phone File Manager
+     * immediately indexes the folder in the system file picker and third-party file managers.
+     */
+    fun scanPathWithMediaScanner(context: Context, path: String) {
+        try {
+            android.media.MediaScannerConnection.scanFile(
+                context.applicationContext,
+                arrayOf(path),
+                null
+            ) { scannedPath, uri ->
+                Log.d(TAG, "MediaScanner indexed: $scannedPath -> $uri")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaScanner scan note: ${e.message}")
+        }
+    }
+
+    /**
      * Public user-visible Unbound folder directly in Phone File Manager -> Internal Storage:
      * /storage/emulated/0/Unbound/
      * Subdirectories: Downloads/, Music/, Playlists/, Recaps/
      */
-    fun getPublicUnboundDir(): File {
+    fun getPublicUnboundDir(context: Context? = null): File {
         val extStorage = Environment.getExternalStorageDirectory()
         val unboundDir = if (extStorage != null && extStorage.exists() && extStorage.canWrite()) {
             File(extStorage, "Unbound")
@@ -127,10 +145,39 @@ object UnboundStorageManager {
             unboundDir.mkdirs()
         }
 
-        File(unboundDir, "Downloads").mkdirs()
-        File(unboundDir, "Music").mkdirs()
-        File(unboundDir, "Playlists").mkdirs()
-        File(unboundDir, "Recaps").mkdirs()
+        val pathsToScan = mutableListOf<String>()
+        pathsToScan.add(unboundDir.absolutePath)
+
+        val subDirs = listOf("Downloads", "Music", "Playlists", "Recaps")
+        for (sub in subDirs) {
+            val s = File(unboundDir, sub)
+            if (!s.exists()) s.mkdirs()
+            pathsToScan.add(s.absolutePath)
+        }
+
+        // Also ensure public Music/Unbound exists as an indexed mirror for standard file managers
+        try {
+            val publicMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+            if (publicMusic != null && (publicMusic.exists() || publicMusic.mkdirs())) {
+                val musicUnbound = File(publicMusic, "Unbound")
+                if (!musicUnbound.exists()) musicUnbound.mkdirs()
+                pathsToScan.add(musicUnbound.absolutePath)
+                for (sub in subDirs) {
+                    val s = File(musicUnbound, sub)
+                    if (!s.exists()) s.mkdirs()
+                    pathsToScan.add(s.absolutePath)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Public Music folder mirror note: ${e.message}")
+        }
+
+        // Trigger MediaScanner so files app immediately surfaces the folder
+        if (context != null) {
+            for (p in pathsToScan) {
+                scanPathWithMediaScanner(context, p)
+            }
+        }
 
         return unboundDir
     }
@@ -177,7 +224,7 @@ object UnboundStorageManager {
      * "<publicRoot>|<backendRoot>"
      */
     fun getCombinedStorageConfig(context: Context): String {
-        val publicDir = getPublicUnboundDir()
+        val publicDir = getPublicUnboundDir(context)
         val backendDir = getBackendStorageRoot(context)
         return "${publicDir.absolutePath}|${backendDir.absolutePath}"
     }
@@ -187,6 +234,6 @@ object UnboundStorageManager {
      * for public file storage operations (downloads, music, playlists, recaps).
      */
     fun getCanonicalUnboundRoot(context: Context): File {
-        return getPublicUnboundDir()
+        return getPublicUnboundDir(context)
     }
 }

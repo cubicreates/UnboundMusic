@@ -46,10 +46,10 @@ data class TrackItem(
 
 val defaultTopTracks = listOf(
     TrackItem(
-        id = "T6eKbf38x8I",
+        id = "T6eK-2OQtew",
         title = "Not Like Us",
         artist = "Kendrick Lamar",
-        coverUrl = "https://i.ytimg.com/vi/T6eKbf38x8I/hqdefault.jpg",
+        coverUrl = "https://i.ytimg.com/vi/T6eK-2OQtew/hqdefault.jpg",
         streamUrl = "",
         durationMs = 274000,
         source = "youtube"
@@ -64,19 +64,19 @@ val defaultTopTracks = listOf(
         source = "youtube"
     ),
     TrackItem(
-        id = "4QIZ6g8I_8Y",
+        id = "4QIZE708gJ4",
         title = "I Had Some Help",
         artist = "Post Malone ft. Morgan Wallen",
-        coverUrl = "https://i.ytimg.com/vi/4QIZ6g8I_8Y/hqdefault.jpg",
+        coverUrl = "https://i.ytimg.com/vi/4QIZE708gJ4/hqdefault.jpg",
         streamUrl = "",
         durationMs = 178000,
         source = "youtube"
     ),
     TrackItem(
-        id = "d5gxZXCj68g",
+        id = "V9PVRfjEBTI",
         title = "BIRDS OF A FEATHER",
         artist = "Billie Eilish",
-        coverUrl = "https://i.ytimg.com/vi/d5gxZXCj68g/hqdefault.jpg",
+        coverUrl = "https://i.ytimg.com/vi/V9PVRfjEBTI/hqdefault.jpg",
         streamUrl = "",
         durationMs = 194000,
         source = "youtube"

@@ -248,6 +248,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isInstrumental = MutableStateFlow(false)
     val isInstrumental: StateFlow<Boolean> = _isInstrumental.asStateFlow()
 
+    private var lyricsFetchJob: kotlinx.coroutines.Job? = null
+
     fun setRomanizationMode(mode: com.cubicreates.unboundmusic.data.RomanizationMode) {
         _romanizationMode.value = mode
     }
@@ -326,12 +328,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Start position ticker for smooth progress bar updates
         startPositionTicker()
 
-        // Sync current track from playback state
+        // Sync current track and reload lyrics on track change
         viewModelScope.launch {
             serviceConnection.playbackState.collect { state ->
                 state.currentTrack?.let { track ->
                     if (track.title != "Unknown" && track.title.isNotBlank()) {
-                        _currentTrack.value = track
+                        val prev = _currentTrack.value
+                        val changed = (prev.id.isNotBlank() && prev.id != track.id) ||
+                                      (prev.title.isNotBlank() && !prev.title.equals(track.title, ignoreCase = true))
+                        if (changed) {
+                            _currentTrack.value = track
+                            loadLyricsForTrack(track)
+                            launch(Dispatchers.IO) {
+                                fetchCanvas(track)
+                                fetchSkipSegments(track)
+                            }
+                        }
                     }
                 }
             }
@@ -347,6 +359,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         serviceConnection.onTrackEndedListener = {
             viewModelScope.launch(Dispatchers.Main) {
                 nextTrack()
+            }
+        }
+        serviceConnection.onSkipToNextListener = {
+            viewModelScope.launch(Dispatchers.Main) {
+                nextTrack()
+            }
+        }
+        serviceConnection.onSkipToPreviousListener = {
+            viewModelScope.launch(Dispatchers.Main) {
+                prevTrack()
             }
         }
     }
@@ -599,6 +621,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun playTrack(track: TrackItem) {
         _currentTrack.value = track
+
+        // Ensure queue is populated with meaningful surrounding list context
+        val currentQ = _currentQueue.value
+        val trackInQueue = currentQ.any {
+            (it.id.isNotBlank() && it.id == track.id) ||
+            (it.title.isNotBlank() && it.title.equals(track.title, ignoreCase = true))
+        }
+        if (currentQ.size <= 1 || !trackInQueue) {
+            val resolvedQueue = when {
+                _chartTracks.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _chartTracks.value
+                _searchResults.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _searchResults.value
+                _libraryTracks.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _libraryTracks.value
+                defaultTopTracks.any { it.id == track.id || it.title.equals(track.title, true) } -> defaultTopTracks
+                else -> listOf(track) + defaultTopTracks.filter { it.id != track.id }
+            }
+            _currentQueue.value = resolvedQueue
+            serviceConnection.setQueue(resolvedQueue)
+        }
+
+        // Immediately reset lyrics state and fetch for this specific track
+        loadLyricsForTrack(track)
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val streamUrl = resolveStreamUrl(track)
@@ -617,8 +661,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Fetch lyrics, canvas visuals, and SponsorBlock skip segments in parallel
-                launch { fetchLyrics(resolvedTrack) }
+                // Fetch canvas visuals and SponsorBlock skip segments in parallel
                 launch { fetchCanvas(resolvedTrack) }
                 launch { fetchSkipSegments(resolvedTrack) }
 
@@ -730,22 +773,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         serviceConnection.seekToFraction(progress)
     }
 
+    private fun getEffectiveQueue(): List<TrackItem> {
+        val q = _currentQueue.value
+        if (q.size > 1) return q
+        val sQueue = serviceConnection.playbackState.value.queue
+        if (sQueue.size > 1) return sQueue
+        if (_chartTracks.value.size > 1) return _chartTracks.value
+        if (_searchResults.value.size > 1) return _searchResults.value
+        if (_libraryTracks.value.size > 1) return _libraryTracks.value
+        return defaultTopTracks
+    }
+
     fun nextTrack() {
-        val q = _currentQueue.value.ifEmpty { serviceConnection.playbackState.value.queue }
+        val q = getEffectiveQueue()
         if (q.isNotEmpty()) {
             val current = _currentTrack.value
             val currentIndex = q.indexOfFirst {
                 (it.id.isNotBlank() && it.id == current.id) ||
                 (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
             }
-            if (currentIndex != -1 && currentIndex + 1 < q.size) {
-                playTrack(q[currentIndex + 1])
-                return
-            } else if (currentIndex == q.size - 1 && q.isNotEmpty()) {
-                // Loop back to start of queue
-                playTrack(q[0])
-                return
+            val nextIndex = if (currentIndex in 0 until q.size - 1) {
+                currentIndex + 1
+            } else {
+                0 // Loop back to start of queue
             }
+            playTrack(q[nextIndex])
+            return
         }
         serviceConnection.next()
     }
@@ -757,20 +810,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             serviceConnection.seekTo(0)
             return
         }
-        val q = _currentQueue.value.ifEmpty { serviceConnection.playbackState.value.queue }
+        val q = getEffectiveQueue()
         if (q.isNotEmpty()) {
             val current = _currentTrack.value
             val currentIndex = q.indexOfFirst {
                 (it.id.isNotBlank() && it.id == current.id) ||
                 (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
             }
-            if (currentIndex > 0) {
-                playTrack(q[currentIndex - 1])
-                return
-            } else if (currentIndex == 0 && q.isNotEmpty()) {
-                playTrack(q.last())
-                return
+            val prevIndex = if (currentIndex > 0) {
+                currentIndex - 1
+            } else {
+                q.lastIndex // Wrap to end of queue
             }
+            playTrack(q[prevIndex])
+            return
         }
         serviceConnection.previous()
     }
@@ -983,44 +1036,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Lyrics ====================
 
     /**
-     * Fetches live lyrics with syllable timestamps and phonetic Romanization from the Go daemon.
+     * Loads live lyrics for a specific track, ensuring in-flight requests from older tracks
+     * are cleanly cancelled, the UI immediately shows the shimmer placeholder, and stale
+     * lyrics (e.g. from previous tracks) never linger.
      */
-    private suspend fun fetchLyrics(track: TrackItem) {
-        try {
-            _isInstrumental.value = false
-            val (code, resp) = client.getLyrics(
-                trackId = track.id,
-                title = track.title,
-                artist = track.artist,
-                durationMs = playbackState.value.durationMs
-            )
-            if (code in 200..299 && resp.isNotBlank()) {
-                val json = JSONObject(resp)
-                val source = json.optString("source", "LRCLIB Synced Lyrics")
-                val isInst = json.optBoolean("instrumental", false)
-                _isInstrumental.value = isInst
+    fun loadLyricsForTrack(track: TrackItem) {
+        lyricsFetchJob?.cancel()
+        _lyricsLines.value = emptyList()
+        _lyricsSource.value = ""
+        _isInstrumental.value = false
 
-                val linesArray = json.optJSONArray("lines")
-                if (linesArray != null) {
-                    val lines = mutableListOf<LyricLine>()
-                    for (i in 0 until linesArray.length()) {
-                        val lineObj = linesArray.getJSONObject(i)
-                        lines.add(LyricLine(
-                            text = lineObj.optString("text", ""),
-                            startMs = lineObj.optLong("start_ms", 0),
-                            endMs = lineObj.optLong("end_ms", 0),
-                            romanized = lineObj.optString("romanized", "")
-                        ))
-                    }
-                    _lyricsLines.value = lines
-                    _lyricsSource.value = source
-                } else if (isInst) {
-                    _lyricsLines.value = emptyList()
-                    _lyricsSource.value = source
+        if (track.title.isBlank() || track.title == "Unknown") return
+
+        lyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val duration = if (track.durationMs > 0) track.durationMs else playbackState.value.durationMs
+                val (code, resp) = client.getLyrics(
+                    trackId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    durationMs = duration
+                )
+
+                // Verify user hasn't switched to another track during network flight
+                val current = _currentTrack.value
+                val isStillCurrent = (current.id.isNotBlank() && current.id == track.id) ||
+                        (current.title.isNotBlank() && current.title.equals(track.title, ignoreCase = true))
+                if (!isStillCurrent) {
+                    Log.d(TAG, "Discarding lyrics: track moved from '${track.title}' to '${current.title}'")
+                    return@launch
                 }
+
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val json = JSONObject(resp)
+                    val source = json.optString("source", "LRCLIB Synced Lyrics")
+                    val isInst = json.optBoolean("instrumental", false)
+                    _isInstrumental.value = isInst
+
+                    val linesArray = json.optJSONArray("lines")
+                    if (linesArray != null && linesArray.length() > 0) {
+                        val lines = mutableListOf<LyricLine>()
+                        for (i in 0 until linesArray.length()) {
+                            val lineObj = linesArray.getJSONObject(i)
+                            lines.add(
+                                LyricLine(
+                                    text = lineObj.optString("text", ""),
+                                    startMs = lineObj.optLong("start_ms", 0),
+                                    endMs = lineObj.optLong("end_ms", 0),
+                                    romanized = lineObj.optString("romanized", "")
+                                )
+                            )
+                        }
+                        _lyricsLines.value = lines
+                        _lyricsSource.value = source
+                    } else {
+                        _lyricsLines.value = emptyList()
+                        _lyricsSource.value = if (isInst) source else ""
+                    }
+                } else {
+                    _lyricsLines.value = emptyList()
+                    _lyricsSource.value = ""
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Lyrics fetch error for '${track.title}': ${e.message}")
+                _lyricsLines.value = emptyList()
+                _lyricsSource.value = ""
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Lyrics fetch error: ${e.message}")
         }
     }
 
@@ -1216,8 +1297,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (task != null) {
                         _downloadTasks.value = _downloadTasks.value + (task.videoId to task)
                         startDownloadPollingLoop()
-                        // Phase 6: Pre-fetch and cache lyrics offline in SQLite
-                        launch { fetchLyrics(track) }
+                        // Phase 6: Pre-fetch and cache lyrics offline in SQLite without altering active playback UI
+                        launch {
+                            try {
+                                client.getLyrics(
+                                    trackId = track.id,
+                                    title = track.title,
+                                    artist = track.artist,
+                                    durationMs = track.durationMs
+                                )
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
             } catch (e: Exception) {

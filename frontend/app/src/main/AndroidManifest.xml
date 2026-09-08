@@ -17,6 +17,7 @@
         android:name=".UnboundApplication"
         android:allowBackup="true"
         android:hasFragileUserData="false"
+        android:requestLegacyExternalStorage="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"

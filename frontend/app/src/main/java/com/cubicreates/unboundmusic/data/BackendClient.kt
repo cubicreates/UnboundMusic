@@ -776,7 +776,8 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                 connected = root.optBoolean("connected", false),
                 accountName = root.optString("account_name", "Local User"),
                 syncedTracksCount = root.optInt("synced_tracks_count", 0),
-                lastSynced = root.optString("last_synced", "")
+                lastSynced = root.optString("last_synced", ""),
+                avatarUrl = root.optString("avatar_url", "")
             )
         } catch (_: Exception) {
             null

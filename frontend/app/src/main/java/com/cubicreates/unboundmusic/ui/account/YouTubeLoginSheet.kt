@@ -1,7 +1,7 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.account
  * File: YouTubeLoginSheet.kt
- * Purpose: Modal bottom sheet housing an embedded Android WebView for Google YouTube Music authentication and cookie extraction.
+ * Purpose: Modal bottom sheet housing an embedded Android WebView for Google / YouTube authentication and cookie extraction.
  * Subsystem: Native Account UI
  * Concurrency: Thread-safe UI component using Compose state.
  */
@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 private const val GOOGLE_LOGIN_URL =
-    "https://accounts.google.com/ServiceLogin?ltmpl=music&service=youtube&passive=true&continue=https%3A%2F%2Fmusic.youtube.com%2F"
+    "https://accounts.google.com/ServiceLogin?service=youtube&passive=true&continue=https%3A%2F%2Fm.youtube.com%2F"
 
 private const val MODERN_MOBILE_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
@@ -88,7 +88,7 @@ fun YouTubeLoginSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Sign In to YouTube Music",
+                        text = "Sign In with YouTube",
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -144,7 +144,10 @@ fun YouTubeLoginSheet(
                                     super.onPageFinished(view, url)
                                     isLoading = false
 
-                                    if (url != null && url.startsWith("https://music.youtube.com") && !hasExtracted) {
+                                    val isYouTube = url != null && (
+                                        url.contains("youtube.com") || url.contains("google.com")
+                                    )
+                                    if (isYouTube && !hasExtracted) {
                                         val cookie = CookieManager.getInstance().getCookie(url)
                                         if (cookie != null && (cookie.contains("SAPISID") || cookie.contains("__Secure-3PAPISID"))) {
                                             hasExtracted = true

@@ -206,6 +206,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _accountName = MutableStateFlow("Local User")
     val accountName: StateFlow<String> = _accountName.asStateFlow()
 
+    private val _userAvatarUrl = MutableStateFlow<String?>(null)
+    val userAvatarUrl: StateFlow<String?> = _userAvatarUrl.asStateFlow()
+
     private val _syncedYouTubeTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val syncedYouTubeTracks: StateFlow<List<TrackItem>> = _syncedYouTubeTracks.asStateFlow()
 
@@ -1185,6 +1188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (status != null) {
                         _isYouTubeConnected.value = status.connected
                         _accountName.value = status.accountName
+                        _userAvatarUrl.value = status.avatarUrl.takeIf { it.isNotBlank() }
                         if (status.connected) {
                             loadSyncedYouTubeTracks()
                         }
@@ -1223,6 +1227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (code in 200..299) {
                     _isYouTubeConnected.value = false
                     _accountName.value = "Local User"
+                    _userAvatarUrl.value = null
                     _syncedYouTubeTracks.value = emptyList()
                     _youtubeCount.value = 0
                 }

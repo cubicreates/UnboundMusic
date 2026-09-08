@@ -68,6 +68,9 @@ fun HomeScreen(
     tracks: List<TrackItem> = defaultTopTracks,
     daypartingState: DaypartingState? = null,
     genreSections: List<GenreSectionDto> = emptyList(),
+    userAvatarUrl: String? = null,
+    accountName: String? = null,
+    isYouTubeConnected: Boolean = false,
     onTrackSelect: (TrackItem) -> Unit = {},
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
@@ -148,6 +151,9 @@ fun HomeScreen(
         // Fixed Top App Bar
         UnboundTopAppBar(
             modifier = Modifier.align(Alignment.TopCenter),
+            userAvatarUrl = userAvatarUrl,
+            accountName = accountName,
+            isLoggedIn = isYouTubeConnected,
             onMenuClick = onMenuClick,
             onProfileClick = onProfileClick
         )

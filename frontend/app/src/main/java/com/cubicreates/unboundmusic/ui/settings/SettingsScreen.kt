@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -55,10 +56,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
@@ -74,6 +77,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     isYouTubeConnected: Boolean = false,
     accountName: String = "Local User",
+    userAvatarUrl: String? = null,
     currentTheme: AppThemePreset = AppThemePreset.STUDIO_DARK,
     cachePurgeStatus: String? = null,
     onThemeSelected: (AppThemePreset) -> Unit = {},
@@ -159,12 +163,30 @@ fun SettingsScreen(
                             .background(if (isYouTubeConnected) UnboundPrimary else UnboundSurfaceContainerHigh),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (isYouTubeConnected && accountName.isNotBlank()) accountName.take(1).uppercase() else "U",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isYouTubeConnected) OnPrimary else OnSurfaceVariant
-                        )
+                        if (isYouTubeConnected && !userAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = userAvatarUrl,
+                                contentDescription = "Profile Picture",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (isYouTubeConnected && accountName.isNotBlank()) {
+                            Text(
+                                text = accountName.take(1).uppercase(),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnPrimary
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Offline User",
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.width(14.dp))

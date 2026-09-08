@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,15 +30,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
+import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
+import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.TopBarGlass
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
 private const val DEFAULT_LOGO_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuCakI2DGdcJDf93UDif0pOaN2wJ-D8BFLf8gxIvJkzCye964IBFhswEx-awNCIJy3dzV-1LCD3nj53qsi8ax_-0BDyYsk0AkZ0Egqw9_knCCjXlKly8Ng98rokKH1ZsAMEDbn0SMS7L6eV2LsjUJvrS_E_gCLaYoB6ycOvjYm_rlgxXSJT8mPGQgf-LT2_QVLV0cZu7rd7MVl8SnoOC19M22Vv9nsSWXmnjOHPSq0ZNN5XyzeaHNqHdfrwJu3V6dEyHjOU"
-private const val DEFAULT_AVATAR_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuDcTQQ1bl8ZxvPmgQ0g_aYec8mLe-4w7tCWeMr5L_optqPehpTSVv0oBsQF7_3CZXsgRR0RG_7ihLu4ZXRHrXFPmYTVQjeRpnqjpv-3GdFlKUdC1ZuZArnEQDQQTDsbfZg-_LilhnLyNM0se-g-cJJngxZwOUZ2E0rkfq86e6bJNiP7VpzaHjbLHTjxQsmVO_awHa9c9KG_uYotSDXn8D_2uyIgeJJEEcx4xhlNmGLUnLbjqMYkEn_oCw"
 
 @Composable
 fun UnboundTopAppBar(
     modifier: Modifier = Modifier,
+    userAvatarUrl: String? = null,
+    accountName: String? = null,
+    isLoggedIn: Boolean = false,
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {}
 ) {
@@ -87,20 +92,44 @@ fun UnboundTopAppBar(
                 )
             }
 
-            // User Avatar Button
+            // User Avatar / Profile Button
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(38.dp)
                     .clip(CircleShape)
-                    .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
-                    .clickable(onClick = onProfileClick)
+                    .background(SurfaceGlassHighest)
+                    .border(
+                        width = 1.dp,
+                        color = if (isLoggedIn) UnboundPrimary.copy(alpha = 0.6f) else BorderGlass,
+                        shape = CircleShape
+                    )
+                    .clickable(onClick = onProfileClick),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = DEFAULT_AVATAR_URL,
-                    contentDescription = "User Avatar",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = userAvatarUrl,
+                        contentDescription = "User Avatar",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (isLoggedIn && !accountName.isNullOrBlank()) {
+                    Text(
+                        text = accountName.take(1).uppercase(),
+                        color = UnboundPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = "Sign In / Profile",
+                        tint = OnSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }

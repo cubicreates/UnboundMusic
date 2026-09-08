@@ -70,6 +70,7 @@ fun MainApp(
 
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
+    val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
     val syncedYouTubeTracks by viewModel.syncedYouTubeTracks.collectAsStateWithLifecycle()
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
@@ -238,6 +239,9 @@ fun MainApp(
                                     tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
                                     daypartingState = daypartingState,
                                     genreSections = genreSections,
+                                    userAvatarUrl = userAvatarUrl,
+                                    accountName = accountName,
+                                    isYouTubeConnected = isYouTubeConnected,
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)
                                         isPlayerExpanded = true
@@ -318,6 +322,7 @@ fun MainApp(
                 onAutoEqClick = { showAutoEqPicker = true },
                 isYouTubeConnected = isYouTubeConnected,
                 accountName = accountName,
+                userAvatarUrl = userAvatarUrl,
                 currentTheme = selectedTheme,
                 cachePurgeStatus = cachePurgeStatus,
                 onThemeSelected = { viewModel.setTheme(it) },

@@ -143,7 +143,8 @@ data class AccountStatusData(
     val connected: Boolean,
     val accountName: String,
     val syncedTracksCount: Int,
-    val lastSynced: String = ""
+    val lastSynced: String = "",
+    val avatarUrl: String = ""
 )
 
 /**

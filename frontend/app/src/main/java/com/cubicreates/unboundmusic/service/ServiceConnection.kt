@@ -174,6 +174,11 @@ class ServiceConnection private constructor(private val context: Context) {
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id.ifBlank { track.title })
             .setUri(uri)
+            .setRequestMetadata(
+                MediaItem.RequestMetadata.Builder()
+                    .setMediaUri(uri)
+                    .build()
+            )
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(track.title)
@@ -234,6 +239,11 @@ class ServiceConnection private constructor(private val context: Context) {
             MediaItem.Builder()
                 .setMediaId(track.id.ifBlank { track.title })
                 .setUri(uri)
+                .setRequestMetadata(
+                    MediaItem.RequestMetadata.Builder()
+                        .setMediaUri(uri)
+                        .build()
+                )
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(track.title)

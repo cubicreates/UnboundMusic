@@ -655,9 +655,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Play via Media3 service
                     serviceConnection.playTrack(resolvedTrack, streamUrl)
                 } else {
-                    Log.e(TAG, "Failed to resolve stream URL for track: ${track.title}")
-                    if (track.streamUrl.isNotBlank()) {
-                        serviceConnection.playTrack(track)
+                    Log.w(TAG, "Direct stream resolution empty for ${track.title}, using localhost proxy stream")
+                    val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
+                        "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+                    } else track.streamUrl
+                    if (fallbackUrl.isNotBlank()) {
+                        serviceConnection.playTrack(track.copy(streamUrl = fallbackUrl), fallbackUrl)
                     }
                 }
 
@@ -667,8 +670,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
-                if (track.streamUrl.isNotBlank()) {
-                    serviceConnection.playTrack(track)
+                val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
+                    "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+                } else track.streamUrl
+                if (fallbackUrl.isNotBlank()) {
+                    serviceConnection.playTrack(track.copy(streamUrl = fallbackUrl), fallbackUrl)
                 }
             }
         }

@@ -44,6 +44,7 @@
 
 * Detailed Roadmap & Daily Milestones: **[docs/ROADMAP.md](file:///d:/Github/MyMusic/docs/ROADMAP.md)**
 * Subsystem Architecture & REST API Reference: **[docs/README.md](file:///d:/Github/MyMusic/docs/README.md)**
+* Storage Layout, AI Models & Uninstall Guide: **[docs/STORAGE_AND_UNINSTALL_LIFECYCLE.md](file:///d:/Github/MyMusic/docs/STORAGE_AND_UNINSTALL_LIFECYCLE.md)**
 
 ---
 

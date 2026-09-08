@@ -162,6 +162,8 @@ fun MainApp(
                 onSeek = { viewModel.seekTo(it) },
                 onSeekPositionMs = { viewModel.seekToPositionMs(it) },
                 onCyclePlaybackMode = { viewModel.cyclePlaybackMode() },
+                onToggleShuffle = { viewModel.toggleShuffle() },
+                onCycleRepeatMode = { viewModel.cycleRepeatMode() },
                 onEqualizerClick = { showEqualizer = true },
                 onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) },
                 downloadStatus = currentDownloadStatus,
@@ -250,8 +252,8 @@ fun MainApp(
                                         viewingGenre = genre
                                         viewModel.loadGenreDetail(genre.params, genre.title)
                                     },
-                                    onTrackSelect = { track ->
-                                        viewModel.playTrack(track)
+                                    onTrackSelect = { track, queue ->
+                                        viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true
                                     },
                                     onProfileClick = { showSettings = true },
@@ -271,8 +273,8 @@ fun MainApp(
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
                                     onVibeTagClick = { tag -> viewModel.submitVibeQuery(tag.removePrefix("#")) },
                                     onGenreCardClick = { genre -> viewModel.submitVibeQuery(genre) },
-                                    onTrackSelect = { track ->
-                                        viewModel.playTrack(track)
+                                    onTrackSelect = { track, queue ->
+                                        viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true
                                     }
                                 )
@@ -298,7 +300,7 @@ fun MainApp(
                                         }
                                     },
                                     onTrackSelect = { track ->
-                                        viewModel.playTrack(track)
+                                        viewModel.playTrackWithQueue(track, libraryTracks)
                                         isPlayerExpanded = true
                                     },
                                     onRefresh = { viewModel.refreshLibrary() },

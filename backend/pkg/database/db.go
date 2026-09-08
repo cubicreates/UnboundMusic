@@ -69,6 +69,9 @@ func Open(dbPath string) (*DB, error) {
 
 // migrate executes initial DDL creation scripts.
 func (d *DB) migrate() error {
+	// Backward-compatible column additions for existing user databases
+	_, _ = d.conn.Exec(`ALTER TABLE fingerprints ADD COLUMN file_path TEXT NOT NULL DEFAULT '';`)
+
 	_, err := d.conn.Exec(SchemaDDL)
 	return err
 }

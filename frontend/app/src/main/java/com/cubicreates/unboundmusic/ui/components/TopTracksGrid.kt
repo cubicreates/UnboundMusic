@@ -123,7 +123,7 @@ val defaultTopTracks = listOf(
 fun TopTracksGrid(
     modifier: Modifier = Modifier,
     tracks: List<TrackItem> = defaultTopTracks,
-    onTrackClick: (TrackItem) -> Unit = {}
+    onTrackClick: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> }
 ) {
     Column(
         modifier = modifier
@@ -151,7 +151,7 @@ fun TopTracksGrid(
                     TrackCard(
                         track = track,
                         modifier = Modifier.weight(1f),
-                        onClick = { onTrackClick(track) }
+                        onClick = { onTrackClick(track, tracks) }
                     )
                 }
                 if (rowItems.size == 1) {

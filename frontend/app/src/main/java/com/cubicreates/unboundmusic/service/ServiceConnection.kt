@@ -511,10 +511,17 @@ class ServiceConnection private constructor(private val context: Context) {
         AudioEffectController.setLoudness(gainMb)
     }
 
+    var onTrackEndedListener: (() -> Unit)? = null
+
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncState()
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncState()
-        override fun onPlaybackStateChanged(playbackState: Int) = syncState()
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            syncState()
+            if (playbackState == Player.STATE_ENDED) {
+                onTrackEndedListener?.invoke()
+            }
+        }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncState()
         override fun onRepeatModeChanged(repeatMode: Int) = syncState()
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = syncState()

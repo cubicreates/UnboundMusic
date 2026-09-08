@@ -26,11 +26,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
@@ -96,7 +100,7 @@ fun SearchScreen(
     onListenToSurroundings: () -> Unit = {},
     onVibeTagClick: (String) -> Unit = {},
     onGenreCardClick: (String) -> Unit = {},
-    onTrackSelect: (TrackItem) -> Unit = {}
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> }
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
@@ -161,7 +165,7 @@ fun SearchScreen(
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Describe a vibe, mood, or setting...",
+                                text = "Search songs, artists, albums, or vibes...",
                                 color = OnSurfaceVariant.copy(alpha = 0.5f),
                                 fontSize = 14.sp
                             )
@@ -175,6 +179,14 @@ fun SearchScreen(
                             textStyle = TextStyle(
                                 color = OnSurface,
                                 fontSize = 14.sp
+                            ),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    if (searchQuery.isNotBlank()) {
+                                        onSearchQueryChanged(searchQuery)
+                                    }
+                                }
                             ),
                             cursorBrush = SolidColor(UnboundPrimary),
                             singleLine = true,
@@ -346,10 +358,10 @@ fun SearchScreen(
                             .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(displayTracks, key = { it.title + it.streamUrl + it.artist }) { track ->
+                        itemsIndexed(displayTracks, key = { index, track -> "${track.id}_${track.title}_$index" }) { _, track ->
                             SearchResultItem(
                                 track = track,
-                                onClick = { onTrackSelect(track) }
+                                onClick = { onTrackSelect(track, displayTracks) }
                             )
                         }
                     }

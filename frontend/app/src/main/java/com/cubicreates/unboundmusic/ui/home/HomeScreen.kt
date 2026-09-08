@@ -71,7 +71,7 @@ fun HomeScreen(
     userAvatarUrl: String? = null,
     accountName: String? = null,
     isYouTubeConnected: Boolean = false,
-    onTrackSelect: (TrackItem) -> Unit = {},
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onGenreSelect: (GenreItemDto) -> Unit = {},
@@ -142,8 +142,8 @@ fun HomeScreen(
 
             TopTracksGrid(
                 tracks = if (tracks.isNotEmpty()) tracks else defaultTopTracks,
-                onTrackClick = { track ->
-                    onTrackSelect(track)
+                onTrackClick = { track, queue ->
+                    onTrackSelect(track, queue)
                 }
             )
         }

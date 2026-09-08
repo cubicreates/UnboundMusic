@@ -329,6 +329,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Resume download polling if previous active tasks exist
         startDownloadPollingLoop()
+
+        // Auto-advance to next track when playback of current song ends
+        serviceConnection.onTrackEndedListener = {
+            viewModelScope.launch(Dispatchers.Main) {
+                nextTrack()
+            }
+        }
     }
 
     private fun startStartupHydration() {
@@ -657,6 +664,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _currentQueue = MutableStateFlow<List<TrackItem>>(emptyList())
+    val currentQueue: StateFlow<List<TrackItem>> = _currentQueue.asStateFlow()
+
+    /**
+     * Plays a selected track within a playlist context, populating the queue so Next/Previous work.
+     */
+    fun playTrackWithQueue(track: TrackItem, queue: List<TrackItem>) {
+        _currentQueue.value = queue
+        serviceConnection.setQueue(queue)
+        playTrack(track)
+    }
+
     fun togglePlayPause() {
         serviceConnection.togglePlayPause()
     }
@@ -670,10 +689,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun nextTrack() {
+        val q = _currentQueue.value.ifEmpty { serviceConnection.playbackState.value.queue }
+        if (q.isNotEmpty()) {
+            val current = _currentTrack.value
+            val currentIndex = q.indexOfFirst {
+                (it.id.isNotBlank() && it.id == current.id) ||
+                (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
+            }
+            if (currentIndex != -1 && currentIndex + 1 < q.size) {
+                playTrack(q[currentIndex + 1])
+                return
+            } else if (currentIndex == q.size - 1 && q.isNotEmpty()) {
+                // Loop back to start of queue
+                playTrack(q[0])
+                return
+            }
+        }
         serviceConnection.next()
     }
 
     fun prevTrack() {
+        val pos = serviceConnection.playbackState.value.currentPositionMs
+        if (pos > 3000L) {
+            // If played > 3s, seek to beginning (Spotify standard)
+            serviceConnection.seekTo(0)
+            return
+        }
+        val q = _currentQueue.value.ifEmpty { serviceConnection.playbackState.value.queue }
+        if (q.isNotEmpty()) {
+            val current = _currentTrack.value
+            val currentIndex = q.indexOfFirst {
+                (it.id.isNotBlank() && it.id == current.id) ||
+                (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
+            }
+            if (currentIndex > 0) {
+                playTrack(q[currentIndex - 1])
+                return
+            } else if (currentIndex == 0 && q.isNotEmpty()) {
+                playTrack(q.last())
+                return
+            }
+        }
         serviceConnection.previous()
     }
 
@@ -1832,6 +1888,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cyclePlaybackMode() {
         serviceConnection.cyclePlaybackMode()
+    }
+
+    fun toggleShuffle() {
+        val current = serviceConnection.playbackState.value.playbackMode
+        val next = if (current == com.cubicreates.unboundmusic.service.PlaybackMode.SHUFFLE) {
+            com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL
+        } else {
+            com.cubicreates.unboundmusic.service.PlaybackMode.SHUFFLE
+        }
+        serviceConnection.setPlaybackMode(next)
+    }
+
+    fun cycleRepeatMode() {
+        val current = serviceConnection.playbackState.value.playbackMode
+        val next = when (current) {
+            com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL
+            com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ONE
+            com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ONE -> com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL
+            else -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL
+        }
+        serviceConnection.setPlaybackMode(next)
     }
 
     fun seekToPositionMs(positionMs: Long) {

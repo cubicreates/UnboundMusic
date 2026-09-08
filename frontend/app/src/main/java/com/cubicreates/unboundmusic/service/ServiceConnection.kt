@@ -410,10 +410,6 @@ class ServiceConnection private constructor(private val context: Context) {
         )
     }
 
-    fun setEqualizerCurve(curve: EqualizerCurve) {
-        UnboundPlaybackService.activeEqualizerCurve = curve
-    }
-
     fun getEqualizerCurve(): EqualizerCurve {
         return UnboundPlaybackService.activeEqualizerCurve
     }

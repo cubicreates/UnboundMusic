@@ -14,6 +14,7 @@ import com.cubicreates.unboundmusic.ui.components.TrackItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,7 +74,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     private val httpClient: OkHttpClient = if (isUnixSocket && socketPath != null) {
         sharedOkHttpClient.newBuilder()
             .socketFactory(UnixDomainSocketFactory(File(socketPath)))
-            .dns { listOf(InetAddress.getByAddress("localhost", byteArrayOf(127, 0, 0, 1))) }
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    return listOf(InetAddress.getByAddress("localhost", byteArrayOf(127, 0, 0, 1)))
+                }
+            })
             .build()
     } else {
         sharedOkHttpClient

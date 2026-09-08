@@ -113,8 +113,10 @@ extern "C" {
 
 extern jint Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative(JNIEnv* env, jobject clazz, jstring jAppStoragePath, jint jPort);
 extern jint Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative(JNIEnv* env, jobject clazz);
+extern jint Java_com_example_unboundtestfrontend_DaemonManager_trimEngineMemoryNative(JNIEnv* env, jobject clazz);
 extern jint Java_com_cubicreates_unboundmusic_daemon_DaemonManager_startEngineNative(JNIEnv* env, jobject clazz, jstring jAppStoragePath, jint jPort);
 extern jint Java_com_cubicreates_unboundmusic_daemon_DaemonManager_stopEngineNative(JNIEnv* env, jobject clazz);
+extern jint Java_com_cubicreates_unboundmusic_daemon_DaemonManager_trimEngineMemoryNative(JNIEnv* env, jobject clazz);
 
 #ifdef __cplusplus
 }

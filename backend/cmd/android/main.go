@@ -34,8 +34,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
-	"runtime/debug"
 	"sync"
 
 	"github.com/cubicreates/unbound-engine/pkg/server"

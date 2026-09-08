@@ -149,6 +149,18 @@ func CalculateReplayGain(samples []float32, targetLUFS float64) NormalizationRes
 	}
 }
 
+// CalculatePCMLoudness computes EBU R128 loudness and gain adjustment directly from 16-bit signed PCM samples.
+func CalculatePCMLoudness(samples []int16, targetLUFS float64) NormalizationResult {
+	if len(samples) == 0 {
+		return NormalizationResult{TargetLUFS: targetLUFS, RecommendedScale: 1.0}
+	}
+	floatSamples := make([]float32, len(samples))
+	for i, s := range samples {
+		floatSamples[i] = float32(s) / 32768.0
+	}
+	return CalculateReplayGain(floatSamples, targetLUFS)
+}
+
 // CalculateCrossfadeGains calculates the volume coefficients for Track A and Track B at progress [0.0 to 1.0].
 func CalculateCrossfadeGains(progress float64, curve CrossfadeCurveType) (gainA float64, gainB float64) {
 	if progress < 0.0 {

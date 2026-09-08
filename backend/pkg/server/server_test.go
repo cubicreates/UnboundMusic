@@ -190,3 +190,52 @@ func TestServerEventsEndpoint(t *testing.T) {
 	}
 }
 
+// TestServerAudioNormalizeEndpoint validates EBU R128 loudness calculation via GET and POST.
+func TestServerAudioNormalizeEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_norm.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. GET with target LUFS
+	reqGET := httptest.NewRequest(http.MethodGet, "/api/v1/audio/normalize?target=-16.0", nil)
+	wGET := httptest.NewRecorder()
+	srv.handleAudioNormalize(wGET, reqGET)
+
+	if wGET.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET normalize, got %d", wGET.Code)
+	}
+	var resGET map[string]any
+	if err := json.NewDecoder(wGET.Body).Decode(&resGET); err != nil {
+		t.Fatalf("failed decoding GET JSON: %v", err)
+	}
+	if target, ok := resGET["target_lufs"].(float64); !ok || target != -16.0 {
+		t.Errorf("expected target_lufs -16.0, got %v", resGET["target_lufs"])
+	}
+
+	// 2. POST with custom samples
+	postBody := `{"samples": [0.5, -0.5, 0.2, -0.2], "target_lufs": -14.0}`
+	reqPOST := httptest.NewRequest(http.MethodPost, "/api/v1/audio/normalize", strings.NewReader(postBody))
+	wPOST := httptest.NewRecorder()
+	srv.handleAudioNormalize(wPOST, reqPOST)
+
+	if wPOST.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from POST normalize, got %d", wPOST.Code)
+	}
+	var resPOST map[string]any
+	if err := json.NewDecoder(wPOST.Body).Decode(&resPOST); err != nil {
+		t.Fatalf("failed decoding POST JSON: %v", err)
+	}
+	if scale, ok := resPOST["recommended_scale"].(float64); !ok || scale <= 0 {
+		t.Errorf("expected positive recommended_scale, got %v", resPOST["recommended_scale"])
+	}
+}
+

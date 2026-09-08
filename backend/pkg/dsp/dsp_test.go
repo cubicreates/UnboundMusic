@@ -73,3 +73,40 @@ func TestDetectSilenceBoundaries(t *testing.T) {
 		t.Errorf("expected tail silence near 1000ms, got %d ms", res.TailSilenceMs)
 	}
 }
+
+// TestCalculatePCMLoudness validates EBU R128 loudness calculation on 16-bit PCM buffers.
+func TestCalculatePCMLoudness(t *testing.T) {
+	// Quiet audio: +/- 1000 amplitude (out of 32768)
+	quietPCM := make([]int16, 4800)
+	for i := range quietPCM {
+		if i%2 == 0 {
+			quietPCM[i] = 1000
+		} else {
+			quietPCM[i] = -1000
+		}
+	}
+	resQuiet := CalculatePCMLoudness(quietPCM, -14.0)
+	if resQuiet.MeasuredLUFS >= -14.0 {
+		t.Errorf("expected quiet audio to measure below -14 LUFS, got %f", resQuiet.MeasuredLUFS)
+	}
+	if resQuiet.GainAdjustmentDB <= 0 {
+		t.Errorf("expected positive gain boost for quiet audio, got %f dB", resQuiet.GainAdjustmentDB)
+	}
+
+	// Loud audio: +/- 28000 amplitude
+	loudPCM := make([]int16, 4800)
+	for i := range loudPCM {
+		if i%2 == 0 {
+			loudPCM[i] = 28000
+		} else {
+			loudPCM[i] = -28000
+		}
+	}
+	resLoud := CalculatePCMLoudness(loudPCM, -14.0)
+	if resLoud.MeasuredLUFS <= -14.0 {
+		t.Errorf("expected loud audio to measure above -14 LUFS, got %f", resLoud.MeasuredLUFS)
+	}
+	if resLoud.GainAdjustmentDB >= 0 {
+		t.Errorf("expected negative attenuation for loud audio, got %f dB", resLoud.GainAdjustmentDB)
+	}
+}

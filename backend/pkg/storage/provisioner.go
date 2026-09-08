@@ -29,6 +29,7 @@ type DirectoryTree struct {
 	RecapPath    string            `json:"recap_path"`
 	Directories  map[string]string `json:"directories"`
 	IsReady      bool              `json:"is_ready"`
+	IsFallback   bool              `json:"is_fallback"`
 }
 
 // Provisioner coordinates directory creation and path resolution.
@@ -55,6 +56,8 @@ func NewProvisioner(baseRoot string) *Provisioner {
 }
 
 // ProvisionLayout creates the standard Unbound directory hierarchy on disk.
+// If creating directories at baseRoot fails (e.g. Android 11+ Scoped Storage permission denial),
+// it automatically falls back to an internal directory in os.TempDir()/Unbound.
 func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -63,6 +66,24 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 	if filepath.Base(root) != "Unbound" {
 		root = filepath.Join(p.baseRoot, "Unbound")
 	}
+
+	tree, err := p.createTree(root, false)
+	if err != nil {
+		// Fallback to internal storage directory
+		fallbackRoot := filepath.Join(os.TempDir(), "Unbound")
+		fallbackTree, fallbackErr := p.createTree(fallbackRoot, true)
+		if fallbackErr != nil {
+			return nil, fmt.Errorf("failed creating directory tree even with fallback: %w (primary: %v)", fallbackErr, err)
+		}
+		p.tree = fallbackTree
+		return fallbackTree, nil
+	}
+
+	p.tree = tree
+	return tree, nil
+}
+
+func (p *Provisioner) createTree(root string, isFallback bool) (*DirectoryTree, error) {
 	backendRoot := filepath.Join(root, ".backend")
 
 	sqliteDir := filepath.Join(backendRoot, "sqlite")
@@ -100,7 +121,7 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 		_ = os.WriteFile(noMediaPath, []byte(""), 0644)
 	}
 
-	tree := &DirectoryTree{
+	return &DirectoryTree{
 		RootPath:     root,
 		BackendPath:  backendRoot,
 		SQLitePath:   sqliteDir,
@@ -123,11 +144,9 @@ func (p *Provisioner) ProvisionLayout() (*DirectoryTree, error) {
 			"playlists": playlistDir,
 			"recaps":    recapDir,
 		},
-		IsReady: true,
-	}
-
-	p.tree = tree
-	return tree, nil
+		IsReady:    true,
+		IsFallback: isFallback,
+	}, nil
 }
 
 // GetTree returns the current provisioned directory tree.

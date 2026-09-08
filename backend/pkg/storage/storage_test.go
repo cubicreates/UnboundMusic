@@ -13,6 +13,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -241,3 +242,28 @@ func TestInPlaceVirtualIndexing(t *testing.T) {
 		t.Errorf("expected mode VIRTUAL_IN_PLACE, got %s", summary.Mode)
 	}
 }
+
+func TestStorageProvisionerPermissionFallback(t *testing.T) {
+	impossibleRoot := "/root/system/unbound_impossible_test"
+	if runtime.GOOS == "windows" {
+		impossibleRoot = "Z:\\NonExistentDriveDirectory\\Unbound"
+	}
+
+	prov := NewProvisioner(impossibleRoot)
+	tree, err := prov.ProvisionLayout()
+	if err != nil {
+		t.Fatalf("ProvisionLayout should not fail on denied/invalid root, got: %v", err)
+	}
+
+	if !tree.IsReady {
+		t.Errorf("expected tree to be ready")
+	}
+	if !tree.IsFallback {
+		t.Errorf("expected tree.IsFallback to be true")
+	}
+
+	if _, err := os.Stat(tree.RootPath); os.IsNotExist(err) {
+		t.Errorf("fallback root path %s does not exist", tree.RootPath)
+	}
+}
+

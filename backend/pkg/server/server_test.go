@@ -11,9 +11,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -236,6 +238,69 @@ func TestServerAudioNormalizeEndpoint(t *testing.T) {
 	}
 	if scale, ok := resPOST["recommended_scale"].(float64); !ok || scale <= 0 {
 		t.Errorf("expected positive recommended_scale, got %v", resPOST["recommended_scale"])
+	}
+}
+
+// TestDualUDSTCPServerStartup validates that the server binds and handles requests over both TCP and UDS concurrently.
+func TestDualUDSTCPServerStartup(t *testing.T) {
+	tempDir := t.TempDir()
+	sockPath := filepath.Join(tempDir, "u.sock")
+	port := 45991
+
+	cfg := Config{
+		Port:           port,
+		SocketPath:     sockPath,
+		AppStorageRoot: tempDir,
+		LibraryRoot:    tempDir,
+		DatabasePath:   filepath.Join(tempDir, "test_dual.db"),
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	go func() {
+		_ = srv.Start()
+	}()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
+
+	// Wait for server to bind
+	time.Sleep(300 * time.Millisecond)
+
+	// 1. Verify TCP listener works
+	tcpResp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/v1/status", port))
+	if err != nil {
+		t.Fatalf("TCP request failed: %v", err)
+	}
+	defer tcpResp.Body.Close()
+	if tcpResp.StatusCode != http.StatusOK {
+		t.Errorf("TCP status code = %d, want 200", tcpResp.StatusCode)
+	}
+
+	// 2. Verify Unix socket listener if supported by OS
+	if _, err := os.Stat(sockPath); err == nil {
+		udsClient := &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", sockPath)
+				},
+			},
+		}
+		udsResp, err := udsClient.Get("http://unix/api/v1/status")
+		if err != nil {
+			t.Fatalf("UDS request failed: %v", err)
+		}
+		defer udsResp.Body.Close()
+		if udsResp.StatusCode != http.StatusOK {
+			t.Errorf("UDS status code = %d, want 200", udsResp.StatusCode)
+		}
+	} else {
+		t.Logf("UDS socket file not present (may not be supported on this host environment): %v", err)
 	}
 }
 

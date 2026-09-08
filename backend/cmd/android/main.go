@@ -33,6 +33,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -69,9 +70,16 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 		port = 45731
 	}
 
+	socketPath := os.Getenv("UNBOUND_SOCKET_PATH")
+	if socketPath == "" && appStoragePath != "" {
+		sockDir := filepath.Join(appStoragePath, ".backend")
+		_ = os.MkdirAll(sockDir, 0755)
+		socketPath = filepath.Join(sockDir, "daemon.sock")
+	}
+
 	cfg := server.Config{
 		Port:           port,
-		SocketPath:     os.Getenv("UNBOUND_SOCKET_PATH"),
+		SocketPath:     socketPath,
 		AppStorageRoot: appStoragePath,
 		LibraryRoot:    appStoragePath,
 	}

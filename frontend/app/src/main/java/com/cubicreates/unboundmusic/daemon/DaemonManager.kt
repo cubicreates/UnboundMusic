@@ -35,7 +35,15 @@ sealed interface DaemonLifecycleState {
 class DaemonManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
-    val client = BackendClient("http://127.0.0.1:$DAEMON_PORT")
+    val client: BackendClient by lazy {
+        val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
+        val sockFile = File(unboundRoot, ".backend/daemon.sock")
+        if (Build.VERSION.SDK_INT >= 21) {
+            BackendClient("unix:${sockFile.absolutePath}")
+        } else {
+            BackendClient("http://127.0.0.1:$DAEMON_PORT")
+        }
+    }
 
     private val _state = MutableStateFlow<DaemonLifecycleState>(DaemonLifecycleState.Idle)
     val state: StateFlow<DaemonLifecycleState> = _state.asStateFlow()
@@ -140,6 +148,24 @@ class DaemonManager private constructor(private val context: Context) {
                 _state.value = DaemonLifecycleState.Error(e.message ?: "Unknown startup exception")
             }
         }
+    }
+
+    /**
+     * Suspends until the embedded Go Engine daemon is healthy and accepting requests, or until timeoutMs expires.
+     * Guarantees that the splash screen only transitions after the backend is ready, eliminating cold-start 502/refused errors.
+     */
+    suspend fun awaitReady(timeoutMs: Long = 5000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (_state.value is DaemonLifecycleState.Running) {
+                val (code, _) = client.healthCheck()
+                if (code in 200..299) {
+                    return true
+                }
+            }
+            delay(50)
+        }
+        return false
     }
 
     fun stopDaemon() {

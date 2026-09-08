@@ -110,6 +110,8 @@ type Server struct {
 	indexer      *storage.Indexer
 	downloader   *downloader.Manager
 	events       *events.EventBus
+	udsServer    *http.Server
+	udsListener  net.Listener
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -260,18 +262,27 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// Start begins listening on the configured localhost address or Unix domain socket.
+// Start begins listening on the configured localhost address and/or Unix domain socket.
 func (s *Server) Start() error {
 	if s.cfg.SocketPath != "" {
 		_ = os.Remove(s.cfg.SocketPath) // Clean up any stale socket
 		l, err := net.Listen("unix", s.cfg.SocketPath)
 		if err != nil {
-			log.Printf("[IPC] Unix domain socket listen failed on %s (%v); falling back to TCP :%d", s.cfg.SocketPath, err, s.cfg.Port)
-			return s.httpServer.ListenAndServe()
+			log.Printf("[IPC] Unix domain socket listen failed on %s (%v); continuing on TCP :%d", s.cfg.SocketPath, err, s.cfg.Port)
+		} else {
+			s.udsListener = l
+			s.udsServer = &http.Server{
+				Handler:      s.httpServer.Handler,
+				ReadTimeout:  15 * time.Second,
+				WriteTimeout: 30 * time.Second,
+			}
+			go func() {
+				if err := s.udsServer.Serve(l); err != nil && err != http.ErrServerClosed {
+					log.Printf("[IPC] UDS server stopped: %v", err)
+				}
+			}()
+			log.Printf("[IPC] Unix domain socket listening on %s", s.cfg.SocketPath)
 		}
-		defer l.Close()
-		defer os.Remove(s.cfg.SocketPath)
-		return s.httpServer.Serve(l)
 	}
 	return s.httpServer.ListenAndServe()
 }
@@ -279,6 +290,15 @@ func (s *Server) Start() error {
 // Shutdown cleanly closes active listeners and database connections.
 func (s *Server) Shutdown(ctx context.Context) error {
 	_ = s.httpServer.Shutdown(ctx)
+	if s.udsServer != nil {
+		_ = s.udsServer.Shutdown(ctx)
+	}
+	if s.udsListener != nil {
+		_ = s.udsListener.Close()
+	}
+	if s.cfg.SocketPath != "" {
+		_ = os.Remove(s.cfg.SocketPath)
+	}
 	if s.discordRPC != nil {
 		_ = s.discordRPC.Close()
 	}

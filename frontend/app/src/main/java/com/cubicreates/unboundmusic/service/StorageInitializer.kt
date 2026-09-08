@@ -31,7 +31,10 @@ object StorageInitializer {
             val filesDir = context.filesDir
             val binDir = File(filesDir, "bin")
 
-            // Canonical Unbound directory (automatically purged by OS on uninstall)
+            // Clean up any legacy public storage leftovers from previous versions (/storage/emulated/0/Unbound)
+            UnboundStorageManager.cleanupLegacyPublicStorage()
+
+            // Canonical Unbound directory (app-specific external storage, automatically purged by OS on uninstall)
             val unboundRoot = UnboundStorageManager.getCanonicalUnboundRoot(context)
             val backendDir = File(unboundRoot, ".backend")
             val modelsDir = File(backendDir, "models")

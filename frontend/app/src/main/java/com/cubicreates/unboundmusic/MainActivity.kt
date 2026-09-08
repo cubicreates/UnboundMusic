@@ -41,12 +41,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var serviceConnection: ServiceConnection
     private val mainViewModel: MainViewModel by viewModels()
 
-    private val manageStorageLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        // Re-check public storage and refresh scanner when returning from All Files Access settings
-        mainViewModel.rescanLocalStorage()
-    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -102,23 +96,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkAndRequestPermissions() {
-        // 1. Android 11+ (API 30+) All Files Access for public /storage/emulated/0/Unbound
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    manageStorageLauncher.launch(intent)
-                } catch (_: Exception) {
-                    try {
-                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                        manageStorageLauncher.launch(intent)
-                    } catch (_: Exception) {}
-                }
-            }
-        }
-
         val permissionsToRequest = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

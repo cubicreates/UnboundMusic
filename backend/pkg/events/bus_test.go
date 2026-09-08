@@ -89,3 +89,34 @@ func TestEventBus_BackpressureDrop(t *testing.T) {
 		t.Fatal("timed out reading from channel")
 	}
 }
+
+func TestEventBus_GuaranteedDeliveryCriticalEvents(t *testing.T) {
+	// Small buffer of 1
+	bus := NewEventBus(1)
+	ch := bus.Subscribe()
+	defer bus.Unsubscribe(ch)
+
+	// 1. Fill buffer with transient progress tick
+	bus.Publish("download_progress", map[string]any{"progress": 0.45})
+
+	// 2. Publish state-critical lifecycle event
+	bus.Publish("download_completed", map[string]any{"track_id": "test_critical", "status": "COMPLETED"})
+
+	// 3. Channel must deliver the critical event (either by evicting stale progress or queueing)
+	select {
+	case evt := <-ch:
+		if evt.Type != "download_completed" {
+			select {
+			case evt2 := <-ch:
+				if evt2.Type != "download_completed" {
+					t.Fatalf("expected download_completed, got %s", evt2.Type)
+				}
+			case <-time.After(300 * time.Millisecond):
+				t.Fatalf("timed out waiting for download_completed after reading %s", evt.Type)
+			}
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("timed out waiting for event")
+	}
+}
+

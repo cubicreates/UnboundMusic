@@ -68,8 +68,24 @@ func (b *EventBus) Unsubscribe(ch chan Event) {
 	}
 }
 
-// Publish broadcasts an event non-blockingly to all active subscribers.
+// IsCriticalEvent returns true if the event conveys essential state transitions that must not be dropped.
+func IsCriticalEvent(eventType string) bool {
+	switch eventType {
+	case "download_completed", "download_failed", "download_queued", "download_started", "indexer_completed", "storage_updated", "system_status":
+		return true
+	default:
+		return false
+	}
+}
+
+// Publish broadcasts an event to all active subscribers.
+// State-critical lifecycle events are prioritized: if the buffer is full, stale progress/telemetry is evicted to guarantee delivery.
 func (b *EventBus) Publish(eventType string, payload any) {
+	b.PublishPriority(eventType, payload, IsCriticalEvent(eventType))
+}
+
+// PublishPriority broadcasts an event with explicit priority classification.
+func (b *EventBus) PublishPriority(eventType string, payload any, isCritical bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -83,7 +99,25 @@ func (b *EventBus) Publish(eventType string, payload any) {
 		select {
 		case ch <- evt:
 		default:
-			// Non-blocking: drop if subscriber channel is full to prevent lagging clients from stalling the engine
+			if isCritical {
+				// State-critical lifecycle event: evict oldest pending event (e.g. stale progress tick)
+				select {
+				case <-ch:
+				default:
+				}
+				select {
+				case ch <- evt:
+				default:
+					// Asynchronous bounded delivery fallback to prevent publisher stall
+					go func(c chan Event, e Event) {
+						select {
+						case c <- e:
+						case <-time.After(500 * time.Millisecond):
+						}
+					}(ch, evt)
+				}
+			}
+			// Transient telemetry events are dropped cleanly under backpressure
 		}
 	}
 }

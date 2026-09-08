@@ -333,38 +333,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _startupPhase.value = "STORAGE_CHECK"
             _startupProgress.value = 0.15f
 
+            // Ensure canonical Unbound root folder exists
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
             val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
-            val hasChecked = prefs.getBoolean("has_checked_existing_folder", false)
-            val existingFolders = if (!hasChecked) {
-                com.cubicreates.unboundmusic.service.UnboundStorageManager.findExistingUnboundFolders(getApplication())
-            } else {
-                emptyList()
-            }
-
-            if (existingFolders.isNotEmpty()) {
-                _unboundFolderPrompt.value = UnboundFolderPromptState(
-                    folderPaths = existingFolders.map { it.absolutePath }
-                )
-                // Pause startup hydration until user decides via confirmDeleteExistingUnboundFolder or keepExistingUnboundFolder
-                return@launch
-            } else {
-                com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
-                deployDaemonAndHydrate()
-            }
+            prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
+            deployDaemonAndHydrate()
         }
     }
 
     fun confirmDeleteExistingUnboundFolder() {
         viewModelScope.launch(Dispatchers.IO) {
-            val state = _unboundFolderPrompt.value
-            if (state != null) {
-                val folders = state.folderPaths.map { java.io.File(it) }
-                com.cubicreates.unboundmusic.service.UnboundStorageManager.deleteFolders(folders)
-                com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
-                prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
-            }
             _unboundFolderPrompt.value = null
             deployDaemonAndHydrate()
         }
@@ -372,8 +350,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun keepExistingUnboundFolder() {
         viewModelScope.launch(Dispatchers.IO) {
-            val prefs = getApplication<Application>().getSharedPreferences("unbound_boot_prefs", android.content.Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("has_checked_existing_folder", true).apply()
             _unboundFolderPrompt.value = null
             deployDaemonAndHydrate()
         }
@@ -1007,7 +983,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Library ====================
 
-    fun refreshLibrary() {
+    fun rescanLocalStorage() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val canonicalRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
@@ -1016,18 +992,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     client.storageIndex(unboundMusicDir.absolutePath)
                 }
 
-                val scanPaths = listOf(
-                    unboundMusicDir.absolutePath,
-                    "/storage/emulated/0/Download/",
-                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio/",
-                    "/storage/emulated/0/Telegram/Telegram Audio/",
-                    "/storage/emulated/0/Music/"
-                )
-                client.scanStorage(scanPaths)
+                val publicMusic = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)?.absolutePath ?: "/storage/emulated/0/Music"
+                val publicDownloads = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: "/storage/emulated/0/Download"
 
+                val scanCandidates = listOf(
+                    unboundMusicDir.absolutePath,
+                    publicMusic,
+                    "/storage/emulated/0/Music",
+                    publicDownloads,
+                    "/storage/emulated/0/Download",
+                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio",
+                    "/storage/emulated/0/WhatsApp/Media/WhatsApp Audio",
+                    "/storage/emulated/0/Telegram/Telegram Audio",
+                    "/storage/emulated/0/Android/data/org.telegram.messenger/files/Telegram/Telegram Audio"
+                ).distinct()
+
+                val scanPaths = scanCandidates.filter { File(it).exists() }
+                if (scanPaths.isNotEmpty()) {
+                    client.scanStorage(scanPaths)
+                }
+
+                val allTracks = client.getLocalTracks("all")
+                val music = client.getLocalTracks("music")
+                val downloads = client.getLocalTracks("downloads")
                 val whatsapp = client.getLocalTracks("whatsapp")
                 val telegram = client.getLocalTracks("telegram")
-                val downloads = client.getLocalTracks("downloads")
                 val unboundDownloads = client.getLocalTracks("Unbound Downloads")
 
                 _whatsappCount.value = whatsapp.size
@@ -1035,24 +1024,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _downloadsCount.value = downloads.size + unboundDownloads.size
 
                 val folders = mutableMapOf<String, List<LocalTrack>>()
-                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
-                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
+                if (music.isNotEmpty()) folders["Music"] = music
                 val combinedDownloads = downloads + unboundDownloads
                 if (combinedDownloads.isNotEmpty()) folders["Downloads"] = combinedDownloads
+                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
+                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
 
                 _libraryFolders.value = folders
 
-                val allLocal = (whatsapp + telegram + combinedDownloads).map { it.toTrackItem() }
-                if (allLocal.isNotEmpty()) {
-                    _libraryTracks.value = allLocal
+                if (allTracks.isNotEmpty()) {
+                    _libraryTracks.value = allTracks.map { it.toTrackItem() }
+                } else {
+                    val combined = (music + combinedDownloads + whatsapp + telegram).map { it.toTrackItem() }
+                    if (combined.isNotEmpty()) {
+                        _libraryTracks.value = combined
+                    }
                 }
 
                 val dlIds = unboundDownloads.map { it.id }.toSet()
                 _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
             } catch (e: Exception) {
-                Log.d(TAG, "Library refresh note: ${e.message}")
+                Log.d(TAG, "Local storage scan note: ${e.message}")
             }
         }
+    }
+
+    fun refreshLibrary() {
+        rescanLocalStorage()
     }
 
     // ==================== Phase 5: Offline Downloader Orchestration ====================

@@ -15,13 +15,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.service.ServiceConnection
 import com.cubicreates.unboundmusic.ui.MainApp
@@ -35,6 +35,20 @@ import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 class MainActivity : ComponentActivity() {
 
     private lateinit var serviceConnection: ServiceConnection
+    private val mainViewModel: MainViewModel by viewModels()
+
+    private val permissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions[Manifest.permission.READ_MEDIA_AUDIO] == true
+        } else {
+            permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true
+        }
+        if (audioGranted) {
+            mainViewModel.rescanLocalStorage()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,36 +58,16 @@ class MainActivity : ComponentActivity() {
         serviceConnection = ServiceConnection.getInstance(this)
         serviceConnection.connect()
 
-        // Request notification permission for Android 13+ (Tiramisu)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    1001
-                )
-            }
-        }
+        // Check & request runtime audio and notification permissions
+        checkAndRequestPermissions()
 
         setContent {
-            val mainViewModel: MainViewModel = viewModel()
             val selectedTheme by mainViewModel.selectedTheme.collectAsStateWithLifecycle()
             val isAppReady by mainViewModel.isAppReady.collectAsStateWithLifecycle()
             val startupPhase by mainViewModel.startupPhase.collectAsStateWithLifecycle()
             val startupProgress by mainViewModel.startupProgress.collectAsStateWithLifecycle()
-            val folderPrompt by mainViewModel.unboundFolderPrompt.collectAsStateWithLifecycle()
 
             UnboundMusicTheme(themePreset = selectedTheme) {
-                folderPrompt?.let { prompt ->
-                    com.cubicreates.unboundmusic.ui.components.UnboundFolderCleanupDialog(
-                        folderPaths = prompt.folderPaths,
-                        onConfirmDelete = { mainViewModel.confirmDeleteExistingUnboundFolder() },
-                        onKeepExisting = { mainViewModel.keepExistingUnboundFolder() }
-                    )
-                }
-
                 Crossfade(
                     targetState = isAppReady,
                     animationSpec = tween(durationMillis = 350),
@@ -95,11 +89,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkAndRequestPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionsToRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+            }
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            mainViewModel.rescanLocalStorage()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
-        val prefs = getSharedPreferences("unbound_boot_prefs", MODE_PRIVATE)
-        if (prefs.getBoolean("has_checked_existing_folder", false)) {
-            DaemonManager.getInstance(this).startDaemonAuto(force = false)
-        }
+        DaemonManager.getInstance(this).startDaemonAuto(force = false)
     }
 }

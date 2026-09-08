@@ -503,6 +503,11 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 		_ = resp.Body.Close()
 
 		if readErr != nil && readErr != io.EOF {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("chunk read error: %v", readErr))
 			return
 		}
@@ -546,6 +551,11 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 func (m *Manager) updateTaskStatus(task *DownloadTask, status, errMsg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// If task was already paused or cancelled, do not overwrite with FAILED
+	if status == StatusFailed && (task.Status == StatusPaused || task.Status == StatusCancelled) {
+		return
+	}
 
 	task.Status = status
 	task.Error = errMsg

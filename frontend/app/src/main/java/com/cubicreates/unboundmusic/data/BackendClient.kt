@@ -1143,34 +1143,63 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     // ==================== HTTP Transport (High-Performance Pooled OkHttp) ====================
 
-    private fun get(path: String): Pair<Int, String> {
-        val request = Request.Builder()
-            .url("$baseUrl$path")
-            .get()
-            .build()
-        return try {
-            httpClient.newCall(request).execute().use { response ->
-                val body = response.body?.string() ?: ""
-                Pair(response.code, body)
-            }
-        } catch (e: Exception) {
-            Pair(-1, e.message ?: "Network error")
-        }
+    private val fallbackClient: OkHttpClient by lazy {
+        sharedOkHttpClient
     }
 
-    private fun post(path: String, jsonBody: String): Pair<Int, String> {
-        val body = jsonBody.toRequestBody(JSON_MEDIA_TYPE)
-        val request = Request.Builder()
-            .url("$baseUrl$path")
-            .post(body)
-            .build()
-        return try {
-            httpClient.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string() ?: ""
-                Pair(response.code, responseBody)
+    private fun executeWithRetry(path: String, isPost: Boolean, jsonBody: String? = null): Pair<Int, String> {
+        val maxAttempts = 3
+        var attempt = 0
+        var lastError = "Network error"
+
+        while (attempt < maxAttempts) {
+            attempt++
+            try {
+                val reqBuilder = Request.Builder().url("$baseUrl$path")
+                if (isPost && jsonBody != null) {
+                    reqBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+                } else {
+                    reqBuilder.get()
+                }
+                httpClient.newCall(reqBuilder.build()).execute().use { response ->
+                    val body = response.body?.string() ?: ""
+                    return Pair(response.code, body)
+                }
+            } catch (e: Exception) {
+                lastError = e.message ?: "Network error"
+                // If UDS fails or is unavailable on this device, attempt fallback to TCP loopback
+                if (isUnixSocket) {
+                    try {
+                        val fallbackUrl = "http://127.0.0.1:45731$path"
+                        val reqBuilder = Request.Builder().url(fallbackUrl)
+                        if (isPost && jsonBody != null) {
+                            reqBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+                        } else {
+                            reqBuilder.get()
+                        }
+                        fallbackClient.newCall(reqBuilder.build()).execute().use { response ->
+                            val body = response.body?.string() ?: ""
+                            return Pair(response.code, body)
+                        }
+                    } catch (fbErr: Exception) {
+                        lastError = fbErr.message ?: lastError
+                    }
+                }
+
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(50L * attempt)
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
+                }
             }
-        } catch (e: Exception) {
-            Pair(-1, e.message ?: "Network error")
         }
+        return Pair(-1, lastError)
     }
+
+    private fun get(path: String): Pair<Int, String> = executeWithRetry(path, isPost = false)
+
+    private fun post(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, isPost = true, jsonBody = jsonBody)
 }

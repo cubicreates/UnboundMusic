@@ -149,3 +149,57 @@ function wR(a) {
 		t.Errorf("expected sig=54321 in deciphered url, got %s", decURL)
 	}
 }
+
+// TestDynamicPlayerCipherES6 verifies that modern ES6 const/let, shorthand functions, and arrow functions are properly extracted and executed.
+func TestDynamicPlayerCipherES6(t *testing.T) {
+	jsSnippet := `
+const $v = {
+	rv(a) {
+		a.reverse()
+	},
+	sw: (a, b) => {
+		let c = a[0];
+		a[0] = a[b % a.length];
+		a[b % a.length] = c;
+	},
+	sl: (a, b) => {
+		a.slice(b);
+	}
+};
+function descramble(a) {
+	a = a.split("");
+	$v['rv'](a, 0);
+	$v.sw(a, 2);
+	$v['sl'](a, 1);
+	return a.join("")
+}
+`
+	ops, err := ParsePlayerCipherJS(jsSnippet)
+	if err != nil {
+		t.Fatalf("failed parsing ES6 cipher JS: %v", err)
+	}
+
+	if len(ops) != 3 {
+		t.Fatalf("expected 3 ops, got %d", len(ops))
+	}
+
+	if ops[0].Type != OpReverse {
+		t.Errorf("expected op[0] to be OpReverse, got %v", ops[0].Type)
+	}
+	if ops[1].Type != OpSwap || ops[1].Param != 2 {
+		t.Errorf("expected op[1] to be OpSwap(2), got %v(%d)", ops[1].Type, ops[1].Param)
+	}
+	if ops[2].Type != OpSplice || ops[2].Param != 1 {
+		t.Errorf("expected op[2] to be OpSplice(1), got %v(%d)", ops[2].Type, ops[2].Param)
+	}
+
+	// Test ExecuteDynamicCipherScript directly
+	solved, err := ExecuteDynamicCipherScript(jsSnippet, "ABCDE")
+	if err != nil {
+		t.Fatalf("ExecuteDynamicCipherScript failed: %v", err)
+	}
+	// "ABCDE" -> reverse -> "EDCBA" -> swap(2 % 5 = 2): swap E and C -> "CDEBA" -> splice(1): "DEBA"
+	if solved != "DEBA" {
+		t.Errorf("expected solved signature 'DEBA', got %q", solved)
+	}
+}

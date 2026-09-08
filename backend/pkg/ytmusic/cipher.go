@@ -44,7 +44,7 @@ var (
 	// Regex to extract operations body from main decipher function:
 	// a = a.split(""); XX.yy(a, 12); ... return a.join("")
 	regexDecipherFunc = regexp.MustCompile(`(?s)\.split\(""\);\s*(?P<body>.*?)\s*;\s*return\s+[a-zA-Z0-9_$]+\.join\(""\)`)
-	regexOpCall       = regexp.MustCompile(`([a-zA-Z0-9_$]+)(?:\.([a-zA-Z0-9_$]+)|\["([^"]+)"\])\s*\(\s*[a-zA-Z0-9_$]+\s*(?:,\s*(\d+))?\s*\)`)
+	regexOpCall       = regexp.MustCompile(`([a-zA-Z0-9_$]+)(?:\.([a-zA-Z0-9_$]+)|\["([^"]+)"\]|\['([^']+)'\])\s*\(\s*[a-zA-Z0-9_$]+\s*(?:,\s*(\d+))?\s*\)`)
 )
 
 // SolveSignature executes YouTube cipher operations in chronological order on an obfuscated signature token.
@@ -79,6 +79,15 @@ func ApplyCipherOps(sig string, ops []CipherOp) string {
 	return string(runes)
 }
 
+// ExecuteDynamicCipherScript parses player JavaScript and solves an obfuscated signature.
+func ExecuteDynamicCipherScript(jsContent string, sig string) (string, error) {
+	ops, err := ParsePlayerCipherJS(jsContent)
+	if err != nil {
+		return "", fmt.Errorf("failed parsing dynamic cipher script: %w", err)
+	}
+	return ApplyCipherOps(sig, ops), nil
+}
+
 // ParsePlayerCipherJS extracts cipher operations from YouTube player JavaScript.
 func ParsePlayerCipherJS(jsContent string) ([]CipherOp, error) {
 	if strings.TrimSpace(jsContent) == "" {
@@ -99,8 +108,8 @@ func ParsePlayerCipherJS(jsContent string) ([]CipherOp, error) {
 	// Identify the object name from first call
 	objName := callMatches[0][1]
 
-	// Find definition of the transform object: var objName = { ... };
-	regexObjDef := regexp.MustCompile(fmt.Sprintf(`(?s)var\s+%s\s*=\s*\{\s*(.*?)\s*\};`, regexp.QuoteMeta(objName)))
+	// Find definition of the transform object: (var|let|const) objName = { ... };
+	regexObjDef := regexp.MustCompile(fmt.Sprintf(`(?s)(?:var|let|const)\s+%s\s*=\s*\{\s*(.*?)\s*\};`, regexp.QuoteMeta(objName)))
 	objDefMatch := regexObjDef.FindStringSubmatch(jsContent)
 	if len(objDefMatch) < 2 {
 		return nil, fmt.Errorf("could not find definition of cipher object %s", objName)
@@ -110,20 +119,34 @@ func ParsePlayerCipherJS(jsContent string) ([]CipherOp, error) {
 
 	// Map method names to op types
 	methodTypes := make(map[string]CipherOpType)
-	// Example entries: funcName: function(a, b) { ... }
-	regexMethod := regexp.MustCompile(`(?s)([a-zA-Z0-9_$]+)\s*:\s*function\s*\([^)]*\)\s*\{(.*?)\}`)
-	methodMatches := regexMethod.FindAllStringSubmatch(objBody, -1)
+	
+	// Pattern 1: funcName: function(a, b) { ... }
+	regexMethod1 := regexp.MustCompile(`(?s)([a-zA-Z0-9_$]+)\s*:\s*function\s*\([^)]*\)\s*\{(.*?)\}`)
+	for _, m := range regexMethod1.FindAllStringSubmatch(objBody, -1) {
+		classifyMethod(m[1], m[2], methodTypes)
+	}
 
-	for _, m := range methodMatches {
-		name := m[1]
-		fnBody := m[2]
+	// Pattern 2: funcName(a, b) { ... } (ES6 shorthand)
+	regexMethod2 := regexp.MustCompile(`(?s)([a-zA-Z0-9_$]+)\s*\([^)]*\)\s*\{(.*?)\}`)
+	for _, m := range regexMethod2.FindAllStringSubmatch(objBody, -1) {
+		if _, exists := methodTypes[m[1]]; !exists {
+			classifyMethod(m[1], m[2], methodTypes)
+		}
+	}
 
-		if strings.Contains(fnBody, "reverse") {
-			methodTypes[name] = OpReverse
-		} else if strings.Contains(fnBody, "splice") {
-			methodTypes[name] = OpSplice
-		} else if strings.Contains(fnBody, "%") || strings.Contains(fnBody, "[0]") {
-			methodTypes[name] = OpSwap
+	// Pattern 3: funcName: (a, b) => { ... } or funcName: a => { ... } (ES6 arrow functions)
+	regexMethod3 := regexp.MustCompile(`(?s)([a-zA-Z0-9_$]+)\s*:\s*(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>\s*\{(.*?)\}`)
+	for _, m := range regexMethod3.FindAllStringSubmatch(objBody, -1) {
+		if _, exists := methodTypes[m[1]]; !exists {
+			classifyMethod(m[1], m[2], methodTypes)
+		}
+	}
+
+	// Pattern 4: funcName: a => a.reverse() (concise arrow)
+	regexMethod4 := regexp.MustCompile(`(?s)([a-zA-Z0-9_$]+)\s*:\s*(?:\([^)]*\)|[a-zA-Z0-9_$]+)\s*=>\s*([^,;\}]+)`)
+	for _, m := range regexMethod4.FindAllStringSubmatch(objBody, -1) {
+		if _, exists := methodTypes[m[1]]; !exists {
+			classifyMethod(m[1], m[2], methodTypes)
 		}
 	}
 
@@ -133,7 +156,10 @@ func ParsePlayerCipherJS(jsContent string) ([]CipherOp, error) {
 		if methodName == "" {
 			methodName = call[3]
 		}
-		paramStr := call[4]
+		if methodName == "" {
+			methodName = call[4]
+		}
+		paramStr := call[5]
 		param := 0
 		if paramStr != "" {
 			param, _ = strconv.Atoi(paramStr)
@@ -156,6 +182,16 @@ func ParsePlayerCipherJS(jsContent string) ([]CipherOp, error) {
 	}
 
 	return ops, nil
+}
+
+func classifyMethod(name, body string, methodTypes map[string]CipherOpType) {
+	if strings.Contains(body, "reverse") {
+		methodTypes[name] = OpReverse
+	} else if strings.Contains(body, "splice") || strings.Contains(body, "slice") || strings.Contains(body, "substr") {
+		methodTypes[name] = OpSplice
+	} else if strings.Contains(body, "%") || strings.Contains(body, "[0]") || strings.Contains(body, "length") {
+		methodTypes[name] = OpSwap
+	}
 }
 
 // DecipherURL resolves encrypted signature ciphers and n-parameter throttling on YouTube streaming URLs.

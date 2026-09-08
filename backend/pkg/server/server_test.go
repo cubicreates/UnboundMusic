@@ -20,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 )
 
 // TestServerStatusEndpoint validates that /api/v1/status returns valid JSON and health state.
@@ -407,6 +409,60 @@ func TestAccountStatusAndDisconnectEndpoints(t *testing.T) {
 
 	if wDisc.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from account/disconnect, got %d", wDisc.Code)
+	}
+}
+
+func TestUnpackPayloadEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45739,
+		DatabasePath:   filepath.Join(tempDir, "test_server.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Create a mock model file and compress it
+	mockModelFile := filepath.Join(tempDir, "smollm2_135m.gguf")
+	if err := os.WriteFile(mockModelFile, []byte("MOCK_GGUF_WEIGHTS_CONTENT"), 0644); err != nil {
+		t.Fatalf("failed to write mock model: %v", err)
+	}
+
+	archivePath := filepath.Join(tempDir, "models.zst")
+	compressedBytes, err := gatekeeper.CompressFilesToZstdTar(map[string]string{
+		"smollm2_135m.gguf": mockModelFile,
+	})
+	if err != nil {
+		t.Fatalf("failed to compress test archive: %v", err)
+	}
+	if err := os.WriteFile(archivePath, compressedBytes, 0644); err != nil {
+		t.Fatalf("failed to write test archive: %v", err)
+	}
+
+	destDir := filepath.Join(tempDir, "extracted_models")
+	reqBody := fmt.Sprintf(`{"archive_path": %q, "dest_dir": %q}`, archivePath, destDir)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/unpack-payload", strings.NewReader(reqBody))
+	w := httptest.NewRecorder()
+
+	srv.handleUnpackPayload(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from system/unpack-payload, got %d: %s", w.Code, w.Body.String())
+	}
+
+	extractedModel := filepath.Join(destDir, "smollm2_135m.gguf")
+	if _, err := os.Stat(extractedModel); os.IsNotExist(err) {
+		t.Errorf("expected extracted model at %s, but does not exist", extractedModel)
+	}
+
+	// Verify temporary archive was cleaned up
+	if _, err := os.Stat(archivePath); !os.IsNotExist(err) {
+		t.Errorf("expected archive %s to be deleted after extraction", archivePath)
 	}
 }
 

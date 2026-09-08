@@ -110,6 +110,7 @@ type Server struct {
 	indexer      *storage.Indexer
 	downloader   *downloader.Manager
 	events       *events.EventBus
+	radioGen     *ytmusic.RadioGenerator
 	udsServer    *http.Server
 	udsListener  net.Listener
 }
@@ -171,6 +172,10 @@ func NewServer(cfg Config) (*Server, error) {
 	eventBus := events.NewEventBus(128)
 	dlManager.SetEventBus(eventBus)
 
+	markov := analytics.NewMarkovTracker(repo)
+	reranker := recommender.NewReRanker()
+	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
+
 	s := &Server{
 		cfg:          cfg,
 		db:           db,
@@ -201,6 +206,7 @@ func NewServer(cfg Config) (*Server, error) {
 		indexer:      indexer,
 		downloader:   dlManager,
 		events:       eventBus,
+		radioGen:     radioGen,
 	}
 
 	mux := http.NewServeMux()
@@ -255,6 +261,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
 	mux.HandleFunc("/api/v1/proxy/stream", s.handleProxyStream)
+	mux.HandleFunc("/api/v1/radio/magic", s.handleRadioMagic)
+	mux.HandleFunc("/api/v1/system/unpack-payload", s.handleUnpackPayload)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -502,6 +510,41 @@ func (s *Server) handleRecommend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, mix)
+}
+
+// handleRadioMagic generates on-demand serendipity magic radio queue.
+func (s *Server) handleRadioMagic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	type MagicRadioRequest struct {
+		LocalHour   int    `json:"local_hour"`
+		SeedTrackID string `json:"seed_track_id"`
+	}
+
+	var req MagicRadioRequest
+	if r.Body != nil && r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	if req.LocalHour <= 0 {
+		req.LocalHour = time.Now().Hour()
+	}
+
+	if s.radioGen == nil {
+		writeError(w, http.StatusInternalServerError, "radio generator not initialized")
+		return
+	}
+
+	resp, err := s.radioGen.GenerateMagicRadio(r.Context(), req.LocalHour, req.SeedTrackID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handlePeers returns active P2P nodes on local Wi-Fi.
@@ -1438,6 +1481,45 @@ func (s *Server) handleFingerprintIdentify(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, track)
+}
+
+func (s *Server) handleUnpackPayload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		ArchivePath string `json:"archive_path"`
+		DestDir     string `json:"dest_dir"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if req.ArchivePath == "" || req.DestDir == "" {
+		writeError(w, http.StatusBadRequest, "archive_path and dest_dir are required")
+		return
+	}
+
+	data, err := os.ReadFile(req.ArchivePath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("failed to read archive: %v", err))
+		return
+	}
+
+	manifest, err := gatekeeper.DecompressZstdTarStream(data, req.DestDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("decompression failed: %v", err))
+		return
+	}
+
+	// Clean up archive file to reclaim storage space
+	_ = os.Remove(req.ArchivePath)
+
+	writeJSON(w, http.StatusOK, manifest)
 }
 
 // corsMiddleware adds permissive headers for local IPC and web frontend callers.

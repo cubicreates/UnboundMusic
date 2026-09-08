@@ -304,3 +304,67 @@ func TestDualUDSTCPServerStartup(t *testing.T) {
 	}
 }
 
+// TestStorageScanAndTracksEndpoints verifies that /api/v1/storage/scan indexes local files and /api/v1/storage/tracks returns them.
+func TestStorageScanAndTracksEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	musicDir := filepath.Join(tempDir, "Music")
+	_ = os.MkdirAll(musicDir, 0755)
+
+	// Create valid dummy MP3 with ID3v2 header
+	dummySongPath := filepath.Join(musicDir, "test_track.mp3")
+	mp3Header := append([]byte{0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, make([]byte, 2000)...)
+	if err := os.WriteFile(dummySongPath, mp3Header, 0644); err != nil {
+		t.Fatalf("failed writing dummy mp3: %v", err)
+	}
+
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_scan.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. POST /api/v1/storage/scan
+	scanBody := fmt.Sprintf(`{"paths": [%q]}`, musicDir)
+	reqScan := httptest.NewRequest(http.MethodPost, "/api/v1/storage/scan", strings.NewReader(scanBody))
+	wScan := httptest.NewRecorder()
+	srv.handleStorageScan(wScan, reqScan)
+
+	if wScan.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from storage/scan, got %d: %s", wScan.Code, wScan.Body.String())
+	}
+
+	var scanResult map[string]interface{}
+	if err := json.NewDecoder(wScan.Body).Decode(&scanResult); err != nil {
+		t.Fatalf("failed to decode scan JSON: %v", err)
+	}
+	if found, ok := scanResult["audio_files_found"].(float64); !ok || found < 1 {
+		t.Errorf("expected audio_files_found >= 1, got %v", scanResult["audio_files_found"])
+	}
+
+	// 2. GET /api/v1/storage/tracks?source=all
+	reqTracks := httptest.NewRequest(http.MethodGet, "/api/v1/storage/tracks?source=all", nil)
+	wTracks := httptest.NewRecorder()
+	srv.handleStorageTracks(wTracks, reqTracks)
+
+	if wTracks.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from storage/tracks, got %d: %s", wTracks.Code, wTracks.Body.String())
+	}
+
+	var tracksResult map[string]interface{}
+	if err := json.NewDecoder(wTracks.Body).Decode(&tracksResult); err != nil {
+		t.Fatalf("failed to decode tracks JSON: %v", err)
+	}
+	tracksList, ok := tracksResult["tracks"].([]interface{})
+	if !ok || len(tracksList) < 1 {
+		t.Fatalf("expected at least 1 track in response, got %v", tracksResult["tracks"])
+	}
+}
+
+

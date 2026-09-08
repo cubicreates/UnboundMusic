@@ -247,6 +247,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/consolidate", s.handleStorageConsolidate)
 	mux.HandleFunc("/api/v1/storage/classify", s.handleStorageClassify)
 	mux.HandleFunc("/api/v1/storage/search", s.handleStorageSearch)
+	mux.HandleFunc("/api/v1/storage/scan", s.handleStorageScan)
+	mux.HandleFunc("/api/v1/storage/tracks", s.handleStorageTracks)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
@@ -1235,6 +1237,88 @@ func (s *Server) handleStorageSearch(w http.ResponseWriter, r *http.Request) {
 		tracks = []*models.LocalTrack{}
 	}
 	writeJSON(w, http.StatusOK, tracks)
+}
+
+// handleStorageScan initiates a POSIX storage crawl over the provided paths and returns indexed metrics.
+func (s *Server) handleStorageScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	type ScanReq struct {
+		Paths []string `json:"paths"`
+	}
+	var req ScanReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json payload: %v", err))
+		return
+	}
+
+	totalReport := &storage.ScanReport{}
+	start := time.Now()
+
+	for _, p := range req.Paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+
+		lower := strings.ToLower(p)
+		sourceFolder := "music"
+		if strings.Contains(lower, "whatsapp") {
+			sourceFolder = "whatsapp"
+		} else if strings.Contains(lower, "telegram") {
+			sourceFolder = "telegram"
+		} else if strings.Contains(lower, "download") {
+			sourceFolder = "downloads"
+		}
+
+		rep, err := storage.ScanDirectory(r.Context(), s.repo, p, sourceFolder)
+		if err != nil {
+			continue
+		}
+		totalReport.ScannedFiles += rep.ScannedFiles
+		totalReport.AudioFilesFound += rep.AudioFilesFound
+		totalReport.NewTracksIndexed += rep.NewTracksIndexed
+		totalReport.UnchangedTracks += rep.UnchangedTracks
+	}
+
+	totalReport.ElapsedMs = time.Since(start).Milliseconds()
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":             "ok",
+		"scanned_files":      totalReport.ScannedFiles,
+		"audio_files_found":  totalReport.AudioFilesFound,
+		"new_tracks_indexed": totalReport.NewTracksIndexed,
+		"unchanged_tracks":   totalReport.UnchangedTracks,
+		"elapsed_ms":         totalReport.ElapsedMs,
+	})
+}
+
+// handleStorageTracks returns indexed local tracks filtered by source folder or all if unspecified.
+func (s *Server) handleStorageTracks(w http.ResponseWriter, r *http.Request) {
+	source := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("source")))
+	var tracks []models.LocalTrack
+	var err error
+
+	if source == "" || source == "all" {
+		tracks, err = s.repo.GetAllLocalTracks(r.Context())
+	} else {
+		tracks, err = s.repo.GetLocalTracksBySource(r.Context(), source)
+	}
+
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to retrieve tracks: %v", err))
+		return
+	}
+	if tracks == nil {
+		tracks = []models.LocalTrack{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tracks": tracks,
+	})
 }
 
 // handleDownloadStart downloads a track directly to Unbound/Downloads/.

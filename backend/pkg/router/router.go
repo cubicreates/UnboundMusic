@@ -110,6 +110,27 @@ func (r *Router) ResolvePlayback(ctx context.Context, trackID, title, artist str
 	}
 
 	streamInfo, err := r.ytClient.GetStreamInfo(ctx, videoID)
+	if err != nil && title != "" {
+		// Resilience Fallback: If direct video ID resolution failed (e.g. video unavailable, region blocked),
+		// perform a live search for title + artist to find an active alternative stream.
+		searchQuery := title
+		if artist != "" {
+			searchQuery = fmt.Sprintf("%s %s", title, artist)
+		}
+		altTracks, sErr := r.ytClient.Search(ctx, searchQuery)
+		if sErr == nil && len(altTracks) > 0 {
+			for _, alt := range altTracks {
+				if alt.ID != "" && alt.ID != videoID {
+					if altInfo, aErr := r.ytClient.GetStreamInfo(ctx, alt.ID); aErr == nil && altInfo != nil && altInfo.StreamURL != "" {
+						videoID = alt.ID
+						streamInfo = altInfo
+						err = nil
+						break
+					}
+				}
+			}
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve audio stream for video %s: %w", videoID, err)
 	}

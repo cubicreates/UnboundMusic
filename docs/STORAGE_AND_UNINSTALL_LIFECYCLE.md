@@ -1,31 +1,44 @@
-# Unbound Music: Storage Layout, AI Payload & Uninstall Lifecycle
+# Unbound Music: Storage Architecture, Hidden Engine Machinery & Uninstall Lifecycle
 
-This document provides a complete technical guide to Unbound Music's filesystem architecture, on-device AI model explosion, Android Scoped Storage compliance, and the uninstallation lifecycle.
+This document provides a comprehensive technical guide to Unbound Music's filesystem architecture, on-device AI model explosion, Android Scoped Storage compliance, and the automatic uninstallation lifecycle.
 
 ---
 
-## 1. Storage Root Architecture
+## 1. Storage Architecture
 
-Unbound Music uses a **Public Canonical Storage Root** located directly in your device's internal storage:
+Unbound Music uses **App-Specific External Storage** located at:
 
 ```
-/storage/emulated/0/Unbound/
+/storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/Unbound/
 ```
 
-### Why Public Storage?
-Unlike closed streaming services that trap audio in proprietary encrypted sandboxes or hide files in `/Android/data/` (which Android 11+ completely blocks standard file managers from accessing), Unbound Music treats you as the owner of your device:
-- **File Manager Visibility:** The `Unbound` folder appears directly in your phone's file manager alongside `Download`, `Documents`, and `Music`.
-- **Media Accessibility:** Downloaded audio tracks are saved as standard audio files (`.opus` / `.mp3`) with embedded cover art and metadata tags that you can copy, backup, or play in any external media player.
-- **Android 11+ Permission:** To guarantee full visibility and read/write access to `/storage/emulated/0/Unbound/`, Unbound Music requests **All Files Access** (`MANAGE_EXTERNAL_STORAGE`). If denied, it safely falls back to app-specific external storage (`/storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/Unbound`).
+### Why App-Specific External Storage?
+
+1. **Complete Auto-Deletion on Uninstall**:
+   - By Android OS security architecture, files placed in public shared storage (`/storage/emulated/0/`) are never removed when an app is uninstalled.
+   - By placing the canonical root in `context.getExternalFilesDir(null)`, **Android OS automatically and completely deletes the entire directory tree upon app uninstallation**. No orphan databases, AI models, or logs remain behind.
+
+2. **Clean Phone Experience & Hidden Engine Machinery**:
+   - On Android 11–15, Android Scoped Storage restricts regular phone file managers and gallery scanners from indexing `/Android/data/`.
+   - This keeps the internal `.backend/` engine folder (containing SQLite databases, daemon sockets, logs, and AI weights) completely hidden from day-to-day phone use, preventing messy dot-files from appearing in phone file managers.
+
+3. **Full Laptop / PC Docking Accessibility**:
+   - When you dock your phone to a laptop or PC via USB cable (using MTP file transfer), the `/Android/data/com.cubicreates.unboundmusic/files/Unbound/` directory is **fully visible, browsable, and writable** in Windows File Explorer, macOS (Android File Transfer), and Linux.
+   - Users can drag and drop music into `Music/`, backup downloaded tracks from `Downloads/`, or inspect engine databases under `.backend/sqlite/`.
+
+4. **Zero Special Permissions Required**:
+   - App-specific external storage requires zero intrusive runtime permissions or `MANAGE_EXTERNAL_STORAGE` popups.
 
 ---
 
 ## 2. Directory Tree & Layout
 
 ```text
-/storage/emulated/0/Unbound/
-├── Downloads/                   <-- Physical offline downloads (Opus/MP3 with artwork)
+/storage/emulated/0/Android/data/com.cubicreates.unboundmusic/files/Unbound/
+├── Downloads/                   <-- Physical offline downloads (Opus/MP3 with tags & artwork)
 ├── Music/                       <-- User music directory for offline playback
+├── Playlists/                   <-- Local playlist definitions and exports
+├── Recaps/                      <-- Yearly/monthly musical recap summaries
 └── .backend/                    <-- Hidden daemon working directory (.nomedia protected)
     ├── .nomedia                 <-- Instructs Android MediaStore & Gallery to ignore backend files
     ├── daemon.sock              <-- High-speed Unix Domain Socket for Kotlin <-> Go daemon IPC
@@ -34,6 +47,7 @@ Unlike closed streaming services that trap audio in proprietary encrypted sandbo
     ├── models/
     │   ├── smollm2_135m.gguf    <-- SmolLM2-135M Instruct local LLM weights (~100 MB)
     │   └── model_quantized.onnx <-- MiniLM-L6-v2 semantic search embeddings (~22 MB)
+    ├── cache/                   <-- Engine streaming and artwork cache
     └── logs/                    <-- Native Go daemon runtime execution logs
 ```
 
@@ -41,36 +55,27 @@ Unlike closed streaming services that trap audio in proprietary encrypted sandbo
 
 ## 3. On-Device AI Payload Explosion
 
-Unbound Music bundles on-device AI models with **zero external cloud API dependencies** and zero token costs:
+Unbound Music bundles on-device AI models with **zero external cloud API dependencies**:
 
-1. **Compressed Asset:** The APK bundles `models.zst` (~118 MB), compressed with **Zstandard Level 19** via `klauspost/compress/zstd`.
-2. **First-Boot Extraction:**
-   - During first-boot hydration, `StorageInitializer` extracts `models.zst` into `/storage/emulated/0/Unbound/.backend/models/models.zst`.
-   - The Go engine's streaming Zstandard decompressor (`gatekeeper.DecompressZstdTarStream`) decompresses the archive into:
+1. **Compressed Asset**: The APK bundles `models.zst` (~118 MB), compressed with **Zstandard Level 19**.
+2. **First-Boot Extraction**:
+   - `StorageInitializer` extracts `models.zst` into `.backend/models/models.zst`.
+   - The Go engine's streaming Zstandard decompressor (`gatekeeper.DecompressZstdTarStream`) extracts:
      - `smollm2_135m.gguf` (135M-parameter SLM for natural language vibe queries and smart recommendations)
      - `model_quantized.onnx` (MiniLM semantic vector embeddings)
-3. **Automatic Cleanup:** Immediately after successful decompression, the temporary `models.zst` archive is purged, recovering ~118 MB of disk space.
+3. **Automatic Cleanup**: Immediately after successful decompression, the temporary `models.zst` archive is purged, recovering ~118 MB of disk space.
 
 ---
 
-## 4. Uninstallation & Storage Cleanup Lifecycle
+## 4. Legacy Public Storage Auto-Cleanup
 
-### How Android OS Handles Public Folders
-On Android, any file placed in public shared storage (such as `/storage/emulated/0/Unbound/` or `/storage/emulated/0/Download/`) is **preserved across app uninstallation** by Android OS security design. Android only deletes files automatically if they are stored in private sandbox folders (`/data/data/` or `/Android/data/`), which are hidden from file managers.
+If an older version of Unbound Music created `/storage/emulated/0/Unbound` in public shared storage, `StorageInitializer` automatically invokes `UnboundStorageManager.cleanupLegacyPublicStorage()` on app launch to recursively delete the legacy folder, ensuring zero clutter.
 
-### How to Cleanly Uninstall Unbound Music
+---
 
-You have two simple options:
+## 5. Uninstallation Lifecycle
 
-#### Option A: In-App Clean Storage Helper (Recommended)
-1. Open Unbound Music and tap the **Settings** gear icon (or your profile icon).
-2. Scroll to the **STORAGE & MAINTENANCE** section.
-3. Tap **"Clean Storage & Uninstall Helper"**.
-4. This stops the native engine and completely deletes `/storage/emulated/0/Unbound/` (all models, database, cache, and downloads).
-5. Uninstall the app normally from Android Settings / Launcher. Zero leftover files will remain.
-
-#### Option B: Manual File Manager Deletion
-1. Open your device's built-in **Files** or **File Manager** app.
-2. In **Internal Storage**, locate the **Unbound** folder.
-3. Long-press and tap **Delete**.
-4. Uninstall the app.
+When you uninstall Unbound Music via Android Launcher or Android Settings:
+- Android OS detects the package removal.
+- The operating system purges `/storage/emulated/0/Android/data/com.cubicreates.unboundmusic/`.
+- **Result**: The entire `Unbound/` directory, including all models, databases, downloads, and `.backend` machinery, is wiped from the device automatically.

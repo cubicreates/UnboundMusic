@@ -240,6 +240,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
+	mux.HandleFunc("/api/v1/proxy/stream", s.handleProxyStream)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),

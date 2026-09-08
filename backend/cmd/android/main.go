@@ -33,6 +33,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"sync"
 
 	"github.com/cubicreates/unbound-engine/pkg/server"
@@ -50,6 +52,9 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 	if activeServer != nil {
 		return 0 // Already running
 	}
+
+	// Enforce 128 MB heap ceiling and aggressive GC cycle for dual-GC harmony with ART VM
+	server.ConfigureMemoryCeiling()
 
 	// Convert Java jstring to Go string
 	var appStoragePath string
@@ -106,6 +111,11 @@ func stopEngineInternal() C.jint {
 	return 1
 }
 
+func trimEngineMemoryInternal() C.jint {
+	server.TrimEngineMemory()
+	return 1
+}
+
 //export Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative
 func Java_com_example_unboundtestfrontend_DaemonManager_startEngineNative(
 	env *C.JNIEnv,
@@ -124,6 +134,14 @@ func Java_com_example_unboundtestfrontend_DaemonManager_stopEngineNative(
 	return stopEngineInternal()
 }
 
+//export Java_com_example_unboundtestfrontend_DaemonManager_trimEngineMemoryNative
+func Java_com_example_unboundtestfrontend_DaemonManager_trimEngineMemoryNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+) C.jint {
+	return trimEngineMemoryInternal()
+}
+
 //export Java_com_cubicreates_unboundmusic_daemon_DaemonManager_startEngineNative
 func Java_com_cubicreates_unboundmusic_daemon_DaemonManager_startEngineNative(
 	env *C.JNIEnv,
@@ -140,6 +158,14 @@ func Java_com_cubicreates_unboundmusic_daemon_DaemonManager_stopEngineNative(
 	clazz C.jobject,
 ) C.jint {
 	return stopEngineInternal()
+}
+
+//export Java_com_cubicreates_unboundmusic_daemon_DaemonManager_trimEngineMemoryNative
+func Java_com_cubicreates_unboundmusic_daemon_DaemonManager_trimEngineMemoryNative(
+	env *C.JNIEnv,
+	clazz C.jobject,
+) C.jint {
+	return trimEngineMemoryInternal()
 }
 
 func main() {

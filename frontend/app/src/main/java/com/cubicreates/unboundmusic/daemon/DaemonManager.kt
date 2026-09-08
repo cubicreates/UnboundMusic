@@ -8,7 +8,9 @@
 
 package com.cubicreates.unboundmusic.daemon
 
+import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Environment
 import android.util.Log
@@ -63,6 +65,33 @@ class DaemonManager private constructor(private val context: Context) {
 
     private external fun startEngineNative(appStoragePath: String, port: Int): Int
     private external fun stopEngineNative(): Int
+    private external fun trimEngineMemoryNative(): Int
+
+    init {
+        context.registerComponentCallbacks(object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                    try {
+                        trimEngineMemoryNative()
+                        Log.d(TAG, "Native Go engine memory trimmed on level $level")
+                    } catch (e: UnsatisfiedLinkError) {
+                        Log.w(TAG, "trimEngineMemoryNative linkage unavailable: ${e.message}")
+                    }
+                }
+            }
+
+            override fun onConfigurationChanged(newConfig: Configuration) {}
+
+            override fun onLowMemory() {
+                try {
+                    trimEngineMemoryNative()
+                    Log.d(TAG, "Native Go engine memory trimmed on onLowMemory")
+                } catch (e: UnsatisfiedLinkError) {
+                    Log.w(TAG, "trimEngineMemoryNative linkage unavailable: ${e.message}")
+                }
+            }
+        })
+    }
 
     fun startDaemonAuto(force: Boolean = false) {
         if (!force && _state.value is DaemonLifecycleState.Running) {

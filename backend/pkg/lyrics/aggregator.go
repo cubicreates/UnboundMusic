@@ -39,34 +39,44 @@ type GeniusLyricsFetcher interface {
 type Aggregator struct {
 	cache        LyricsCache
 	lrclib       LRCLIBFetcher
+	netease      NetEaseFetcher
 	ytTranscript YouTubeTranscriptFetcher
 	genius       GeniusLyricsFetcher
 }
 
-// NewAggregator creates a new 3-tier lyrics harvester.
+// NewAggregator creates a new multi-tier lyrics harvester.
 func NewAggregator(
 	cache LyricsCache,
 	lrclib LRCLIBFetcher,
 	ytTranscript YouTubeTranscriptFetcher,
 	genius GeniusLyricsFetcher,
+	netease ...NetEaseFetcher,
 ) *Aggregator {
 	if lrclib == nil {
 		lrclib = NewLRCLIBClient()
+	}
+	var neteaseCli NetEaseFetcher
+	if len(netease) > 0 && netease[0] != nil {
+		neteaseCli = netease[0]
+	} else {
+		neteaseCli = NewNetEaseClient()
 	}
 
 	return &Aggregator{
 		cache:        cache,
 		lrclib:       lrclib,
+		netease:      neteaseCli,
 		ytTranscript: ytTranscript,
 		genius:       genius,
 	}
 }
 
-// GetLyrics retrieves synchronized lyrics via the 3-tier cascade:
+// GetLyrics retrieves synchronized lyrics via the cascade:
 // Tier 0: SQLite Local Cache (0ms latency)
 // Tier 1: LRCLIB synced lyrics API
-// Tier 2: YouTube InnerTube timed captions
-// Tier 3: Genius scraper fallback
+// Tier 2: NetEase Cloud Music synced LRC API
+// Tier 3: YouTube InnerTube timed captions
+// Tier 4: Genius scraper fallback
 func (a *Aggregator) GetLyrics(ctx context.Context, trackID, title, artist string, durationSec int) (*models.LyricsPayload, error) {
 	trackID = strings.TrimSpace(trackID)
 	title = strings.TrimSpace(title)
@@ -96,9 +106,23 @@ func (a *Aggregator) GetLyrics(ctx context.Context, trackID, title, artist strin
 		}
 	}
 
-	// Tier 2: YouTube InnerTube timed captions
+	// Tier 2: NetEase Cloud Music
+	if payload == nil && a.netease != nil && title != "" {
+		slog.Debug("querying Tier 2 NetEase Cloud Music for lyrics", "title", title, "artist", artist)
+		p, err := a.netease.Fetch(ctx, title, artist, durationSec)
+		if err == nil && p != nil && (len(p.Lines) > 0 || p.Instrumental || p.PlainLyrics != "") {
+			payload = p
+		} else {
+			if fetchErr == nil {
+				fetchErr = err
+			}
+			slog.Debug("Tier 2 NetEase miss or error", "error", err)
+		}
+	}
+
+	// Tier 3: YouTube InnerTube timed captions
 	if payload == nil && a.ytTranscript != nil && trackID != "" {
-		slog.Debug("querying Tier 2 YouTube captions", "video_id", trackID)
+		slog.Debug("querying Tier 3 YouTube captions", "video_id", trackID)
 		p, err := FetchYouTubeCaptions(ctx, a.ytTranscript, trackID, title, artist)
 		if err == nil && p != nil && len(p.Lines) > 0 {
 			payload = p
@@ -106,13 +130,13 @@ func (a *Aggregator) GetLyrics(ctx context.Context, trackID, title, artist strin
 			if fetchErr == nil {
 				fetchErr = err
 			}
-			slog.Debug("Tier 2 YouTube captions miss or error", "error", err)
+			slog.Debug("Tier 3 YouTube captions miss or error", "error", err)
 		}
 	}
 
-	// Tier 3: Genius scraper fallback
+	// Tier 4: Genius scraper fallback
 	if payload == nil && a.genius != nil && title != "" {
-		slog.Debug("querying Tier 3 Genius scraper fallback", "title", title, "artist", artist)
+		slog.Debug("querying Tier 4 Genius scraper fallback", "title", title, "artist", artist)
 		hit, err := a.genius.SearchSong(ctx, title, artist)
 		if err == nil && hit != nil {
 			p, err := a.genius.FetchLyrics(ctx, hit)

@@ -153,16 +153,58 @@ func TestAggregator_Tier1_LRCLIB_Success(t *testing.T) {
 	}
 }
 
-func TestAggregator_Tier2_YouTubeFallback(t *testing.T) {
+// mockNetEase simulates NetEase Cloud Music responses.
+type mockNetEase struct {
+	payload *models.LyricsPayload
+	err     error
+}
+
+func (m *mockNetEase) Fetch(ctx context.Context, title, artist string, durationSec int) (*models.LyricsPayload, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.payload, nil
+}
+
+func TestAggregator_Tier2_NetEase_Success(t *testing.T) {
 	cache := newMockCache()
 	lrclib := &mockLRCLIB{err: fmt.Errorf("not found on lrclib")}
+	netease := &mockNetEase{
+		payload: &models.LyricsPayload{
+			Title:  "DNA",
+			Artist: "Kendrick Lamar",
+			Lines: []models.LyricLine{
+				{StartMs: 5000, EndMs: 10000, Text: "I got royalty inside my DNA"},
+			},
+			Source: "NetEase Cloud Music Synced LRC",
+		},
+	}
+
+	agg := NewAggregator(cache, lrclib, nil, nil, netease)
+	result, err := agg.GetLyrics(context.Background(), "yt_dna", "DNA", "Kendrick Lamar", 186)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Source != "NetEase Cloud Music Synced LRC" {
+		t.Errorf("expected NetEase source, got %q", result.Source)
+	}
+	if len(result.Lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(result.Lines))
+	}
+}
+
+func TestAggregator_Tier3_YouTubeFallback(t *testing.T) {
+	cache := newMockCache()
+	lrclib := &mockLRCLIB{err: fmt.Errorf("not found on lrclib")}
+	netease := &mockNetEase{err: fmt.Errorf("netease not found")}
 	yt := &mockYT{
 		lines: []ytmusic.LyricLine{
 			{StartMs: 1000, EndMs: 4000, Text: "사랑해 I love you"},
 		},
 	}
 
-	agg := NewAggregator(cache, lrclib, yt, nil)
+	agg := NewAggregator(cache, lrclib, yt, nil, netease)
 	result, err := agg.GetLyrics(context.Background(), "kpop_vid", "Love Song", "K-Artist", 190)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -181,9 +223,10 @@ func TestAggregator_Tier2_YouTubeFallback(t *testing.T) {
 	}
 }
 
-func TestAggregator_Tier3_GeniusFallback(t *testing.T) {
+func TestAggregator_Tier4_GeniusFallback(t *testing.T) {
 	cache := newMockCache()
 	lrclib := &mockLRCLIB{err: fmt.Errorf("not found on lrclib")}
+	netease := &mockNetEase{err: fmt.Errorf("netease not found")}
 	yt := &mockYT{err: fmt.Errorf("no transcript on youtube")}
 	g := &mockGenius{
 		hit: &genius.SongHit{ID: 1, Title: "Rare Song", Artist: "Indie Singer"},
@@ -195,7 +238,7 @@ func TestAggregator_Tier3_GeniusFallback(t *testing.T) {
 		},
 	}
 
-	agg := NewAggregator(cache, lrclib, yt, g)
+	agg := NewAggregator(cache, lrclib, yt, g, netease)
 	result, err := agg.GetLyrics(context.Background(), "indie_vid", "Rare Song", "Indie Singer", 150)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

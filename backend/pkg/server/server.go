@@ -40,6 +40,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/importer"
 	"github.com/cubicreates/unbound-engine/pkg/lastfm"
+	"github.com/cubicreates/unbound-engine/pkg/models"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/podcasts"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
@@ -237,6 +238,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/index", s.handleStorageIndex)
 	mux.HandleFunc("/api/v1/storage/consolidate", s.handleStorageConsolidate)
 	mux.HandleFunc("/api/v1/storage/classify", s.handleStorageClassify)
+	mux.HandleFunc("/api/v1/storage/search", s.handleStorageSearch)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
@@ -1073,6 +1075,32 @@ func (s *Server) handleStorageClassify(w http.ResponseWriter, r *http.Request) {
 		"is_protected_chat": isChat,
 		"ingestion_rule":    action,
 	})
+}
+
+// handleStorageSearch queries indexed local audio tracks using SQLite FTS5 BM25 ranking.
+func (s *Server) handleStorageSearch(w http.ResponseWriter, r *http.Request) {
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'q' is required")
+		return
+	}
+
+	limit := 50
+	if lStr := r.URL.Query().Get("limit"); lStr != "" {
+		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	tracks, err := s.repo.SearchTracksFTS(r.Context(), q, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("FTS search failed: %v", err))
+		return
+	}
+	if tracks == nil {
+		tracks = []*models.LocalTrack{}
+	}
+	writeJSON(w, http.StatusOK, tracks)
 }
 
 // handleDownloadStart downloads a track directly to Unbound/Downloads/.

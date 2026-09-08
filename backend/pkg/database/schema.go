@@ -74,6 +74,29 @@ CREATE TABLE IF NOT EXISTS local_tracks (
 CREATE INDEX IF NOT EXISTS idx_local_tracks_source ON local_tracks(source_folder);
 CREATE INDEX IF NOT EXISTS idx_local_tracks_mtime ON local_tracks(mtime);
 
+CREATE VIRTUAL TABLE IF NOT EXISTS local_tracks_fts USING fts5(
+    track_id UNINDEXED,
+    title,
+    artist,
+    album,
+    tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_local_tracks_ai AFTER INSERT ON local_tracks BEGIN
+    INSERT INTO local_tracks_fts(track_id, title, artist, album)
+    VALUES (new.id, new.title, new.artist, new.album);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_local_tracks_ad AFTER DELETE ON local_tracks BEGIN
+    DELETE FROM local_tracks_fts WHERE track_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_local_tracks_au AFTER UPDATE ON local_tracks BEGIN
+    DELETE FROM local_tracks_fts WHERE track_id = old.id;
+    INSERT INTO local_tracks_fts(track_id, title, artist, album)
+    VALUES (new.id, new.title, new.artist, new.album);
+END;
+
 CREATE TABLE IF NOT EXISTS playback_events (
     event_id TEXT PRIMARY KEY,
     track_id TEXT NOT NULL,

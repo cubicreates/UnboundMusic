@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
@@ -615,5 +616,58 @@ func (r *Repository) ClearSyncedData(ctx context.Context) error {
 		return err1
 	}
 	return err2
+}
+
+// SearchTracksFTS performs high-performance full-text search with BM25 ranking across local tracks.
+func (r *Repository) SearchTracksFTS(ctx context.Context, query string, limit int) ([]*models.LocalTrack, error) {
+	cleanQuery := strings.TrimSpace(query)
+	if cleanQuery == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+
+	terms := strings.Fields(cleanQuery)
+	var matchParts []string
+	for _, t := range terms {
+		t = strings.ReplaceAll(t, `"`, "")
+		if t != "" {
+			matchParts = append(matchParts, t+"*")
+		}
+	}
+	matchExpr := strings.Join(matchParts, " ")
+	if matchExpr == "" {
+		matchExpr = cleanQuery
+	}
+
+	sqlQuery := `
+	SELECT lt.id, lt.file_path, lt.title, lt.artist, lt.album, lt.duration_ms, lt.format, lt.file_size, lt.source_folder, lt.date_indexed, lt.mtime
+	FROM local_tracks lt
+	JOIN local_tracks_fts fts ON lt.id = fts.track_id
+	WHERE local_tracks_fts MATCH ?
+	ORDER BY bm25(local_tracks_fts)
+	LIMIT ?;
+	`
+
+	rows, err := r.db.conn.QueryContext(ctx, sqlQuery, matchExpr, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tracks []*models.LocalTrack
+	for rows.Next() {
+		var t models.LocalTrack
+		if err := rows.Scan(
+			&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
+			&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
+			&t.DateIndexed, &t.MTime,
+		); err != nil {
+			continue
+		}
+		tracks = append(tracks, &t)
+	}
+	return tracks, rows.Err()
 }
 

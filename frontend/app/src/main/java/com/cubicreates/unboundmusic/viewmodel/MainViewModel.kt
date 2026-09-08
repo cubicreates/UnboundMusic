@@ -1661,6 +1661,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun purgeCache() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Purge .backend models, logs and cache
+                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                val backendDir = File(unboundRoot, ".backend")
+                if (backendDir.exists()) {
+                    val modelsDir = File(backendDir, "models")
+                    if (modelsDir.exists()) modelsDir.deleteRecursively()
+                }
+
                 val (code, resp) = client.purgeStorageCache()
                 if (code in 200..299 && resp.isNotBlank()) {
                     val result = client.parseCachePurgeResult(resp)
@@ -1671,10 +1679,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _cachePurgeStatus.value = "Storage cache purged successfully"
                     }
                 } else {
-                    _cachePurgeStatus.value = "Storage purge completed"
+                    _cachePurgeStatus.value = "Storage & AI models cache purged"
                 }
             } catch (e: Exception) {
                 _cachePurgeStatus.value = "Purge error: ${e.message}"
+            }
+        }
+    }
+
+    /**
+     * Completely removes the /storage/emulated/0/Unbound directory so the user
+     * can uninstall the app without leaving any files behind.
+     */
+    fun purgeUnboundStorageForUninstall() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                val deleted = unboundRoot.deleteRecursively()
+                _cachePurgeStatus.value = if (deleted) "Unbound folder deleted completely. Safe to uninstall." else "Failed removing some files."
+            } catch (e: Exception) {
+                _cachePurgeStatus.value = "Uninstall cleanup error: ${e.message}"
             }
         }
     }

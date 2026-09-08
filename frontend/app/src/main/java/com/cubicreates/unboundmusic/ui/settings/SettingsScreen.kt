@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Headphones
@@ -89,7 +90,8 @@ fun SettingsScreen(
     onYouTubeSyncClick: () -> Unit = {},
     onDisconnectYouTubeClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit = {},
-    onPurgeCacheClick: () -> Unit = {}
+    onPurgeCacheClick: () -> Unit = {},
+    onCleanStorageForUninstallClick: () -> Unit = {}
 ) {
     var discordRpcEnabled by remember { mutableStateOf(true) }
     var sponsorBlockEnabled by remember { mutableStateOf(true) }
@@ -376,9 +378,18 @@ fun SettingsScreen(
 
             SettingsActionTile(
                 icon = Icons.Default.DeleteSweep,
-                title = "Purge Stream & Lyrics Cache",
-                subtitle = cachePurgeStatus ?: "Safely free temp streaming audio and lyric cache",
+                title = "Purge AI Models & Cache",
+                subtitle = cachePurgeStatus ?: "Safely free AI models, temp stream and lyric cache",
                 onClick = onPurgeCacheClick
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsActionTile(
+                icon = Icons.Default.DeleteForever,
+                title = "Clean Storage & Uninstall Helper",
+                subtitle = "Completely wipe /storage/emulated/0/Unbound before uninstalling",
+                onClick = onCleanStorageForUninstallClick
             )
 
             Spacer(modifier = Modifier.height(10.dp))

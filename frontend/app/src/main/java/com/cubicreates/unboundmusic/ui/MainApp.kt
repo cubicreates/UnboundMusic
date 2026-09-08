@@ -328,7 +328,8 @@ fun MainApp(
                 onThemeSelected = { viewModel.setTheme(it) },
                 onYouTubeSyncClick = { showYouTubeLoginSheet = true },
                 onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
-                onPurgeCacheClick = { viewModel.purgeCache() }
+                onPurgeCacheClick = { viewModel.purgeCache() },
+                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() }
             )
         }
 

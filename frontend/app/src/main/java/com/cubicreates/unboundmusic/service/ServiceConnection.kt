@@ -146,9 +146,22 @@ class ServiceConnection private constructor(private val context: Context) {
             return
         }
 
+        val uri = try {
+            Uri.parse(targetUrl)
+        } catch (e: Exception) {
+            Log.e(TAG, "Invalid stream URI for track: ${track.title} ($targetUrl): ${e.message}")
+            return
+        }
+
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https" && scheme != "file" && scheme != "content") {
+            Log.e(TAG, "Unsupported or non-audio URI scheme '$scheme' for track: ${track.title} ($targetUrl)")
+            return
+        }
+
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id.ifBlank { track.title })
-            .setUri(Uri.parse(targetUrl))
+            .setUri(uri)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(track.title)
@@ -175,9 +188,18 @@ class ServiceConnection private constructor(private val context: Context) {
         val mediaItems = tracks.mapNotNull { track ->
             val url = track.streamUrl
             if (url.isBlank()) return@mapNotNull null
+            val uri = try {
+                Uri.parse(url)
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+            val scheme = uri.scheme?.lowercase()
+            if (scheme != "http" && scheme != "https" && scheme != "file" && scheme != "content") {
+                return@mapNotNull null
+            }
             MediaItem.Builder()
                 .setMediaId(track.id.ifBlank { track.title })
-                .setUri(Uri.parse(url))
+                .setUri(uri)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(track.title)

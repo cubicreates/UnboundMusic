@@ -100,7 +100,7 @@ class UnboundPlaybackService : MediaSessionService() {
                     .setAudioProcessors(
                         arrayOf(equalizerProcessor, sleepFadeProcessor, crossfadeProcessor)
                     )
-                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableFloatOutput(false) // Software DSP pipeline processes 16-bit PCM
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .build()
             }
@@ -121,6 +121,11 @@ class UnboundPlaybackService : MediaSessionService() {
             .build()
 
         exoPlayer?.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                lastRehydratedMediaId = null
+                rehydrateAttempts = 0
+            }
+
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
                     AudioEffectController.attachAudioSession(audioSessionId)
@@ -187,6 +192,9 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    private var lastRehydratedMediaId: String? = null
+    private var rehydrateAttempts: Int = 0
+
     private fun rehydrateExpiredStream() {
         val player = exoPlayer ?: return
         val currentItem = player.currentMediaItem ?: return
@@ -195,7 +203,14 @@ class UnboundPlaybackService : MediaSessionService() {
         val trackTitle = currentItem.mediaMetadata.title?.toString() ?: ""
         val trackArtist = currentItem.mediaMetadata.artist?.toString() ?: ""
 
-        Log.i(TAG, "Re-hydrating expired stream for '$trackTitle' ($mediaId) at $currentPos ms...")
+        if (lastRehydratedMediaId == mediaId && rehydrateAttempts >= 1) {
+            Log.w(TAG, "Already attempted rehydration for $mediaId. Halting to prevent infinite crash loop.")
+            return
+        }
+        lastRehydratedMediaId = mediaId
+        rehydrateAttempts++
+
+        Log.i(TAG, "Re-hydrating expired stream for '$trackTitle' ($mediaId) at $currentPos ms (attempt $rehydrateAttempts)...")
 
         serviceScope.launch(Dispatchers.IO) {
             try {

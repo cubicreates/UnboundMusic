@@ -296,6 +296,26 @@ func (s *Server) Start() error {
 			log.Printf("[IPC] Unix domain socket listening on %s", s.cfg.SocketPath)
 		}
 	}
+
+	// Auto-unpack AI payload if models.zst is present and primary model is missing
+	go func() {
+		modelsDir := filepath.Join(s.cfg.AppStorageRoot, ".backend", "models")
+		primaryModel := filepath.Join(modelsDir, "smollm2_135m.gguf")
+		archivePath := filepath.Join(modelsDir, "models.zst")
+
+		if _, err := os.Stat(primaryModel); os.IsNotExist(err) {
+			if data, err := os.ReadFile(archivePath); err == nil && len(data) > 0 {
+				log.Printf("[SERVER] Found AI payload archive (%d bytes). Auto-extracting models to %s...", len(data), modelsDir)
+				if manifest, err := gatekeeper.DecompressZstdTarStream(data, modelsDir); err == nil {
+					log.Printf("[SERVER] Auto-extracted AI payload successfully (%d files, %d ms)", manifest.TotalFiles, manifest.DecompressionMs)
+					_ = os.Remove(archivePath)
+				} else {
+					log.Printf("[SERVER] Failed auto-extracting AI payload: %v", err)
+				}
+			}
+		}
+	}()
+
 	return s.httpServer.ListenAndServe()
 }
 

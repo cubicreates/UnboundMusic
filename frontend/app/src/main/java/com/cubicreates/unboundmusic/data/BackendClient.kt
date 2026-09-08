@@ -678,6 +678,19 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         }
     }
 
+    /**
+     * Decompresses an archived payload (such as models.zst) into the destination directory using
+     * the Go engine's high-speed streaming Zstandard decoder.
+     */
+    suspend fun unpackPayload(archivePath: String, destDir: String): Boolean = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("archive_path", archivePath)
+            put("dest_dir", destDir)
+        }
+        val (code, _) = post("/api/v1/system/unpack-payload", payload.toString())
+        code == 200
+    }
+
     /** Ingests physical listening event (skip, completion, replay) into on-device taste engine. */
     suspend fun recordTasteEvent(
         trackId: String,

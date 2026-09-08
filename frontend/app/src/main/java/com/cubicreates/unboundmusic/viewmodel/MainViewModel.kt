@@ -385,6 +385,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             _startupPhase.value = "CACHE_HYDRATE"
             _startupProgress.value = 0.88f
+            StorageInitializer.unpackModelsIfPending(getApplication())
             initializeColdStart("US", "en")
             loadHomeFeed()
             refreshLibrary()
@@ -527,9 +528,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             playTrack(result.seedTrack)
                             onReady()
                         }
+                        return@withLock
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Magic radio error: ${e.message}")
+                }
+
+                // Resilient Fallback: If daemon magic radio didn't produce a queue, use libraryTracks or defaultTopTracks
+                val candidateList = _libraryTracks.value.ifEmpty { defaultTopTracks }
+                if (candidateList.isNotEmpty()) {
+                    val shuffled = candidateList.shuffled()
+                    val seed = shuffled.first()
+                    withContext(Dispatchers.Main) {
+                        serviceConnection.setQueue(shuffled)
+                        playTrack(seed)
+                        onReady()
+                    }
                 }
             }
         }
@@ -601,6 +615,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
         try {
             val (code, resp) = client.getStream(
+                videoId = track.id,
                 title = track.title,
                 artist = track.artist
             )
@@ -608,7 +623,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val json = JSONObject(resp)
                 val resolved = json.optString("stream_url", "")
                 val streamType = json.optString("stream_type", "REMOTE")
-                if (resolved.isNotBlank()) {
+                if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://"))) {
                     Log.i(TAG, "Stream resolved: type=$streamType for '${track.title}'")
                     return resolved
                 }
@@ -617,8 +632,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.w(TAG, "Stream resolution via daemon failed: ${e.message}")
         }
 
-        // Fallback: return whatever stream URL the track already has
-        return track.streamUrl
+        // Fallback: return existing stream URL if valid, otherwise empty string
+        val fallback = track.streamUrl
+        return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://")) {
+            fallback
+        } else {
+            ""
+        }
     }
 
     fun togglePlayPause() {
@@ -673,16 +693,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val parsed = mutableListOf<TrackItem>()
                         for (i in 0 until tracksArray.length()) {
                             val item = tracksArray.getJSONObject(i)
+                            val id = item.optString("id", item.optString("video_id", ""))
+                            val title = item.optString("title", "Unknown Track")
+                            val artist = item.optString("artist",
+                                item.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "Unknown Artist")
+                                    ?: "Unknown Artist")
+                            val thumb = item.optString("thumbnail",
+                                item.optString("thumbnail_url", item.optString("cover_url", "")))
+                            val durMs = item.optLong("duration_ms", 0L)
                             parsed.add(
                                 TrackItem(
-                                    title = item.optString("title", "Unknown Track"),
-                                    artist = item.optString("artist",
-                                        item.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "Unknown Artist")
-                                            ?: "Unknown Artist"),
-                                    coverUrl = item.optString("thumbnail_url",
-                                        item.optString("cover_url", "")),
-                                    streamUrl = item.optString("video_id",
-                                        item.optString("id", ""))
+                                    id = id,
+                                    title = title,
+                                    artist = artist,
+                                    coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
+                                    streamUrl = "",
+                                    durationMs = durMs,
+                                    source = "youtube"
                                 )
                             )
                         }
@@ -713,24 +740,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun executeDirectYouTubeSearch(query: String): List<TrackItem> {
         return try {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            val url = java.net.URL("https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=$encoded")
+            // Strictly query YouTube Music suggestions (never general YouTube video queries)
+            val url = java.net.URL("https://suggestqueries-clients6.youtube.com/complete/search?client=youtube-music&hl=en&gl=US&q=$encoded")
             val conn = url.openConnection() as java.net.HttpURLConnection
             conn.connectTimeout = 4000
             conn.readTimeout = 4000
             conn.setRequestProperty("User-Agent", "Mozilla/5.0")
             if (conn.responseCode in 200..299) {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
-                // Parse suggestions into search track candidates
                 val parsed = mutableListOf<TrackItem>()
                 val regex = Regex("""\["([^"]+)",0,""")
                 regex.findAll(text).take(8).forEach { match ->
-                    val title = match.groupValues[1]
+                    val musicTitle = match.groupValues[1]
                     parsed.add(
                         TrackItem(
-                            title = title,
-                            artist = query,
+                            id = "",
+                            title = musicTitle,
+                            artist = "YouTube Music",
                             coverUrl = "",
-                            streamUrl = title
+                            streamUrl = ""
                         )
                     )
                 }

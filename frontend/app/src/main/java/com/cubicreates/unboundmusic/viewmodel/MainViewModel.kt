@@ -1130,12 +1130,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val taskMap = activeTasks.associateBy { it.videoId }
                         _downloadTasks.value = taskMap
 
-                        val completedIds = activeTasks.filter { it.status == "COMPLETED" }.map { it.videoId }.toSet()
+                        val completedTasks = activeTasks.filter { it.status == "COMPLETED" }
+                        val completedIds = completedTasks.map { it.videoId }.toSet()
                         if (completedIds.isNotEmpty()) {
                             val prevCompleted = _downloadedTrackIds.value
+                            val newlyCompleted = completedTasks.filter { it.videoId !in prevCompleted }
                             _downloadedTrackIds.value = prevCompleted + completedIds
-                            if (completedIds.any { it !in prevCompleted }) {
+                            if (newlyCompleted.isNotEmpty()) {
                                 refreshLibrary()
+                                for (task in newlyCompleted) {
+                                    if (task.localPath.isNotBlank()) {
+                                        try {
+                                            android.media.MediaScannerConnection.scanFile(
+                                                getApplication<Application>().applicationContext,
+                                                arrayOf(task.localPath),
+                                                null
+                                            ) { path, uri ->
+                                                Log.i(TAG, "MediaScannerConnection indexed $path -> $uri")
+                                            }
+                                        } catch (scanErr: Exception) {
+                                            Log.w(TAG, "MediaScanner scanFile failed: ${scanErr.message}")
+                                        }
+                                    }
+                                }
                             }
                         }
 

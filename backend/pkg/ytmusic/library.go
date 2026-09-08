@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/models"
 )
 
@@ -178,7 +179,7 @@ func (c *Client) FetchLikedMusic(ctx context.Context) ([]models.Track, error) {
 
 	var tracks []models.Track
 	recursiveExtractTracks(root, &tracks)
-	return tracks, nil
+	return gatekeeper.FilterMusicTracks(tracks), nil
 }
 
 // FetchUserPlaylists retrieves the user's custom and liked playlists.

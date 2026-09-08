@@ -367,4 +367,48 @@ func TestStorageScanAndTracksEndpoints(t *testing.T) {
 	}
 }
 
+// TestAccountStatusAndDisconnectEndpoints verifies /api/v1/account/status and /api/v1/account/disconnect.
+func TestAccountStatusAndDisconnectEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_account.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Check initial disconnected status
+	reqStatus := httptest.NewRequest(http.MethodGet, "/api/v1/account/status", nil)
+	wStatus := httptest.NewRecorder()
+	srv.handleAccountStatus(wStatus, reqStatus)
+
+	if wStatus.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from account/status, got %d", wStatus.Code)
+	}
+
+	var statusRes map[string]interface{}
+	if err := json.NewDecoder(wStatus.Body).Decode(&statusRes); err != nil {
+		t.Fatalf("failed decoding status JSON: %v", err)
+	}
+	if connected, ok := statusRes["connected"].(bool); !ok || connected {
+		t.Errorf("expected connected=false, got %v", statusRes["connected"])
+	}
+
+	// 2. Disconnect
+	reqDisc := httptest.NewRequest(http.MethodPost, "/api/v1/account/disconnect", strings.NewReader("{}"))
+	wDisc := httptest.NewRecorder()
+	srv.handleAccountDisconnect(wDisc, reqDisc)
+
+	if wDisc.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from account/disconnect, got %d", wDisc.Code)
+	}
+}
+
+
 

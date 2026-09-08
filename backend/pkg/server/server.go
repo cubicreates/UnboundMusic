@@ -235,6 +235,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/podcasts/browse", s.handlePodcastBrowse)
 	mux.HandleFunc("/api/v1/canvas", s.handleCanvas)
 	mux.HandleFunc("/api/v1/account/sync", s.handleAccountSync)
+	mux.HandleFunc("/api/v1/account/status", s.handleAccountStatus)
+	mux.HandleFunc("/api/v1/account/disconnect", s.handleAccountDisconnect)
 	mux.HandleFunc("/api/v1/account/liked", s.handleAccountLiked)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
 	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
@@ -1030,15 +1032,41 @@ func (s *Server) handleAccountSync(w http.ResponseWriter, r *http.Request) {
 	var req SyncReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.Cookie != "" {
-		s.accountSync.SetCookie(req.Cookie)
+		if err := s.accountSync.ConnectAccount(r.Context(), req.Cookie); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
-	lib, err := s.accountSync.SyncLibrary(r.Context())
-	if err != nil {
+	status := s.accountSync.GetStatus()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"connected":           status.Connected,
+		"account_name":        status.AccountName,
+		"avatar_url":          status.AvatarURL,
+		"synced_tracks_count": status.SyncedTracksCount,
+		"last_synced":         status.LastSynced,
+	})
+}
+
+// handleAccountStatus returns the current YouTube connection state, user account name, avatar URL, and synced track count.
+func (s *Server) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
+	status := s.accountSync.GetStatus()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"connected":           status.Connected,
+		"account_name":        status.AccountName,
+		"avatar_url":          status.AvatarURL,
+		"synced_tracks_count": status.SyncedTracksCount,
+		"last_synced":         status.LastSynced,
+	})
+}
+
+// handleAccountDisconnect logs out the user and clears credentials and synced library data.
+func (s *Server) handleAccountDisconnect(w http.ResponseWriter, r *http.Request) {
+	if err := s.accountSync.DisconnectAccount(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, lib)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "disconnected"})
 }
 
 // handleAccountLiked returns synced liked tracks.

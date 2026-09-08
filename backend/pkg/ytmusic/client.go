@@ -118,6 +118,15 @@ var (
 		XClientName: "67",
 	}
 
+	ConfigWeb = ClientConfig{
+		Name:        "WEB",
+		Version:     "2.20260304.01.00",
+		APIKey:      "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
+		UserAgent:   UserAgentWebRemix,
+		BaseURL:     "https://www.youtube.com/youtubei/v1",
+		XClientName: "1",
+	}
+
 	ConfigIOS = ClientConfig{
 		Name:        "IOS",
 		Version:     "20.08.3",

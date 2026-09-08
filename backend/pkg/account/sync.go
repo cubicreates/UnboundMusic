@@ -24,6 +24,7 @@ import (
 // UserLibrary encapsulates synced personal library items.
 type UserLibrary struct {
 	AccountName       string         `json:"account_name"`
+	AvatarURL         string         `json:"avatar_url"`
 	LikedTracksCount  int            `json:"liked_tracks_count"`
 	LikedTracks       []models.Track `json:"liked_tracks"`
 	PlaylistsCount    int            `json:"playlists_count"`
@@ -35,6 +36,7 @@ type UserLibrary struct {
 type AccountStatus struct {
 	Connected         bool      `json:"connected"`
 	AccountName       string    `json:"account_name"`
+	AvatarURL         string    `json:"avatar_url"`
 	SyncedTracksCount int       `json:"synced_tracks_count"`
 	LastSynced        time.Time `json:"last_synced"`
 }
@@ -53,6 +55,7 @@ func NewSyncer(deps ...interface{}) *Syncer {
 	s := &Syncer{
 		userLibrary: &UserLibrary{
 			AccountName:       "Local Unbound User",
+			AvatarURL:         "",
 			LikedTracks:       make([]models.Track, 0),
 			SubscribedArtists: make([]string, 0),
 		},
@@ -76,10 +79,17 @@ func NewSyncer(deps ...interface{}) *Syncer {
 			if s.ytClient != nil {
 				s.ytClient.SetCredentials(savedCookie)
 			}
+			if savedName, _ := s.repo.GetCredential(ctx, "yt_account_name"); savedName != "" {
+				s.userLibrary.AccountName = savedName
+			} else {
+				s.userLibrary.AccountName = "Connected User"
+			}
+			if savedAvatar, _ := s.repo.GetCredential(ctx, "yt_avatar_url"); savedAvatar != "" {
+				s.userLibrary.AvatarURL = savedAvatar
+			}
 			if tracks, err := s.repo.GetSyncedTracks(ctx); err == nil {
 				s.userLibrary.LikedTracks = tracks
 				s.userLibrary.LikedTracksCount = len(tracks)
-				s.userLibrary.AccountName = "Connected User"
 				s.userLibrary.LastSynced = time.Now()
 			}
 		}
@@ -109,17 +119,29 @@ func (s *Syncer) ConnectAccount(ctx context.Context, rawCookie string) error {
 		return fmt.Errorf("invalid cookie: missing SAPISID or __Secure-3PAPISID token")
 	}
 
-	s.mu.Lock()
-	s.cookieStr = rawCookie
+	accountName := "Connected User"
+	avatarURL := ""
 	if s.ytClient != nil {
 		s.ytClient.SetCredentials(rawCookie)
+		if info, err := s.ytClient.FetchAccountInfo(ctx); err == nil && info != nil {
+			if info.Name != "" {
+				accountName = info.Name
+			}
+			avatarURL = info.AvatarURL
+		}
 	}
-	s.userLibrary.AccountName = "Connected User"
+
+	s.mu.Lock()
+	s.cookieStr = rawCookie
+	s.userLibrary.AccountName = accountName
+	s.userLibrary.AvatarURL = avatarURL
 	s.userLibrary.LastSynced = time.Now()
 	s.mu.Unlock()
 
 	if s.repo != nil {
 		_ = s.repo.SaveCredential(ctx, "yt_cookie", rawCookie)
+		_ = s.repo.SaveCredential(ctx, "yt_account_name", accountName)
+		_ = s.repo.SaveCredential(ctx, "yt_avatar_url", avatarURL)
 	}
 
 	// Trigger library fetch if ytClient is active
@@ -150,6 +172,7 @@ func (s *Syncer) DisconnectAccount(ctx context.Context) error {
 	}
 	s.userLibrary = &UserLibrary{
 		AccountName:       "Local Unbound User",
+		AvatarURL:         "",
 		LikedTracks:       make([]models.Track, 0),
 		SubscribedArtists: make([]string, 0),
 	}
@@ -169,6 +192,7 @@ func (s *Syncer) GetStatus() AccountStatus {
 	return AccountStatus{
 		Connected:         s.cookieStr != "",
 		AccountName:       s.userLibrary.AccountName,
+		AvatarURL:         s.userLibrary.AvatarURL,
 		SyncedTracksCount: len(s.userLibrary.LikedTracks),
 		LastSynced:        s.userLibrary.LastSynced,
 	}

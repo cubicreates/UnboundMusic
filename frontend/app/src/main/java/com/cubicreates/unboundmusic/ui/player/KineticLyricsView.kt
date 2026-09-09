@@ -170,57 +170,22 @@ fun KineticLyricsView(
                             .clickable { onLineClick(line) }
                             .padding(vertical = 4.dp)
                     ) {
-                        // Display text according to selected Romanization mode
-                        when (romanizationMode) {
-                            RomanizationMode.ORIGINAL -> {
-                                Text(
-                                    text = line.text,
-                                    fontSize = if (isActive) 28.sp else 23.sp,
-                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = textColor,
-                                    lineHeight = if (isActive) 36.sp else 30.sp,
-                                    style = TextStyle(shadow = textShadow)
-                                )
-                            }
-                            RomanizationMode.ROMANIZED -> {
-                                val displayText = line.romanized.ifBlank { line.text }
-                                Text(
-                                    text = displayText,
-                                    fontSize = if (isActive) 28.sp else 23.sp,
-                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = textColor,
-                                    lineHeight = if (isActive) 36.sp else 30.sp,
-                                    style = TextStyle(shadow = textShadow)
-                                )
-                            }
-                            RomanizationMode.DUAL -> {
-                                Text(
-                                    text = line.text,
-                                    fontSize = if (isActive) 26.sp else 21.sp,
-                                    fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = textColor,
-                                    lineHeight = if (isActive) 32.sp else 28.sp,
-                                    style = TextStyle(shadow = textShadow)
-                                )
-                                if (line.romanized.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = line.romanized,
-                                        fontSize = if (isActive) 18.sp else 15.sp,
-                                        fontStyle = FontStyle.Italic,
-                                        fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                                        color = if (isActive) UnboundPrimary else OnSurfaceVariant.copy(alpha = 0.40f),
-                                        lineHeight = if (isActive) 24.sp else 20.sp
-                                    )
-                                }
-                            }
-                        }
+                        // Display singing text (phonetic Romanized where available for sing-along)
+                        val displayText = line.romanized.ifBlank { line.text }
+                        Text(
+                            text = displayText,
+                            fontSize = if (isActive) 28.sp else 23.sp,
+                            fontWeight = if (isActive) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            color = textColor,
+                            lineHeight = if (isActive) 36.sp else 30.sp,
+                            style = TextStyle(shadow = textShadow)
+                        )
                     }
                 }
             }
         }
 
-        // Top Control Glass Bar: Script Mode Selector & Timing Offset Toggle
+        // Top Control Glass Bar: Lyrics Source Badge & Timing Offset Toggle
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -241,27 +206,13 @@ fun KineticLyricsView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Romanization Mode Chips
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RomanizationChip(
-                        label = "ORIGINAL",
-                        isSelected = romanizationMode == RomanizationMode.ORIGINAL,
-                        onClick = { onRomanizationModeChange(RomanizationMode.ORIGINAL) }
-                    )
-                    RomanizationChip(
-                        label = "ROMANIZED",
-                        isSelected = romanizationMode == RomanizationMode.ROMANIZED,
-                        onClick = { onRomanizationModeChange(RomanizationMode.ROMANIZED) }
-                    )
-                    RomanizationChip(
-                        label = "DUAL",
-                        isSelected = romanizationMode == RomanizationMode.DUAL,
-                        onClick = { onRomanizationModeChange(RomanizationMode.DUAL) }
-                    )
-                }
+                // Source badge / indicator
+                Text(
+                    text = lyricsSource,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = OnSurfaceVariant.copy(alpha = 0.7f)
+                )
 
                 // Timing Offset Slider Toggle Button
                 Row(

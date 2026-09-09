@@ -78,7 +78,7 @@ func startEngineInternal(env *C.JNIEnv, jAppStoragePath C.jstring, jPort C.jint)
 		backendRoot = parts[1]
 	} else if filepath.Base(appStoragePath) == ".backend" {
 		backendRoot = appStoragePath
-		publicRoot = "/storage/emulated/0/Unbound"
+		publicRoot = filepath.Join(filepath.Dir(appStoragePath), "Unbound")
 	} else {
 		publicRoot = appStoragePath
 		backendRoot = filepath.Join(appStoragePath, ".backend")

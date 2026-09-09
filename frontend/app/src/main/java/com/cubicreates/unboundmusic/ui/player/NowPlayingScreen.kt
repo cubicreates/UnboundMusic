@@ -621,30 +621,6 @@ fun NowPlayingScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (lyricsLines.isNotEmpty() && !isInstrumental) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(SurfaceGlassHighest)
-                                        .clickable {
-                                            val next = when (romanizationMode) {
-                                                RomanizationMode.ORIGINAL -> RomanizationMode.ROMANIZED
-                                                RomanizationMode.ROMANIZED -> RomanizationMode.DUAL
-                                                RomanizationMode.DUAL -> RomanizationMode.ORIGINAL
-                                            }
-                                            onRomanizationModeChange(next)
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = romanizationMode.name.take(4),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = UnboundPrimary
-                                    )
-                                }
-                            }
-
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
@@ -695,11 +671,7 @@ fun NowPlayingScreen(
                             for (i in startIdx..endIdx) {
                                 val line = lyricsLines[i]
                                 val isCurrent = i == activeIndex
-                                val displayText = when (romanizationMode) {
-                                    RomanizationMode.ROMANIZED -> if (line.romanized.isNotBlank()) line.romanized else line.text
-                                    RomanizationMode.DUAL -> if (line.romanized.isNotBlank()) "${line.text} (${line.romanized})" else line.text
-                                    RomanizationMode.ORIGINAL -> line.text
-                                }
+                                val displayText = if (line.romanized.isNotBlank()) line.romanized else line.text
 
                                 Text(
                                     text = displayText.ifBlank { "..." },

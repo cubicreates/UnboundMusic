@@ -52,16 +52,7 @@ class MainActivity : ComponentActivity() {
             permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] == true
         }
         if (audioGranted) {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
-            mainViewModel.rescanLocalStorage()
-        }
-    }
-
-    private val manageStorageLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
             mainViewModel.rescanLocalStorage()
         }
     }
@@ -137,45 +128,22 @@ class MainActivity : ComponentActivity() {
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
             mainViewModel.rescanLocalStorage()
-        }
-
-        // Request MANAGE_APP_ALL_FILES_ACCESS_PERMISSION on Android 11+ (API 30+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    manageStorageLauncher.launch(intent)
-                } catch (e: Exception) {
-                    try {
-                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                        manageStorageLauncher.launch(intent)
-                    } catch (_: Exception) {}
-                }
-            }
         }
     }
 
     override fun onResume() {
         super.onResume()
         DaemonManager.getInstance(this).startDaemonAuto(force = false)
-        com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                mainViewModel.rescanLocalStorage()
-            }
+        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+        val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
         } else {
-            val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-            } else {
-                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            }
-            if (audioGranted) {
-                mainViewModel.rescanLocalStorage()
-            }
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+        if (audioGranted) {
+            mainViewModel.rescanLocalStorage()
         }
     }
 }

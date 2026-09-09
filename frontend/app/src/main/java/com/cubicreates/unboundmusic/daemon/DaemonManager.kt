@@ -106,7 +106,7 @@ class DaemonManager private constructor(private val context: Context) {
         scope.launch {
             try {
                 val storageConfig = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCombinedStorageConfig(context)
-                val publicRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir()
+                val publicRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
 
                 Log.d(TAG, "Starting Go Engine on port $DAEMON_PORT with storage config $storageConfig")
 

@@ -388,7 +388,7 @@ fun SettingsScreen(
             SettingsActionTile(
                 icon = Icons.Default.DeleteForever,
                 title = "Clean Storage & Uninstall Helper",
-                subtitle = "Completely wipe /storage/emulated/0/Unbound before uninstalling",
+                subtitle = "Purge all Unbound app storage and reset filesystem",
                 onClick = onCleanStorageForUninstallClick
             )
 

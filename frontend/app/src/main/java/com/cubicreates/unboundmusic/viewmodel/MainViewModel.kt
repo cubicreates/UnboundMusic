@@ -183,22 +183,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Library & Storage State ====================
 
-    private val _libraryTracks = MutableStateFlow<List<TrackItem>>(defaultTopTracks)
+    private val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val libraryTracks: StateFlow<List<TrackItem>> = _libraryTracks.asStateFlow()
 
-    private val _savedGB = MutableStateFlow(12.4)
+    private val _savedGB = MutableStateFlow(0.0)
     val savedGB: StateFlow<Double> = _savedGB.asStateFlow()
 
-    private val _downloadsCount = MutableStateFlow(342)
+    private val _downloadsCount = MutableStateFlow(0)
     val downloadsCount: StateFlow<Int> = _downloadsCount.asStateFlow()
 
-    private val _whatsappCount = MutableStateFlow(89)
+    private val _whatsappCount = MutableStateFlow(0)
     val whatsappCount: StateFlow<Int> = _whatsappCount.asStateFlow()
 
-    private val _telegramCount = MutableStateFlow(12)
+    private val _telegramCount = MutableStateFlow(0)
     val telegramCount: StateFlow<Int> = _telegramCount.asStateFlow()
 
-    private val _youtubeCount = MutableStateFlow(4)
+    private val _youtubeCount = MutableStateFlow(0)
     val youtubeCount: StateFlow<Int> = _youtubeCount.asStateFlow()
 
     // ==================== Phase 5: Offline Downloader & Storage Engine ====================
@@ -465,6 +465,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (charts.isNotEmpty()) {
                     _regionalCharts.value = charts
                     _chartTracks.value = charts
+                    if (_currentTrack.value.id.isBlank() || _currentTrack.value == defaultTopTracks[0]) {
+                        _currentTrack.value = charts[0]
+                    }
                 }
             }
             launch {

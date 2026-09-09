@@ -449,27 +449,36 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     /** Fetches Top 100 regional charts directly into TrackItem list. */
     suspend fun getCharts(gl: String = "US", hl: String = "en"): List<TrackItem> = withContext(Dispatchers.IO) {
-        val (code, json) = get("/api/v1/explore/charts?gl=${URLEncoder.encode(gl, "UTF-8")}&hl=${URLEncoder.encode(hl, "UTF-8")}")
+        val (code, json) = get("/api/v1/explore/charts?gl=${URLEncoder.encode(gl, "UTF-8")}&hl=${URLEncoder.encode(hl, "UTF-8")}&country=${URLEncoder.encode(gl, "UTF-8")}")
         if (code != 200 || json.isBlank()) return@withContext emptyList()
         val list = mutableListOf<TrackItem>()
         try {
-            val root = JSONObject(json)
-            val tracksArr = root.optJSONArray("tracks") ?: return@withContext emptyList()
+            val trimmed = json.trim()
+            val tracksArr = if (trimmed.startsWith("[")) {
+                org.json.JSONArray(trimmed)
+            } else {
+                val root = JSONObject(trimmed)
+                root.optJSONArray("tracks") ?: root.optJSONArray("charts") ?: org.json.JSONArray()
+            }
             for (i in 0 until tracksArr.length()) {
                 val obj = tracksArr.getJSONObject(i)
-                list.add(
-                    TrackItem(
-                        id = obj.optString("id"),
-                        title = obj.optString("title"),
-                        artist = obj.optString("artist"),
-                        album = obj.optString("album"),
-                        coverUrl = obj.optString("thumbnail"),
-                        streamUrl = "",
-                        durationMs = obj.optLong("duration_ms"),
-                        source = obj.optString("source", "youtube"),
-                        isExplicit = obj.optBoolean("is_explicit", false)
+                val id = obj.optString("id").ifBlank { obj.optString("track_id") }
+                val thumb = obj.optString("thumbnail").ifBlank { obj.optString("thumbnail_url").ifBlank { obj.optString("cover_url") } }
+                if (id.isNotBlank()) {
+                    list.add(
+                        TrackItem(
+                            id = id,
+                            title = obj.optString("title"),
+                            artist = obj.optString("artist"),
+                            album = obj.optString("album"),
+                            coverUrl = thumb,
+                            streamUrl = "",
+                            durationMs = obj.optLong("duration_ms"),
+                            source = obj.optString("source", "youtube"),
+                            isExplicit = obj.optBoolean("is_explicit", false)
+                        )
                     )
-                )
+                }
             }
         } catch (_: Exception) {}
         list

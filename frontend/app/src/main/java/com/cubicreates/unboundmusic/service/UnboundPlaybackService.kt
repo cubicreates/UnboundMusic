@@ -97,15 +97,8 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with SimpMusic audio streaming pipeline...")
 
-        // 1. SimpMusic ExtractorsFactory supporting WebM/Matroska (Opus), MP4/M4A (AAC), and FLAC
-        val extractorsFactory = ExtractorsFactory {
-            arrayOf(
-                FlacExtractor(FlacExtractor.FLAG_DISABLE_ID3_METADATA),
-                MatroskaExtractor(DefaultSubtitleParserFactory()),
-                FragmentedMp4Extractor(DefaultSubtitleParserFactory()),
-                Mp4Extractor(DefaultSubtitleParserFactory()),
-            )
-        }
+        // 1. SimpMusic ExtractorsFactory with constant bitrate seeking enabled for all formats
+        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
         // 2. SimpMusic DataSourceFactory with modern mobile User-Agent and redirect support
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
@@ -113,30 +106,9 @@ class UnboundPlaybackService : MediaSessionService() {
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // 3. SimpMusic RenderersFactory with float output support and Sonic/Silence audio processors
-        val renderersFactory = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): AudioSink =
-                DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessorChain(
-                        DefaultAudioSink.DefaultAudioProcessorChain(
-                            emptyArray(),
-                            SilenceSkippingAudioProcessor(
-                                2_000_000,
-                                (20_000 / 2_000_000).toFloat(),
-                                2_000_000,
-                                0,
-                                256
-                            ),
-                            SonicAudioProcessor()
-                        )
-                    ).build()
-        }
+        // 3. SimpMusic RenderersFactory with float output and Sonic audio processor (no silence dropping)
+        // 3. SimpMusic RenderersFactory with clean, full-fidelity audio rendering
+        val renderersFactory = DefaultRenderersFactory(this)
 
         // 4. SimpMusic LoadControl: bufferForPlaybackMs = 0 -> audio starts IMMEDIATELY without lag
         val loadControl = DefaultLoadControl.Builder()

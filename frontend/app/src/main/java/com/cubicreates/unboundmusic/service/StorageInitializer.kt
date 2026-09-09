@@ -31,11 +31,8 @@ object StorageInitializer {
             val filesDir = context.filesDir
             val binDir = File(filesDir, "bin")
 
-            // Clean up any legacy orphan .backend inside public storage (/storage/emulated/0/Unbound/.backend)
-            UnboundStorageManager.cleanupOrphanBackendFromPublic()
-
-            // Public Unbound directory (/storage/emulated/0/Unbound with Downloads, Music, Playlists, Recaps)
-            UnboundStorageManager.getPublicUnboundDir()
+            // Deploy canonical app-specific Unbound folder and purge legacy public storage
+            UnboundStorageManager.deployUnboundStorage(context)
 
             // App-specific internal/external backend directory (/Android/data/.../.backend)
             val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)

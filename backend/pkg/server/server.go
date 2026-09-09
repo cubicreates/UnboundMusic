@@ -103,6 +103,7 @@ type Server struct {
 	canvasClient *canvas.Client
 	accountSync  *account.Syncer
 	exploreEng   *explore.Engine
+	ytExploreEng *ytmusic.ExploreEngine
 	artistEng    *artist.Engine
 	sleepTimer   *sleeptimer.Timer
 	updater      *updater.Updater
@@ -170,6 +171,7 @@ func NewServer(cfg Config) (*Server, error) {
 	canvasCli := canvas.NewClient(canvasCacheDir)
 	accSyncer := account.NewSyncer()
 	exploreEngine := explore.NewEngine(ytClient)
+	ytExploreEngine := ytmusic.NewExploreEngine(repo)
 	artistEngine := artist.NewEngine(ytClient)
 	sleepTimerMgr := sleeptimer.NewTimer()
 	appUpdater := updater.NewUpdater("1.0.0")
@@ -210,6 +212,7 @@ func NewServer(cfg Config) (*Server, error) {
 		canvasClient: canvasCli,
 		accountSync:  accSyncer,
 		exploreEng:   exploreEngine,
+		ytExploreEng: ytExploreEngine,
 		artistEng:    artistEngine,
 		sleepTimer:   sleepTimerMgr,
 		updater:      appUpdater,
@@ -1166,13 +1169,49 @@ func (s *Server) handleExploreMoods(w http.ResponseWriter, r *http.Request) {
 
 // handleExploreCharts returns regional top 100 charts.
 func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
-	country := r.URL.Query().Get("country")
-	charts, err := s.exploreEng.GetTopCharts(r.Context(), country)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	country := r.URL.Query().Get("gl")
+	if country == "" {
+		country = r.URL.Query().Get("country")
 	}
-	writeJSON(w, http.StatusOK, charts)
+	if country == "" {
+		country = "US"
+	}
+	lang := r.URL.Query().Get("hl")
+	if lang == "" {
+		lang = "en"
+	}
+
+	var tracks []models.TrackItem
+	var err error
+
+	if s.ytExploreEng != nil {
+		tracks, err = s.ytExploreEng.FetchRegionalCharts(r.Context(), country, lang)
+	}
+
+	if (err != nil || len(tracks) == 0) && s.exploreEng != nil {
+		charts, chartErr := s.exploreEng.GetTopCharts(r.Context(), country)
+		if chartErr == nil && len(charts) > 0 {
+			tracks = make([]models.TrackItem, 0, len(charts))
+			for _, c := range charts {
+				tracks = append(tracks, models.TrackItem{
+					ID:           c.TrackID,
+					Title:        c.Title,
+					Artist:       c.Artist,
+					Thumbnail: c.ThumbnailURL,
+					Source:    "youtube",
+				})
+			}
+		}
+	}
+
+	if tracks == nil {
+		tracks = []models.TrackItem{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tracks": tracks,
+		"charts": tracks,
+	})
 }
 
 // handleArtistProfile returns full artist discography.

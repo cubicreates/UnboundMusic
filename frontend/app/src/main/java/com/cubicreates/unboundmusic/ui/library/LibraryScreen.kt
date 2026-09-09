@@ -83,11 +83,11 @@ data class IngestionSource(
 @Composable
 fun LibraryScreen(
     modifier: Modifier = Modifier,
-    savedGB: Double = 12.4,
-    downloadsCount: Int = 342,
-    whatsappCount: Int = 89,
-    telegramCount: Int = 12,
-    youtubeCount: Int = 4,
+    savedGB: Double = 0.0,
+    downloadsCount: Int = 0,
+    whatsappCount: Int = 0,
+    telegramCount: Int = 0,
+    youtubeCount: Int = 0,
     tracks: List<TrackItem> = emptyList(),
     syncedYouTubeTracks: List<TrackItem> = emptyList(),
     onMenuClick: () -> Unit = {},
@@ -249,6 +249,37 @@ fun LibraryScreen(
                             onDeleteDownload = { onDeleteDownload(track.id) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(UnboundSurfaceContainer)
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = null,
+                            tint = OnSurfaceVariant,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (selectedSourceTitle != null) "No tracks in $selectedSourceTitle" else "No indexed local tracks",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = OnSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Download tracks or tap refresh to scan local device storage",
+                            fontSize = 12.sp,
+                            color = OnSurfaceVariant.copy(alpha = 0.7f)
+                        )
                     }
                 }
             }

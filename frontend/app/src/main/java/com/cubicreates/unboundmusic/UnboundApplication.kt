@@ -43,5 +43,8 @@ class UnboundApplication : Application() {
             .build()
 
         Coil.setImageLoader(imageLoader)
+
+        // Automatically deploy canonical Unbound folder and purge any legacy public files
+        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
     }
 }

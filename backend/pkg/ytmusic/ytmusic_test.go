@@ -10,6 +10,7 @@ package ytmusic
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -70,4 +71,42 @@ func TestLiveSearch(t *testing.T) {
 	if first.Title == "" {
 		t.Errorf("expected non-empty track title")
 	}
+}
+
+// TestLiveGetStreamInfo validates that GetStreamInfo extracts a playable audio stream.
+func TestLiveGetStreamInfo(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live network test in short mode")
+	}
+
+	client := NewClient()
+	info, err := client.GetStreamInfo(context.Background(), "T6eK-2OQtew")
+	if err != nil {
+		t.Fatalf("GetStreamInfo failed: %v", err)
+	}
+	t.Logf("Resolved stream: url=%s, codec=%s, bitrate=%d", info.StreamURL, info.Codec, info.BitrateKbps)
+	if info.StreamURL == "" {
+		t.Fatalf("expected non-empty stream URL")
+	}
+
+	// Test GET with UserAgentIOS vs Chrome
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", info.StreamURL, nil)
+	req.Header.Set("Range", "bytes=0-1024")
+	req.Header.Set("User-Agent", UserAgentIOS)
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("request with iOS UA failed: %v", err)
+	}
+	t.Logf("Response with iOS UA: status=%d", resp.StatusCode)
+	resp.Body.Close()
+
+	req2, _ := http.NewRequestWithContext(context.Background(), "GET", info.StreamURL, nil)
+	req2.Header.Set("Range", "bytes=0-1024")
+	req2.Header.Set("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
+	resp2, err := client.httpClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request with Android UA failed: %v", err)
+	}
+	t.Logf("Response with Android UA: status=%d", resp2.StatusCode)
+	resp2.Body.Close()
 }

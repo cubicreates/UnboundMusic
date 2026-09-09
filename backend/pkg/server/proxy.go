@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
 var (
@@ -84,7 +86,7 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Connect to upstream YouTube CDN
+	// 3. Connect to upstream YouTube CDN with matching User-Agent to prevent 403 Forbidden
 	reqUpstream, err := http.NewRequestWithContext(r.Context(), http.MethodGet, streamInfo.StreamURL, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to build upstream request")
@@ -95,13 +97,36 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
 		reqUpstream.Header.Set("Range", rangeHdr)
 	}
-	reqUpstream.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	// Match the User-Agent to the client profile encoded in the signed URL
+	ua := ytmusic.UserAgentIOS
+	if strings.Contains(streamInfo.StreamURL, "c=WEB_REMIX") {
+		ua = ytmusic.UserAgentWebRemix
+	} else if strings.Contains(streamInfo.StreamURL, "c=TVHTML5") {
+		ua = ytmusic.UserAgentTV
+	}
+	reqUpstream.Header.Set("User-Agent", ua)
 
 	client := &http.Client{Timeout: 60 * time.Second}
 	respUpstream, err := client.Do(reqUpstream)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("upstream stream connection failed: %v", err))
 		return
+	}
+
+	// If 403 Forbidden with specific UA, try with WebRemix fallback
+	if respUpstream.StatusCode == http.StatusForbidden && ua != ytmusic.UserAgentWebRemix {
+		respUpstream.Body.Close()
+		reqRetry, rErr := http.NewRequestWithContext(r.Context(), http.MethodGet, streamInfo.StreamURL, nil)
+		if rErr == nil {
+			if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
+				reqRetry.Header.Set("Range", rangeHdr)
+			}
+			reqRetry.Header.Set("User-Agent", ytmusic.UserAgentWebRemix)
+			if retryResp, errRetry := client.Do(reqRetry); errRetry == nil && retryResp.StatusCode != http.StatusForbidden {
+				respUpstream = retryResp
+			}
+		}
 	}
 	defer respUpstream.Body.Close()
 

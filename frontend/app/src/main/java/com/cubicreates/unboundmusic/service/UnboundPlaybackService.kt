@@ -10,10 +10,13 @@
 
 package com.cubicreates.unboundmusic.service
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.annotation.OptIn
@@ -42,9 +45,11 @@ import androidx.media3.extractor.mkv.MatroskaExtractor
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor
 import androidx.media3.extractor.mp4.Mp4Extractor
 import androidx.media3.extractor.text.DefaultSubtitleParserFactory
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.cubicreates.unboundmusic.MainActivity
+import com.cubicreates.unboundmusic.R
 import com.cubicreates.unboundmusic.audio.CrossfadeFilterAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
@@ -79,6 +84,8 @@ class UnboundPlaybackService : MediaSessionService() {
 
     companion object {
         private const val TAG = "UnboundPlaybackService"
+        const val NOTIFICATION_CHANNEL_ID = "unbound_media_playback"
+        const val NOTIFICATION_ID = 45731
 
         @Volatile
         var activeEqualizerCurve: EqualizerCurve = EqualizerCurve.FLAT
@@ -97,18 +104,76 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with SimpMusic audio streaming pipeline...")
 
-        // 1. SimpMusic ExtractorsFactory with constant bitrate seeking enabled for all formats
-        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
+        // 0. Set up Foreground Notification Channel and MediaNotificationProvider (matching SimpMusic)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "Unbound Music Playback",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Foreground playback notification for Unbound Music"
+                setShowBadge(false)
+                setSound(null, null)
+                enableLights(false)
+                enableVibration(false)
+            }
+            notificationManager?.createNotificationChannel(channel)
+        }
 
-        // 2. SimpMusic DataSourceFactory with modern mobile User-Agent and redirect support
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider(
+                this,
+                { NOTIFICATION_ID },
+                NOTIFICATION_CHANNEL_ID,
+                R.string.app_name
+            ).apply {
+                setSmallIcon(R.mipmap.ic_launcher)
+            }
+        )
+
+        // 1. SimpMusic ExtractorsFactory: direct audio extractors without forcing constant bitrate seeking
+        val extractorsFactory = ExtractorsFactory {
+            arrayOf(
+                FlacExtractor(FlacExtractor.FLAG_DISABLE_ID3_METADATA),
+                MatroskaExtractor(DefaultSubtitleParserFactory()),
+                FragmentedMp4Extractor(DefaultSubtitleParserFactory()),
+                Mp4Extractor(DefaultSubtitleParserFactory())
+            )
+        }
+
+        // 2. SimpMusic DataSourceFactory with mobile User-Agent and redirect support
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // 3. SimpMusic RenderersFactory with float output and Sonic audio processor (no silence dropping)
-        // 3. SimpMusic RenderersFactory with clean, full-fidelity audio rendering
-        val renderersFactory = DefaultRenderersFactory(this)
+        // 3. SimpMusic RenderersFactory with DSP AudioSink chain (EQ, Fade, Crossfade, Sonic)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessorChain(
+                        DefaultAudioSink.DefaultAudioProcessorChain(
+                            arrayOf(equalizerProcessor, sleepFadeProcessor, crossfadeProcessor),
+                            SilenceSkippingAudioProcessor(
+                                2_000_000,
+                                (20_000 / 2_000_000).toFloat(),
+                                2_000_000,
+                                0,
+                                256
+                            ),
+                            SonicAudioProcessor()
+                        )
+                    )
+                    .build()
+            }
+        }
 
         // 4. SimpMusic LoadControl: bufferForPlaybackMs = 0 -> audio starts IMMEDIATELY without lag
         val loadControl = DefaultLoadControl.Builder()
@@ -138,8 +203,7 @@ class UnboundPlaybackService : MediaSessionService() {
         exoPlayer?.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 Log.i(TAG, "onMediaItemTransition: title=${mediaItem?.mediaMetadata?.title}, id=${mediaItem?.mediaId}, uri=${mediaItem?.localConfiguration?.uri}")
-                lastRehydratedMediaId = null
-                rehydrateAttempts = 0
+                proxyFallbackAttempted = false
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -165,7 +229,7 @@ class UnboundPlaybackService : MediaSessionService() {
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.w(TAG, "Playback error encountered: ${error.errorCodeName} (code=${error.errorCode}) - ${error.message}", error)
-                rehydrateExpiredStream()
+                fallbackToProxyStream()
             }
         })
 
@@ -218,88 +282,46 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    private var lastRehydratedMediaId: String? = null
-    private var rehydrateAttempts: Int = 0
+    private var proxyFallbackAttempted = false
 
-    private fun rehydrateExpiredStream() {
+    /**
+     * Seamlessly recovers from 403 Forbidden or expired YouTube CDN streams by redirecting
+     * the player to the local embedded Go daemon streaming proxy on 127.0.0.1.
+     */
+    private fun fallbackToProxyStream() {
         val player = exoPlayer ?: return
         val currentItem = player.currentMediaItem ?: return
         val currentPos = player.currentPosition
         val mediaId = currentItem.mediaId
-        val trackTitle = currentItem.mediaMetadata.title?.toString() ?: ""
-        val trackArtist = currentItem.mediaMetadata.artist?.toString() ?: ""
 
-        if (lastRehydratedMediaId == mediaId && rehydrateAttempts >= 2) {
-            Log.w(TAG, "Already attempted rehydration twice for $mediaId. Halting to prevent loop.")
+        if (proxyFallbackAttempted) {
+            Log.w(TAG, "Proxy fallback already attempted for $mediaId, halting to avoid loop.")
             return
         }
-        lastRehydratedMediaId = mediaId
-        rehydrateAttempts++
+        proxyFallbackAttempted = true
 
-        Log.i(TAG, "Re-hydrating stream for '$trackTitle' ($mediaId) at $currentPos ms (attempt $rehydrateAttempts)...")
+        if (mediaId.isBlank() || mediaId.startsWith("local:") || mediaId.startsWith("file://") || mediaId.startsWith("content://")) {
+            Log.w(TAG, "Cannot proxy local/file mediaId: $mediaId")
+            return
+        }
 
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                // If attempt 2, or if direct resolution previously failed, use localhost proxy stream directly
-                if (rehydrateAttempts >= 2 && mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.startsWith("local:")) {
-                    val proxyUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
-                    withContext(Dispatchers.Main) {
-                        val uri = Uri.parse(proxyUrl)
-                        val newItem = currentItem.buildUpon()
-                            .setUri(uri)
-                            .setRequestMetadata(
-                                currentItem.requestMetadata.buildUpon()
-                                    .setMediaUri(uri)
-                                    .build()
-                            )
-                            .build()
-                        player.setMediaItem(newItem, currentPos)
-                        player.prepare()
-                        player.play()
-                        Log.i(TAG, "Switched to resilient localhost proxy stream for $mediaId at $currentPos ms.")
-                    }
-                    return@launch
-                }
+        val proxyUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+        Log.i(TAG, "Switching to resilient localhost proxy stream for '$mediaId' at $currentPos ms...")
 
-                val targetUrl = if (mediaId.isNotBlank() && !mediaId.startsWith("http") && !mediaId.contains(" ")) {
-                    "http://127.0.0.1:45731/api/v1/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
-                } else {
-                    "http://127.0.0.1:45731/api/v1/stream?title=${URLEncoder.encode(trackTitle, "UTF-8")}&artist=${URLEncoder.encode(trackArtist, "UTF-8")}"
-                }
-
-                val req = Request.Builder().url(targetUrl).build()
-                val resp = okHttpClient.newCall(req).execute()
-                var resolvedUrl = ""
-                if (resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
-                    val json = JSONObject(body)
-                    resolvedUrl = json.optString("stream_url", "")
-                }
-
-                if (resolvedUrl.isBlank() && mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.startsWith("local:")) {
-                    resolvedUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
-                }
-
-                if (resolvedUrl.isNotBlank()) {
-                    withContext(Dispatchers.Main) {
-                        val uri = Uri.parse(resolvedUrl)
-                        val newItem = currentItem.buildUpon()
-                            .setUri(uri)
-                            .setRequestMetadata(
-                                currentItem.requestMetadata.buildUpon()
-                                    .setMediaUri(uri)
-                                    .build()
-                            )
-                            .build()
-                        player.setMediaItem(newItem, currentPos)
-                        player.prepare()
-                        player.play()
-                        Log.i(TAG, "Stream re-hydration successful. Resumed playback at $currentPos ms.")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to re-hydrate stream: ${e.message}")
-            }
+        serviceScope.launch(Dispatchers.Main) {
+            val uri = Uri.parse(proxyUrl)
+            val newItem = currentItem.buildUpon()
+                .setUri(uri)
+                .setRequestMetadata(
+                    currentItem.requestMetadata.buildUpon()
+                        .setMediaUri(uri)
+                        .build()
+                )
+                .build()
+            player.setMediaItem(newItem, currentPos)
+            player.prepare()
+            player.play()
+            Log.i(TAG, "Proxy fallback stream active for $mediaId.")
         }
     }
 

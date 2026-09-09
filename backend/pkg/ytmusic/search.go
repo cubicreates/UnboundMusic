@@ -354,20 +354,8 @@ func extractTrackFromCardShelf(card map[string]any) *models.Track {
 		}
 	}
 
-	// Extract Thumbnail
-	if thumbObj, ok := card["thumbnail"].(map[string]any); ok {
-		if musicThumb, ok := thumbObj["musicThumbnailRenderer"].(map[string]any); ok {
-			if thumb, ok := musicThumb["thumbnail"].(map[string]any); ok {
-				if thumbs, ok := thumb["thumbnails"].([]any); ok && len(thumbs) > 0 {
-					if lastThumb, ok := thumbs[len(thumbs)-1].(map[string]any); ok {
-						if u, ok := lastThumb["url"].(string); ok {
-							track.ThumbnailURL = u
-						}
-					}
-				}
-			}
-		}
-	}
+	// Extract Thumbnail: YouTube Music first, fallback to YouTube video thumbnail
+	track.ThumbnailURL = ExtractThumbnail(card, track.ID)
 
 	return track
 }
@@ -441,14 +429,8 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		}
 	}
 
-	// Extract Thumbnail
-	if thumbnails, ok := responsive["thumbnail"].(map[string]any)["musicThumbnailRenderer"].(map[string]any)["thumbnail"].(map[string]any)["thumbnails"].([]any); ok && len(thumbnails) > 0 {
-		if lastThumb, ok := thumbnails[len(thumbnails)-1].(map[string]any); ok {
-			if url, ok := lastThumb["url"].(string); ok {
-				track.ThumbnailURL = url
-			}
-		}
-	}
+	// Extract Thumbnail: YouTube Music first, fallback to YouTube video thumbnail
+	track.ThumbnailURL = ExtractThumbnail(responsive, track.ID)
 
 	return track
 }
@@ -509,3 +491,58 @@ func parseDurationToMs(durationStr string) int64 {
 	}
 	return totalSeconds * 1000
 }
+
+// ExtractThumbnail extracts high-res square thumbnail from YouTube Music structures,
+// falling back to standard YouTube video thumbnails only if YouTube Music artwork is absent.
+func ExtractThumbnail(obj map[string]any, fallbackVideoID string) string {
+	if obj == nil {
+		if fallbackVideoID != "" && len(fallbackVideoID) == 11 && !strings.HasPrefix(fallbackVideoID, "local:") {
+			return fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", fallbackVideoID)
+		}
+		return ""
+	}
+
+	// 1. Check thumbnailRenderer or thumbnail container
+	for _, key := range []string{"thumbnail", "thumbnailRenderer"} {
+		if sub, ok := obj[key].(map[string]any); ok {
+			for _, subKey := range []string{"musicThumbnailRenderer", "croppedSquareThumbnailRenderer"} {
+				if renderer, ok := sub[subKey].(map[string]any); ok {
+					if tObj, ok := renderer["thumbnail"].(map[string]any); ok {
+						if thumbs, ok := tObj["thumbnails"].([]any); ok && len(thumbs) > 0 {
+							if lastThumb, ok := thumbs[len(thumbs)-1].(map[string]any); ok {
+								if u, ok := lastThumb["url"].(string); ok && u != "" {
+									return UpscaleThumbnail(u)
+								}
+							}
+						}
+					}
+				}
+			}
+			// Direct thumbnails array in sub
+			if thumbs, ok := sub["thumbnails"].([]any); ok && len(thumbs) > 0 {
+				if lastThumb, ok := thumbs[len(thumbs)-1].(map[string]any); ok {
+					if u, ok := lastThumb["url"].(string); ok && u != "" {
+						return UpscaleThumbnail(u)
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Direct thumbnails array in root obj
+	if thumbs, ok := obj["thumbnails"].([]any); ok && len(thumbs) > 0 {
+		if lastThumb, ok := thumbs[len(thumbs)-1].(map[string]any); ok {
+			if u, ok := lastThumb["url"].(string); ok && u != "" {
+				return UpscaleThumbnail(u)
+			}
+		}
+	}
+
+	// 3. Fallback: YouTube standard video thumbnail
+	if fallbackVideoID != "" && len(fallbackVideoID) == 11 && !strings.HasPrefix(fallbackVideoID, "local:") {
+		return fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", fallbackVideoID)
+	}
+
+	return ""
+}
+

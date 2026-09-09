@@ -378,6 +378,10 @@ func ParseBrowseTracks(jsonData []byte) ([]models.TrackItem, error) {
 			}
 		}
 
+		if item.Thumbnail == "" && item.ID != "" && len(item.ID) == 11 && !strings.HasPrefix(item.ID, "local:") {
+			item.Thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", item.ID)
+		}
+
 		return &item
 	}
 
@@ -452,6 +456,10 @@ func ParseBrowseTracks(jsonData []byte) ([]models.TrackItem, error) {
 					}
 				}
 			}
+		}
+
+		if item.Thumbnail == "" && item.ID != "" && len(item.ID) == 11 && !strings.HasPrefix(item.ID, "local:") {
+			item.Thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", item.ID)
 		}
 
 		return &item

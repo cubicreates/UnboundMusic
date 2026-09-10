@@ -130,10 +130,11 @@ func TestBoundedChunkStreaming(t *testing.T) {
 	}
 
 	client := NewClient()
-	info, err := client.GetStreamInfo(context.Background(), "T6eK-2OQtew")
+	info, err := client.GetStreamInfo(context.Background(), "JqFzhcWo3EU")
 	if err != nil {
 		t.Fatalf("GetStreamInfo failed: %v", err)
 	}
+	t.Logf("Resolved JqFzhcWo3EU: codec=%s, url=%s", info.Codec, info.StreamURL)
 
 	// Test bounded chunk (0-262143 = 256KB)
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", info.StreamURL, nil)

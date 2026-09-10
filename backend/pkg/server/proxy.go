@@ -294,6 +294,20 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		if doErr != nil {
 			break
 		}
+		if respChunk.StatusCode == http.StatusForbidden && ua != ytmusic.UserAgentWebRemix {
+			respChunk.Body.Close()
+			reqRetry, rErr := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+			if rErr == nil {
+				reqRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+				reqRetry.Header.Set("User-Agent", ytmusic.UserAgentWebRemix)
+				reqRetry.Header.Set("Referer", "https://music.youtube.com/")
+				reqRetry.Header.Set("Origin", "https://music.youtube.com")
+				if retryResp, errRetry := client.Do(reqRetry); errRetry == nil && retryResp.StatusCode != http.StatusForbidden {
+					respChunk = retryResp
+					ua = ytmusic.UserAgentWebRemix
+				}
+			}
+		}
 		if respChunk.StatusCode != http.StatusOK && respChunk.StatusCode != http.StatusPartialContent {
 			respChunk.Body.Close()
 			break

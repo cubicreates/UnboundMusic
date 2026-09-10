@@ -163,15 +163,8 @@ class UnboundPlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink {
                 return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableFloatOutput(false) // Force standard 16-bit integer PCM across all devices & emulators
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessorChain(
-                        DefaultAudioSink.DefaultAudioProcessorChain(
-                            emptyArray(),
-                            SilenceSkippingAudioProcessor(),
-                            SonicAudioProcessor()
-                        )
-                    )
                     .build()
             }
         }

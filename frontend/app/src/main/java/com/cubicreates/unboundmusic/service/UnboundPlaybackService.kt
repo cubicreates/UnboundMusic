@@ -240,7 +240,15 @@ class UnboundPlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.w(TAG, "Playback error encountered: ${error.errorCodeName} (code=${error.errorCode}) - ${error.message}", error)
+                Log.e(TAG, "ExoPlayer error: code=${error.errorCode}, name=${error.errorCodeName}, message=${error.message}", error)
+                val isNetworkError = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                                     error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
+                                     error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                                     error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                                     error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+                if (isNetworkError) {
+                    Log.w(TAG, "Network playback error detected (${error.errorCodeName}), executing resilient proxy stream fallback...")
+                }
                 fallbackToProxyStream()
             }
         })

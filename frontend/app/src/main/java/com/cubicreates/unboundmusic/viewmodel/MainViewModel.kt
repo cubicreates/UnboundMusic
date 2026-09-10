@@ -101,6 +101,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSearchingAutoEq = MutableStateFlow(false)
     val isSearchingAutoEq: StateFlow<Boolean> = _isSearchingAutoEq.asStateFlow()
 
+    // Stream resolution & playback diagnostics
+    private val _streamDebugMessage = MutableStateFlow<String?>(null)
+    val streamDebugMessage: StateFlow<String?> = _streamDebugMessage.asStateFlow()
+
+    fun clearStreamDebugMessage() {
+        _streamDebugMessage.value = null
+    }
+
     // ==================== Phase 3: Theme Engine, DSP & Settings Studio ====================
 
     private val _selectedTheme = MutableStateFlow(AppThemePreset.STUDIO_DARK)
@@ -698,6 +706,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
+        _streamDebugMessage.value = "Resolving stream for ${track.title}..."
         for (attempt in 1..5) {
             try {
                 val (code, resp) = client.getStream(
@@ -722,11 +731,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (finalUrl.isNotBlank()) {
                         Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
+                        _streamDebugMessage.value = "Stream ready: $streamType (${finalUrl.take(45)}...)"
                         return finalUrl
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
+                _streamDebugMessage.value = "Attempt $attempt failed: ${e.message}"
             }
             if (attempt < 5) {
                 kotlinx.coroutines.delay(400)
@@ -736,6 +747,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Secondary fallback: search track title + artist to find matching YouTube stream
         if (track.title.isNotBlank()) {
             try {
+                _streamDebugMessage.value = "Direct stream not ready; searching for '${track.title}'"
                 val searchQuery = "${track.title} ${track.artist}".trim()
                 val (searchCode, searchResp) = client.search(searchQuery)
                 if (searchCode in 200..299 && searchResp.isNotBlank()) {
@@ -751,10 +763,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val resolved = json.optString("stream_url", "")
                                 if (resolved.isNotBlank()) {
                                     Log.i(TAG, "Stream resolved via search fallback for '${track.title}'")
+                                    _streamDebugMessage.value = "Stream resolved via search match for '${track.title}'"
                                     return resolved
                                 }
                             }
                             // Direct localhost proxy fallback for matched video ID
+                            _streamDebugMessage.value = "Using proxy fallback for match ID $matchId"
                             return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$matchId"
                         }
                     }
@@ -767,6 +781,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Tertiary fallback: if track.id is a valid 11-char YouTube ID, use the embedded Go daemon proxy stream endpoint directly
         if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
             Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
+            _streamDebugMessage.value = "Using localhost proxy stream for '${track.title}'"
             return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
         }
 

@@ -14,9 +14,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +46,23 @@ func (s *Server) getAudioCacheDir() string {
 	}
 	_ = os.MkdirAll(dir, 0755)
 	return dir
+}
+
+// parseRangeHeader parses HTTP Range header: "bytes=start-end" or "bytes=start-"
+func parseRangeHeader(rangeHdr string) (start int64, end int64, hasRange bool) {
+	if rangeHdr == "" || !strings.HasPrefix(rangeHdr, "bytes=") {
+		return 0, -1, false
+	}
+	spec := strings.TrimPrefix(rangeHdr, "bytes=")
+	parts := strings.Split(spec, "-")
+	start, _ = strconv.ParseInt(parts[0], 10, 64)
+	end = -1
+	if len(parts) > 1 && parts[1] != "" {
+		if e, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+			end = e
+		}
+	}
+	return start, end, true
 }
 
 // handleProxyStream intercepts audio streaming requests, serving from local cache or streaming & spooling to disk.
@@ -104,28 +123,46 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Connect to upstream YouTube CDN with matching User-Agent to prevent 403 Forbidden
-	reqUpstream, err := http.NewRequestWithContext(r.Context(), http.MethodGet, streamInfo.StreamURL, nil)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to build upstream request")
-		return
-	}
-
-	// Forward Range header if present
-	if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
-		reqUpstream.Header.Set("Range", rangeHdr)
+	upstreamURL := streamInfo.StreamURL
+	if pot := strings.TrimSpace(r.URL.Query().Get("pot")); pot != "" && !strings.Contains(upstreamURL, "&pot=") {
+		upstreamURL += "&pot=" + url.QueryEscape(pot)
 	}
 
 	// Match the User-Agent to the client profile encoded in the signed URL
 	ua := ytmusic.UserAgentIOS
-	if strings.Contains(streamInfo.StreamURL, "c=WEB_REMIX") {
+	if strings.Contains(upstreamURL, "c=WEB_REMIX") {
 		ua = ytmusic.UserAgentWebRemix
-	} else if strings.Contains(streamInfo.StreamURL, "c=TVHTML5") {
+	} else if strings.Contains(upstreamURL, "c=TVHTML5") {
 		ua = ytmusic.UserAgentTV
 	}
-	reqUpstream.Header.Set("User-Agent", ua)
+
+	// 3. Parse client Range request
+	clientStart, clientEnd, hasRange := parseRangeHeader(r.Header.Get("Range"))
+	if clientStart < 0 {
+		clientStart = 0
+	}
+
+	// Bounded chunk size accepted by YouTube CDN (avoids 403 on open-ended Range bytes=0-)
+	const upstreamChunkSize = int64(256 * 1024)
+
+	firstEnd := clientStart + upstreamChunkSize - 1
+	if clientEnd >= 0 && firstEnd > clientEnd {
+		firstEnd = clientEnd
+	}
 
 	client := &http.Client{Timeout: 60 * time.Second}
+	reqUpstream, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build upstream request")
+		return
+	}
+	reqUpstream.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", clientStart, firstEnd))
+	reqUpstream.Header.Set("User-Agent", ua)
+	if ua == ytmusic.UserAgentWebRemix {
+		reqUpstream.Header.Set("Referer", "https://music.youtube.com/")
+		reqUpstream.Header.Set("Origin", "https://music.youtube.com")
+	}
+
 	respUpstream, err := client.Do(reqUpstream)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("upstream stream connection failed: %v", err))
@@ -135,63 +172,84 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	// If 403 Forbidden with specific UA, try with WebRemix fallback
 	if respUpstream.StatusCode == http.StatusForbidden && ua != ytmusic.UserAgentWebRemix {
 		respUpstream.Body.Close()
-		reqRetry, rErr := http.NewRequestWithContext(r.Context(), http.MethodGet, streamInfo.StreamURL, nil)
+		reqRetry, rErr := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
 		if rErr == nil {
-			if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
-				reqRetry.Header.Set("Range", rangeHdr)
-			}
+			reqRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", clientStart, firstEnd))
 			reqRetry.Header.Set("User-Agent", ytmusic.UserAgentWebRemix)
+			reqRetry.Header.Set("Referer", "https://music.youtube.com/")
+			reqRetry.Header.Set("Origin", "https://music.youtube.com")
 			if retryResp, errRetry := client.Do(reqRetry); errRetry == nil && retryResp.StatusCode != http.StatusForbidden {
 				respUpstream = retryResp
+				ua = ytmusic.UserAgentWebRemix
 			}
 		}
 	}
-	defer respUpstream.Body.Close()
 
-	// 4. Mirror upstream response headers to client (excluding hop-by-hop headers)
-	hopByHop := map[string]bool{
-		"connection":          true,
-		"keep-alive":          true,
-		"proxy-authenticate":  true,
-		"proxy-authorization": true,
-		"te":                  true,
-		"trailers":            true,
-		"transfer-encoding":   true,
-		"upgrade":             true,
+	if respUpstream.StatusCode != http.StatusOK && respUpstream.StatusCode != http.StatusPartialContent {
+		writeError(w, respUpstream.StatusCode, fmt.Sprintf("upstream returned status %d", respUpstream.StatusCode))
+		respUpstream.Body.Close()
+		return
 	}
-	for k, v := range respUpstream.Header {
-		if hopByHop[strings.ToLower(k)] {
-			continue
-		}
-		for _, val := range v {
-			w.Header().Add(k, val)
+
+	// 4. Determine total file size from upstream Content-Range
+	totalSize := streamInfo.ContentLength
+	contentRangeHdr := respUpstream.Header.Get("Content-Range")
+	if slashIdx := strings.LastIndex(contentRangeHdr, "/"); slashIdx != -1 {
+		if parsedTotal, pErr := strconv.ParseInt(contentRangeHdr[slashIdx+1:], 10, 64); pErr == nil && parsedTotal > 0 {
+			totalSize = parsedTotal
 		}
 	}
+	if totalSize <= 0 {
+		totalSize = firstEnd + 1
+	}
+
+	effectiveEnd := totalSize - 1
+	if clientEnd >= 0 && clientEnd < totalSize {
+		effectiveEnd = clientEnd
+	}
+	downstreamContentLength := effectiveEnd - clientStart + 1
+	if downstreamContentLength < 0 {
+		downstreamContentLength = 0
+	}
+
+	// 5. Send downstream response headers to ExoPlayer / client
 	w.Header().Set("X-Unbound-Cache", "MISS")
 	w.Header().Set("Accept-Ranges", "bytes")
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "audio/webm; codecs=opus")
+	contentType := respUpstream.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "audio/webm; codecs=opus"
+	}
+	w.Header().Set("Content-Type", contentType)
+
+	if hasRange {
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", clientStart, effectiveEnd, totalSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(downstreamContentLength, 10))
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
+		w.WriteHeader(http.StatusOK)
 	}
 
-	w.WriteHeader(respUpstream.StatusCode)
-
 	flusher, hasFlusher := w.(http.Flusher)
-	buf := make([]byte, 32*1024)
-
-	// If streaming from byte 0, spool to disk in parallel for transparent caching
-	isFullDownload := (r.Header.Get("Range") == "" || strings.HasPrefix(r.Header.Get("Range"), "bytes=0-")) &&
-		(respUpstream.StatusCode == http.StatusOK || respUpstream.StatusCode == http.StatusPartialContent)
+	isFullDownload := (clientStart == 0 && (clientEnd < 0 || clientEnd >= totalSize-1))
 	var partFile *os.File
 	if isFullDownload {
 		partPath := cachedFile + ".part"
 		partFile, _ = os.Create(partPath)
 	}
 
+	buf := make([]byte, 32*1024)
+	bytesWritten := int64(0)
 	for {
 		n, rErr := respUpstream.Body.Read(buf)
 		if n > 0 {
 			if _, wErr := w.Write(buf[:n]); wErr != nil {
-				break
+				respUpstream.Body.Close()
+				if partFile != nil {
+					_ = partFile.Close()
+					_ = os.Remove(cachedFile + ".part")
+				}
+				return
 			}
 			if hasFlusher {
 				flusher.Flush()
@@ -199,16 +257,84 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 			if partFile != nil {
 				_, _ = partFile.Write(buf[:n])
 			}
+			bytesWritten += int64(n)
 		}
 		if rErr != nil {
 			break
 		}
 	}
+	respUpstream.Body.Close()
+
+	// 6. Stream subsequent chunks sequentially to client while spooling
+	curStart := clientStart + bytesWritten
+	for curStart <= effectiveEnd {
+		if r.Context().Err() != nil {
+			break
+		}
+		curEnd := curStart + upstreamChunkSize - 1
+		if curEnd > effectiveEnd {
+			curEnd = effectiveEnd
+		}
+		if curStart > curEnd {
+			break
+		}
+
+		reqChunk, cErr := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+		if cErr != nil {
+			break
+		}
+		reqChunk.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+		reqChunk.Header.Set("User-Agent", ua)
+		if ua == ytmusic.UserAgentWebRemix {
+			reqChunk.Header.Set("Referer", "https://music.youtube.com/")
+			reqChunk.Header.Set("Origin", "https://music.youtube.com")
+		}
+
+		respChunk, doErr := client.Do(reqChunk)
+		if doErr != nil {
+			break
+		}
+		if respChunk.StatusCode != http.StatusOK && respChunk.StatusCode != http.StatusPartialContent {
+			respChunk.Body.Close()
+			break
+		}
+
+		chunkBytes := int64(0)
+		for {
+			n, rErr := respChunk.Body.Read(buf)
+			if n > 0 {
+				if _, wErr := w.Write(buf[:n]); wErr != nil {
+					respChunk.Body.Close()
+					if partFile != nil {
+						_ = partFile.Close()
+						_ = os.Remove(cachedFile + ".part")
+					}
+					return
+				}
+				if hasFlusher {
+					flusher.Flush()
+				}
+				if partFile != nil {
+					_, _ = partFile.Write(buf[:n])
+				}
+				chunkBytes += int64(n)
+			}
+			if rErr != nil {
+				break
+			}
+		}
+		respChunk.Body.Close()
+
+		if chunkBytes == 0 {
+			break
+		}
+		curStart += chunkBytes
+	}
 
 	if partFile != nil {
 		_ = partFile.Close()
 		partPath := cachedFile + ".part"
-		if pfi, sErr := os.Stat(partPath); sErr == nil && pfi.Size() > 0 {
+		if curStart >= totalSize && totalSize > 0 {
 			_ = os.Rename(partPath, cachedFile)
 			go s.pruneAudioCacheIfNeeded(cacheDir)
 		} else {

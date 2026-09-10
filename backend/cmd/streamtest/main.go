@@ -29,6 +29,17 @@ func main() {
 		{"kJQP7kiw5Fk", "Luis Fonsi - Despacito"},
 	}
 
+	ytSearchClient := ytmusic.NewClient()
+	f1Tracks, sErr := ytSearchClient.Search(context.Background(), "MUSIC FROM F1")
+	if sErr == nil && len(f1Tracks) > 0 {
+		for _, ft := range f1Tracks[:min(3, len(f1Tracks))] {
+			testTracks = append(testTracks, struct {
+				id    string
+				title string
+			}{id: ft.ID, title: ft.Title})
+		}
+	}
+
 	tempDir, err := os.MkdirTemp("", "unbound_stream_test_*")
 	if err != nil {
 		fmt.Printf("FAIL: Cannot create temp dir: %v\n", err)
@@ -71,7 +82,7 @@ func main() {
 		fmt.Printf("  [1] GetStreamInfo: SUCCESS (took %v)\n", time.Since(startResolve).Round(time.Millisecond))
 		fmt.Printf("      Codec: %s | Bitrate: %d kbps | Duration: %d ms | Length: %d bytes\n",
 			info.Codec, info.BitrateKbps, info.DurationMs, info.ContentLength)
-		fmt.Printf("      URL prefix: %s...\n", info.StreamURL[:min(60, len(info.StreamURL))])
+		fmt.Printf("      URL: %s\n", info.StreamURL)
 
 		// 2. Direct HTTP GET to upstream StreamURL
 		startUpstream := time.Now()

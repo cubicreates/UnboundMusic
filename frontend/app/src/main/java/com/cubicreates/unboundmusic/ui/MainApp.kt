@@ -17,7 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -467,18 +471,22 @@ fun MainApp(
                     },
                     shape = RoundedCornerShape(12.dp),
                     shadowElevation = 10.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 520.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.Top
                     ) {
                         Column(
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
                         ) {
                             Text(
                                 text = if (msg.contains("Error", ignoreCase = true) || msg.contains("Fail", ignoreCase = true)) {
-                                    "DIAGNOSTIC ERROR REPORT"
+                                    "DIAGNOSTIC ERROR REPORT (FULL DETAILS)"
                                 } else {
                                     "DIAGNOSTIC STATUS"
                                 },
@@ -487,11 +495,13 @@ fun MainApp(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = msg,
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            SelectionContainer {
+                                Text(
+                                    text = msg,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(

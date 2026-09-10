@@ -22,7 +22,8 @@ import (
 // PlaybackContext defines HTML5 playback preferences.
 type PlaybackContext struct {
 	ContentPlaybackContext struct {
-		HTML5Preference string `json:"html5Preference"`
+		HTML5Preference    string `json:"html5Preference"`
+		SignatureTimestamp int    `json:"signatureTimestamp,omitempty"`
 	} `json:"contentPlaybackContext"`
 }
 
@@ -47,10 +48,13 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 		return nil, fmt.Errorf("video ID cannot be empty")
 	}
 
+	sigTimestamp := int(time.Now().Unix() / 86400)
+
 	var lastErr error
 	for _, cfg := range fallbackConfigs {
 		var pb PlaybackContext
 		pb.ContentPlaybackContext.HTML5Preference = "HTML5_PREF_WANTS"
+		pb.ContentPlaybackContext.SignatureTimestamp = sigTimestamp
 
 		body := PlayerRequestBody{
 			Context:         c.buildContext(cfg),

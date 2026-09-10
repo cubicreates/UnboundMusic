@@ -29,6 +29,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultLoadControl.DEFAULT_MAX_BUFFER_MS
@@ -78,29 +79,17 @@ class UnboundPlaybackService : MediaSessionService() {
         .followSslRedirects(true)
         .addInterceptor { chain ->
             val request = chain.request()
-            var url = request.url.toString()
+            val url = request.url.toString()
             val builder = request.newBuilder()
             if (url.contains("googlevideo.com")) {
-                val ua = when {
-                    url.contains("c=IOS") -> "com.google.ios.youtube/20.08.3 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X;)"
-                    url.contains("c=TVHTML5") -> "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15"
-                    else -> "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-                }
-                builder.header("User-Agent", ua)
-                builder.header("Referer", "https://music.youtube.com/")
-                builder.header("Origin", "https://music.youtube.com")
-
-                // SmartTube Google throttle fix: append range param if missing
-                if (!url.contains("&range=") && !url.contains("?range=")) {
-                    val rangeHdr = request.header("Range")
-                    val rangeParam = if (rangeHdr != null && rangeHdr.startsWith("bytes=")) {
-                        "range=" + rangeHdr.removePrefix("bytes=")
-                    } else {
-                        "range=0-"
-                    }
-                    val sep = if (url.contains("?")) "&" else "?"
-                    url = url + sep + rangeParam
-                    builder.url(url)
+                if (url.contains("c=WEB_REMIX")) {
+                    builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    builder.header("Referer", "https://music.youtube.com/")
+                    builder.header("Origin", "https://music.youtube.com")
+                } else if (url.contains("c=TVHTML5")) {
+                    builder.header("User-Agent", "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15")
+                } else {
+                    builder.header("User-Agent", "com.google.ios.youtube/20.08.3 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X;)")
                 }
             }
             chain.proceed(builder.build())
@@ -302,6 +291,50 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    data class DetailedErrorInfo(
+        val errorCodeName: String,
+        val summary: String,
+        val statusCode: Int?,
+        val serverBody: String?,
+        val failedUri: String?
+    )
+
+    private fun extractDetailedErrorInfo(error: PlaybackException?): DetailedErrorInfo {
+        val codeName = error?.errorCodeName ?: "UNKNOWN_ERROR"
+        var statusCode: Int? = null
+        var serverBody: String? = null
+        var failedUri: String? = null
+        var detailedSummary = error?.message ?: "Playback stream interrupted"
+
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is HttpDataSource.InvalidResponseCodeException) {
+                statusCode = current.responseCode
+                val rawBody = current.responseBody
+                if (rawBody.isNotEmpty()) {
+                    val bodyStr = String(rawBody, Charsets.UTF_8).trim()
+                    serverBody = bodyStr
+                }
+                failedUri = current.dataSpec.uri.toString()
+                val respMsg = current.responseMessage
+                detailedSummary = if (!respMsg.isNullOrBlank()) "HTTP $statusCode ($respMsg)" else "HTTP $statusCode"
+                break
+            } else if (current is HttpDataSource.HttpDataSourceException) {
+                failedUri = current.dataSpec.uri.toString()
+                detailedSummary = current.message ?: "HTTP Data Source Error"
+            }
+            current = current.cause
+        }
+
+        return DetailedErrorInfo(
+            errorCodeName = codeName,
+            summary = detailedSummary,
+            statusCode = statusCode,
+            serverBody = serverBody,
+            failedUri = failedUri
+        )
+    }
+
     private var lastFailedMediaId: String? = null
 
     /**
@@ -317,11 +350,29 @@ class UnboundPlaybackService : MediaSessionService() {
         val artist = currentItem.mediaMetadata.artist?.toString() ?: ""
         val currentUri = currentItem.localConfiguration?.uri?.toString() ?: ""
 
-        val errCode = originalError?.errorCodeName ?: "UNKNOWN_ERROR"
-        val errMsg = originalError?.message ?: originalError?.cause?.message ?: "Playback stream interrupted"
+        val info = extractDetailedErrorInfo(originalError)
+        val errCode = if (info.statusCode != null) "HTTP_${info.statusCode}" else info.errorCodeName
+        val errMsg = info.summary
 
         if (mediaId == lastFailedMediaId) {
             Log.w(TAG, "Stream fallback already attempted for $mediaId, halting to avoid loop.")
+            val uriSnippet = currentUri
+            val fullReport = buildString {
+                append("Playback Failed Completely:\n")
+                append("Track: '$title'\n")
+                append("Status: ${if (info.statusCode != null) "HTTP ${info.statusCode}" else info.errorCodeName}\n")
+                append("Cause: $errMsg\n")
+                if (!info.serverBody.isNullOrBlank()) {
+                    append("Body: ${info.serverBody}\n")
+                }
+                append("URI: $uriSnippet")
+            }
+            Log.e(TAG, fullReport)
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                applicationContext,
+                fullReport,
+                isLong = true
+            )
             return
         }
         lastFailedMediaId = mediaId
@@ -360,10 +411,10 @@ class UnboundPlaybackService : MediaSessionService() {
                         val direct = json.optString("direct_stream_url", "")
                         fallbackUrl = if (direct.isNotBlank()) direct else json.optString("stream_url", "")
                         if (fallbackUrl.isBlank()) {
-                            fallbackErrorReason = "Engine returned no stream URL: ${body.take(80)}"
+                            fallbackErrorReason = "Engine returned no stream URL: $body"
                         }
                     } else {
-                        fallbackErrorReason = "Engine returned HTTP ${resp.code}: ${body.take(80)}"
+                        fallbackErrorReason = "Engine returned HTTP ${resp.code}: $body"
                     }
                 } catch (e: Exception) {
                     fallbackErrorReason = "Cannot connect to engine at 127.0.0.1:45731: ${e.message}"
@@ -391,9 +442,18 @@ class UnboundPlaybackService : MediaSessionService() {
                     val fromSource = if (isCurrentUriProxy) "Localhost Engine Proxy" else "Direct YouTube CDN"
                     Log.i(TAG, "Stream failed on $fromSource ($errCode). Falling back to $fallbackTargetDesc: $fallbackUrl")
                     val notice = buildString {
-                        append("Stream Failed on $fromSource ($errCode):\n")
+                        append("Stream Failed on $fromSource")
+                        if (info.statusCode != null) {
+                            append(" (HTTP ${info.statusCode})")
+                        } else {
+                            append(" ($errCode)")
+                        }
+                        append(":\n")
                         append("Cause: $errMsg\n")
-                        append("-> Falling back to $fallbackTargetDesc...")
+                        if (!info.serverBody.isNullOrBlank()) {
+                            append("Body: ${info.serverBody}\n")
+                        }
+                        append("-> Falling back to $fallbackTargetDesc")
                     }
                     com.cubicreates.unboundmusic.util.UnboundToast.show(
                         applicationContext,
@@ -415,12 +475,15 @@ class UnboundPlaybackService : MediaSessionService() {
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    val uriSnippet = if (currentUri.length > 50) currentUri.take(25) + "..." + currentUri.takeLast(20) else currentUri
+                    val uriSnippet = currentUri
                     val fullReport = buildString {
                         append("Playback Error ($errCode):\n")
                         append("Track: '$title'\n")
                         append("Failed URL: $uriSnippet\n")
                         append("Cause: $errMsg\n")
+                        if (!info.serverBody.isNullOrBlank()) {
+                            append("Body: ${info.serverBody}\n")
+                        }
                         if (fallbackErrorReason.isNotBlank()) {
                             append("Fallback Failed: $fallbackErrorReason")
                         } else {

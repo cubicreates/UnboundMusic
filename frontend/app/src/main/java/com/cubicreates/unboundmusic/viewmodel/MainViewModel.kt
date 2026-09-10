@@ -728,23 +728,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val resolved = json.optString("stream_url", "")
                     val streamType = json.optString("stream_type", "REMOTE")
 
-                    // Prefer direct YouTube CDN stream URL, fallback to resolved or localhost proxy
+                    // Prefer local cached file, then localhost proxy (bounded chunking prevents CDN 403), then direct CDN
                     val finalUrl = when {
-                        direct.isNotBlank() && direct.startsWith("http") -> direct
-                        resolved.isNotBlank() && (resolved.startsWith("http") || resolved.startsWith("file://") || resolved.startsWith("content://")) -> resolved
+                        resolved.isNotBlank() && (resolved.startsWith("file://") || resolved.startsWith("content://")) -> resolved
                         proxy.isNotBlank() && proxy.startsWith("http") -> proxy
+                        direct.isNotBlank() && direct.startsWith("http") -> direct
+                        resolved.isNotBlank() && resolved.startsWith("http") -> resolved
                         else -> ""
                     }
 
                     if (finalUrl.isNotBlank()) {
                         Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
-                        _streamDebugMessage.value = "Stream ready: $streamType (${finalUrl.take(45)}...)"
+                        _streamDebugMessage.value = "Stream ready: $streamType ($finalUrl)"
                         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Stream Ready: $streamType", isLong = false)
                         return finalUrl
                     }
                 } else {
                     Log.w(TAG, "Daemon stream resolution error attempt $attempt: code=$code, resp=$resp")
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Daemon error (try $attempt/5): code=$code\n${resp.take(80)}")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Daemon error (try $attempt/5): code=$code\n$resp")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
@@ -773,12 +774,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val (streamCode, streamResp) = client.getStream(videoId = matchId)
                             if (streamCode in 200..299 && streamResp.isNotBlank()) {
                                 val json = JSONObject(streamResp)
+                                val proxy = json.optString("proxy_stream_url", "")
                                 val resolved = json.optString("stream_url", "")
-                                if (resolved.isNotBlank()) {
-                                    Log.i(TAG, "Stream resolved via search fallback for '${track.title}'")
+                                val target = if (proxy.isNotBlank() && proxy.startsWith("http")) proxy else resolved
+                                if (target.isNotBlank()) {
+                                    Log.i(TAG, "Stream resolved via search fallback for '${track.title}' -> $target")
                                     _streamDebugMessage.value = "Stream resolved via search match for '${track.title}'"
                                     com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolved via YouTube search!", isLong = false)
-                                    return resolved
+                                    return target
                                 }
                             }
                             // Direct localhost proxy fallback for matched video ID

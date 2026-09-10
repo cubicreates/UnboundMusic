@@ -580,10 +580,6 @@ class ServiceConnection private constructor(private val context: Context) {
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = syncState()
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "ExoPlayer playback error: ${error.errorCodeName} (${error.errorCode}): ${error.message}", error)
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                context,
-                "Playback Error: ${error.errorCodeName} (code=${error.errorCode})\n${error.message}"
-            )
             syncState()
         }
     }

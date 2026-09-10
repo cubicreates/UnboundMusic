@@ -126,6 +126,34 @@ func TestStreamWithLookahead(t *testing.T) {
 	}
 }
 
+func TestLiveProxyStreamOpenEnded(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45739,
+		DatabasePath:   filepath.Join(tempDir, "test_open_proxy.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Test with open-ended Range bytes=0- (ExoPlayer default!)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/stream?id=T6eK-2OQtew", nil)
+	req.Header.Set("Range", "bytes=0-")
+	w := httptest.NewRecorder()
+	srv.handleProxyStream(w, req)
+
+	resp := w.Result()
+	t.Logf("Open-ended Range bytes=0- response: status=%d, bodyLen=%d", resp.StatusCode, w.Body.Len())
+	if resp.StatusCode == http.StatusForbidden {
+		t.Errorf("FAILED: Proxy returned HTTP 403 Forbidden on bytes=0-")
+	}
+}
+
 func TestLiveProxyStream(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := Config{
@@ -154,6 +182,34 @@ func TestLiveProxyStream(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Errorf("expected non-empty body from live proxy stream")
+	}
+}
+
+func TestLiveProxyStreamWithTitle(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45738,
+		DatabasePath:   filepath.Join(tempDir, "test_title_proxy.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Test with a song title that has spaces/dots
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/stream?id=I+Knew+You+Were+Trouble.+Taylor+Swift", nil)
+	req.Header.Set("Range", "bytes=0-1024")
+	w := httptest.NewRecorder()
+	srv.handleProxyStream(w, req)
+
+	resp := w.Result()
+	t.Logf("Live title proxy stream response: status=%d, body=%s", resp.StatusCode, w.Body.String())
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		t.Errorf("expected 200 or 206 from proxy with title query, got %d: %s", resp.StatusCode, w.Body.String())
 	}
 }
 

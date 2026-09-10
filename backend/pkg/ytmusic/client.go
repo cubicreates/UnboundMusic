@@ -38,10 +38,12 @@ type ClientContext struct {
 		ClientVersion string `json:"clientVersion"`
 		Hl            string `json:"hl"`
 		Gl            string `json:"gl"`
+		ClientScreen  string `json:"clientScreen,omitempty"`
 		DeviceMake    string `json:"deviceMake,omitempty"`
 		DeviceModel   string `json:"deviceModel,omitempty"`
 		OsName        string `json:"osName,omitempty"`
 		OsVersion     string `json:"osVersion,omitempty"`
+		VisitorData   string `json:"visitorData,omitempty"`
 	} `json:"client"`
 }
 
@@ -158,6 +160,19 @@ var (
 		UserAgent:   UserAgentTV,
 		BaseURL:     "https://www.youtube.com/youtubei/v1",
 		XClientName: "85",
+	}
+
+	ConfigVisionOS = ClientConfig{
+		Name:        "VISIONOS",
+		Version:     "1.02",
+		APIKey:      "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
+		UserAgent:   "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+		BaseURL:     "https://www.youtube.com/youtubei/v1",
+		XClientName: "101",
+		DeviceMake:  "Apple",
+		DeviceModel: "VisionPro",
+		OSName:      "visionOS",
+		OSVersion:   "1.02",
 	}
 )
 

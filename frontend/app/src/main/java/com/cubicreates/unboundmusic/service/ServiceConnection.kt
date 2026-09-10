@@ -426,7 +426,13 @@ class ServiceConnection private constructor(private val context: Context) {
 
     fun insertNext(track: TrackItem) {
         val ctrl = controller ?: return
-        val url = track.streamUrl.ifBlank { "http://127.0.0.1:45731/api/v1/stream?title=${track.title}&artist=${track.artist}" }
+        val url = if (track.streamUrl.isNotBlank() && !track.streamUrl.contains("/api/v1/stream?")) {
+            track.streamUrl
+        } else if (track.id.isNotBlank() && !track.id.startsWith("local:")) {
+            "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+        } else {
+            track.streamUrl
+        }
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id.ifBlank { track.title })
             .setUri(Uri.parse(url))
@@ -451,7 +457,13 @@ class ServiceConnection private constructor(private val context: Context) {
 
     fun addToQueue(track: TrackItem) {
         val ctrl = controller ?: return
-        val url = track.streamUrl.ifBlank { "http://127.0.0.1:45731/api/v1/stream?title=${track.title}&artist=${track.artist}" }
+        val url = if (track.streamUrl.isNotBlank() && !track.streamUrl.contains("/api/v1/stream?")) {
+            track.streamUrl
+        } else if (track.id.isNotBlank() && !track.id.startsWith("local:")) {
+            "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+        } else {
+            track.streamUrl
+        }
         val mediaItem = MediaItem.Builder()
             .setMediaId(track.id.ifBlank { track.title })
             .setUri(Uri.parse(url))

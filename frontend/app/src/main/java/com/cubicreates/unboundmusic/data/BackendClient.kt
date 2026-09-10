@@ -825,7 +825,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                         album = t.optString("album", ""),
                         durationMs = t.optLong("duration_ms", 0L),
                         coverUrl = t.optString("thumbnail_url", ""),
-                        streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=$id",
+                        streamUrl = "",
                         source = "YouTube Liked"
                     )
                 )
@@ -853,7 +853,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                             album = t.optString("album", ""),
                             durationMs = t.optLong("duration_ms", 0L),
                             coverUrl = t.optString("thumbnail_url", ""),
-                            streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=$id",
+                            streamUrl = "",
                             source = "Cascade Search"
                         )
                     )

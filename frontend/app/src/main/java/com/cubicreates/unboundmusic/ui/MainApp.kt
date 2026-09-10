@@ -29,6 +29,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
@@ -430,6 +443,54 @@ fun MainApp(
                     }
                 }
             )
+        }
+
+        // Persistent Diagnostic Toast HUD Banner Overlay
+        val diagnosticMessage by com.cubicreates.unboundmusic.util.UnboundToast.lastDiagnostic.collectAsStateWithLifecycle()
+        diagnosticMessage?.let { msg ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Surface(
+                    color = if (msg.contains("Error", ignoreCase = true) ||
+                                msg.contains("Fail", ignoreCase = true) ||
+                                msg.contains("FATAL", ignoreCase = true) ||
+                                msg.contains("Exception", ignoreCase = true)) {
+                        Color(0xFFB71C1C)
+                    } else {
+                        Color(0xFF1E293B)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.clickable { com.cubicreates.unboundmusic.util.UnboundToast.clear() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = msg,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = { com.cubicreates.unboundmusic.util.UnboundToast.clear() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

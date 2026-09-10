@@ -702,10 +702,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Retries up to 5 times if the daemon is cold-starting.
      */
     private suspend fun resolveStreamUrl(track: TrackItem): String {
-        // If the track already has a local file://, content://, localhost proxy, or valid http stream, use it directly
+        // If the track already has a local file://, content://, localhost proxy audio stream, or valid http stream, use it directly
         if (track.streamUrl.startsWith("file://") ||
             track.streamUrl.startsWith("content://") ||
-            track.streamUrl.contains("127.0.0.1") ||
+            (track.streamUrl.contains("127.0.0.1") && track.streamUrl.contains("/proxy/stream")) ||
             (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
             com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing direct URL for '${track.title}'", isLong = false)
             return track.streamUrl
@@ -2020,7 +2020,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             title = item.title,
             artist = item.subtitle.ifBlank { _selectedGenreTitle.value },
             coverUrl = item.thumbnailUrl,
-            streamUrl = "http://127.0.0.1:45731/api/v1/stream?id=${item.playlistId}",
+            streamUrl = "",
             source = "Genre Explore"
         )
         playTrack(track)

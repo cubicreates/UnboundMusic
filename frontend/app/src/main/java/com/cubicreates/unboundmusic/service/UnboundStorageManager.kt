@@ -132,28 +132,53 @@ object UnboundStorageManager {
     }
 
     /**
-     * Canonical user-visible public Unbound folder located in standard Android external storage:
-     * 1. Primary: /storage/emulated/0/Music/Unbound (fully visible in all file managers, standard audio directory)
-     * 2. Secondary mirror: /storage/emulated/0/Unbound (visible at internal storage root)
-     * Subdirectories: Downloads/, Music/, Playlists/, Recaps/
+     * Cleans up legacy /Music/Unbound and /Unbound folders from earlier development versions.
+     */
+    fun cleanupLegacyStorageFolders() {
+        try {
+            val extStorage = Environment.getExternalStorageDirectory()
+            if (extStorage != null && extStorage.exists()) {
+                val oldMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
+                if (oldMusic != null && oldMusic.exists()) {
+                    val oldMusicUnbound = File(oldMusic, "Unbound")
+                    if (oldMusicUnbound.exists()) {
+                        Log.i(TAG, "Removing obsolete legacy folder: ${oldMusicUnbound.absolutePath}")
+                        oldMusicUnbound.deleteRecursively()
+                    }
+                }
+                val oldRootUnbound = File(extStorage, "Unbound")
+                if (oldRootUnbound.exists()) {
+                    Log.i(TAG, "Removing obsolete legacy root mirror: ${oldRootUnbound.absolutePath}")
+                    oldRootUnbound.deleteRecursively()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Legacy storage cleanup notice: ${e.message}")
+        }
+    }
+
+    /**
+     * Canonical user-visible public Unbound folder located in standard Android Downloads storage:
+     * Path: /storage/emulated/0/Download/Unbound
+     * Subdirectories: Downloads/, Music/, Playlists/, Recaps/, README.txt
      */
     fun getPublicUnboundDir(context: Context? = null): File {
-        val publicMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-        val primaryDir = if (publicMusic != null && (publicMusic.exists() || publicMusic.mkdirs())) {
-            File(publicMusic, "Unbound")
+        val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val targetDir = if (publicDownloads != null && (publicDownloads.exists() || publicDownloads.mkdirs())) {
+            File(publicDownloads, "Unbound")
         } else {
             val extStorage = Environment.getExternalStorageDirectory()
             if (extStorage != null && extStorage.exists()) {
-                File(extStorage, "Unbound")
+                File(File(extStorage, "Download"), "Unbound")
             } else {
-                File("/storage/emulated/0/Music/Unbound")
+                File("/storage/emulated/0/Download/Unbound")
             }
         }
 
-        if (!primaryDir.exists()) {
-            primaryDir.mkdirs()
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
         }
-        return primaryDir
+        return targetDir
     }
 
     /**
@@ -200,17 +225,14 @@ object UnboundStorageManager {
 
     /**
      * Deploys and provisions the complete visible Unbound storage structure on install / cold start.
-     * Guarantees that the Unbound folder appears in the Phone File Manager under both:
-     * 1. /storage/emulated/0/Music/Unbound
-     * 2. /storage/emulated/0/Unbound
-     * Each provisioned with Downloads/, Music/, Playlists/, Recaps/, and README.txt.
+     * Provisions the single public Unbound folder under /storage/emulated/0/Download/Unbound
+     * with Downloads/, Music/, Playlists/, Recaps/, and README.txt.
      */
     fun deployUnboundStorage(context: Context): File {
         val publicRoot = getPublicUnboundDir(context)
         val subDirs = listOf("Downloads", "Music", "Playlists", "Recaps")
         val readmeText = "Unbound Music Storage\n\nThis directory contains your offline music, downloads, playlists, and recaps.\nFiles placed in the Music or Downloads folders are automatically indexed and available offline.\n"
 
-        // Provision Primary: /storage/emulated/0/Music/Unbound
         try {
             if (!publicRoot.exists()) {
                 publicRoot.mkdirs()
@@ -229,35 +251,10 @@ object UnboundStorageManager {
             scanPathWithMediaScanner(context, infoFile.absolutePath)
             scanPathWithMediaScanner(context, publicRoot.absolutePath)
         } catch (e: Exception) {
-            Log.w(TAG, "Error provisioning primary Unbound storage: ${e.message}")
+            Log.w(TAG, "Error provisioning public Unbound storage: ${e.message}")
         }
 
-        // Provision Secondary Mirror: /storage/emulated/0/Unbound (visible at internal storage root)
-        try {
-            val extStorage = Environment.getExternalStorageDirectory()
-            if (extStorage != null && extStorage.exists()) {
-                val rootMirror = File(extStorage, "Unbound")
-                if (!rootMirror.exists()) {
-                    rootMirror.mkdirs()
-                }
-                for (sub in subDirs) {
-                    val s = File(rootMirror, sub)
-                    if (!s.exists()) {
-                        s.mkdirs()
-                    }
-                    scanPathWithMediaScanner(context, s.absolutePath)
-                }
-                val infoFile = File(rootMirror, "README.txt")
-                if (!infoFile.exists()) {
-                    infoFile.writeText(readmeText)
-                }
-                scanPathWithMediaScanner(context, infoFile.absolutePath)
-                scanPathWithMediaScanner(context, rootMirror.absolutePath)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error provisioning root mirror Unbound storage: ${e.message}")
-        }
-
+        cleanupLegacyStorageFolders()
         cleanupOrphanBackendFromPublic()
 
         Log.i(TAG, "Unbound storage successfully deployed to visible public storage: ${publicRoot.absolutePath}")

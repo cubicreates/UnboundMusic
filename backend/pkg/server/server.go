@@ -281,8 +281,8 @@ func NewServer(cfg Config) (*Server, error) {
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
 		Handler:      RecoveryMiddleware(corsMiddleware(mux)),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 0, // Disabled: audio proxy streams can stay open for the entire track duration
 	}
 
 	return s, nil
@@ -308,8 +308,8 @@ func (s *Server) Start() error {
 			s.udsListener = l
 			s.udsServer = &http.Server{
 				Handler:      s.httpServer.Handler,
-				ReadTimeout:  15 * time.Second,
-				WriteTimeout: 30 * time.Second,
+				ReadTimeout:  60 * time.Second,
+				WriteTimeout: 0, // Disabled: audio proxy streams can stay open for the entire track duration
 			}
 			go func() {
 				if err := s.udsServer.Serve(l); err != nil && err != http.ErrServerClosed {

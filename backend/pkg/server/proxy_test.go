@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestProxyCacheHitAndRange(t *testing.T) {
@@ -153,5 +154,26 @@ func TestLiveProxyStream(t *testing.T) {
 	}
 	if w.Body.Len() == 0 {
 		t.Errorf("expected non-empty body from live proxy stream")
+	}
+}
+
+func TestProxyStreamNoTimeout(t *testing.T) {
+	tempDir := t.TempDir()
+	srv, err := NewServer(Config{
+		Port:           45788,
+		DatabasePath:   filepath.Join(tempDir, "test.db"),
+		LibraryRoot:    filepath.Join(tempDir, "library"),
+		AppStorageRoot: filepath.Join(tempDir, "storage"),
+	})
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	if srv.httpServer.WriteTimeout != 0 {
+		t.Errorf("expected httpServer.WriteTimeout to be 0 for streaming, got %v", srv.httpServer.WriteTimeout)
+	}
+	if srv.httpServer.ReadTimeout < 30*time.Second {
+		t.Errorf("expected ReadTimeout >= 30s, got %v", srv.httpServer.ReadTimeout)
 	}
 }

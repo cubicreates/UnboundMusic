@@ -64,6 +64,10 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extend write deadline specifically for streaming connections to prevent socket timeout mid-track
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(15 * time.Minute))
+
 	cacheDir := s.getAudioCacheDir()
 	cachedFile := filepath.Join(cacheDir, videoID+".opus")
 

@@ -126,7 +126,7 @@ func (rg *RadioGenerator) GenerateMagicRadio(ctx context.Context, localHour int,
 }
 
 // resolveSeedTrack selects an optimal seed based on explicit ID, highest affinity artist, or charts.
-func (rg *RadioGenerator) resolveSeedTrack(ctx context.Context, localHour int, seedTrackID string) (models.TrackItem, error) {
+func (rg *RadioGenerator) resolveSeedTrack(ctx context.Context, _ int, seedTrackID string) (models.TrackItem, error) {
 	if seedTrackID != "" {
 		return models.TrackItem{
 			ID:     seedTrackID,

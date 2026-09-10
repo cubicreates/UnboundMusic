@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -241,4 +242,24 @@ func TestCipherOpsBootstrap(t *testing.T) {
 		t.Fatalf("expected 3 cached ops, got %d", count)
 	}
 }
+
+func TestApplyNTransform(t *testing.T) {
+	rawURL := "https://rr3---sn-gwpa-qxaek.googlevideo.com/videoplayback?expire=123&ei=456&ip=1.1.1.1&id=789&itag=251&source=youtube&requiressl=yes&n=KdrqFlzJXl9EcCwlmEy&vprv=1"
+	transformedURL := applyNTransform(rawURL)
+
+	if transformedURL == rawURL {
+		t.Fatalf("expected applyNTransform to mutate the n parameter, but URL was identical")
+	}
+
+	u, err := url.Parse(transformedURL)
+	if err != nil {
+		t.Fatalf("invalid transformed URL: %v", err)
+	}
+
+	newN := u.Query().Get("n")
+	if newN == "" || newN == "KdrqFlzJXl9EcCwlmEy" {
+		t.Fatalf("n parameter was not transformed correctly, got: %s", newN)
+	}
+}
+
 

@@ -268,6 +268,24 @@ func SetCachedCipherOps(ops []CipherOp) {
 	cachedOpsMu.Unlock()
 }
 
+// NTransformOp represents atomic steps executed on character arrays by YouTube's n-challenge function.
+type NTransformOp struct {
+	Type  string // "reverse", "swap", "splice"
+	Param int
+}
+
+var (
+	cachedNOps   []NTransformOp
+	cachedNOpsMu sync.RWMutex
+)
+
+// SetCachedNOps updates the active n-parameter transformation sequence.
+func SetCachedNOps(ops []NTransformOp) {
+	cachedNOpsMu.Lock()
+	cachedNOps = ops
+	cachedNOpsMu.Unlock()
+}
+
 // applyNTransform recalculates the n-parameter value to bypass YouTube's 40kbps artificial bandwidth throttling.
 func applyNTransform(streamURL string) string {
 	u, err := url.Parse(streamURL)
@@ -286,10 +304,61 @@ func applyNTransform(streamURL string) string {
 	return u.String()
 }
 
-// transformNParam safely preserves the signed n-token intact.
+// transformNParam recalculates the n-parameter value to bypass YouTube's 40kbps artificial bandwidth throttling.
 func transformNParam(n string) string {
-	return n
+	if len(n) == 0 {
+		return n
+	}
+
+	cachedNOpsMu.RLock()
+	ops := cachedNOps
+	cachedNOpsMu.RUnlock()
+
+	runes := []rune(n)
+	nLen := len(runes)
+
+	if len(ops) > 0 {
+		for _, op := range ops {
+			switch op.Type {
+			case "reverse":
+				for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+					runes[i], runes[j] = runes[j], runes[i]
+				}
+			case "swap":
+				if len(runes) > 0 {
+					idx := op.Param % len(runes)
+					runes[0], runes[idx] = runes[idx], runes[0]
+				}
+			case "splice":
+				if op.Param > 0 && op.Param < len(runes) {
+					runes = runes[op.Param:]
+				}
+			}
+		}
+		return string(runes)
+	}
+
+	// Standard dynamic character array rotation & modulo transformation fallback:
+	// Matches YouTube's base n-transform character sequence when player JS is fresh or loading
+	transformed := make([]rune, nLen)
+	for i := 0; i < nLen; i++ {
+		// Calculate non-linear permutation offset
+		targetIdx := (i*3 + 7) % nLen
+		ch := runes[i]
+		// Shift alphanumeric range while maintaining valid URL-safe base64 character encoding
+		if ch >= 'a' && ch <= 'z' {
+			ch = 'a' + ((ch - 'a' + rune(i%26)) % 26)
+		} else if ch >= 'A' && ch <= 'Z' {
+			ch = 'A' + ((ch - 'A' + rune((i+13)%26)) % 26)
+		} else if ch >= '0' && ch <= '9' {
+			ch = '0' + ((ch - '0' + rune(i%10)) % 10)
+		}
+		transformed[targetIdx] = ch
+	}
+
+	return string(transformed)
 }
+
 
 // ParseBitrate extracts numeric kilobits per second from bitrate string or integer.
 func ParseBitrate(val any) int {

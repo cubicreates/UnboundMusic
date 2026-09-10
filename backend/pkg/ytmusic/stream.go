@@ -166,9 +166,12 @@ func parsePlayerResponse(videoID string, data []byte) (*models.StreamInfo, error
 
 	expiresAt := time.Now().Add(6 * time.Hour)
 
+	// Apply N-transform to prevent YouTube 40kbps stream throttling
+	finalStreamURL := applyNTransform(decipheredURL)
+
 	return &models.StreamInfo{
 		VideoID:       videoID,
-		StreamURL:     decipheredURL,
+		StreamURL:     finalStreamURL,
 		Codec:         codec,
 		BitrateKbps:   bestBitrate,
 		SampleRate:    sampleRate,

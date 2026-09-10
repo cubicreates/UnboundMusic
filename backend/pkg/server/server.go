@@ -288,6 +288,15 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// ServeHTTP delegates request handling to the configured middleware pipeline and multiplexer.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.httpServer != nil && s.httpServer.Handler != nil {
+		s.httpServer.Handler.ServeHTTP(w, r)
+	} else {
+		http.NotFound(w, r)
+	}
+}
+
 // Start begins listening on the configured localhost address and/or Unix domain socket.
 func (s *Server) Start() error {
 	if s.cfg.SocketPath != "" {
@@ -475,6 +484,17 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// For remote audio streams, provide both the direct YouTube CDN signed URL and the local reverse proxy URL.
+	if stream.StreamType != router.StreamTypeLocalZeroData && stream.TrackID != "" {
+		stream.ProxyStreamURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/proxy/stream?id=%s", s.cfg.Port, stream.TrackID)
+		if stream.DirectStreamURL == "" {
+			stream.DirectStreamURL = stream.StreamURL
+		}
+		if r.URL.Query().Get("proxy") == "true" {
+			stream.StreamURL = stream.ProxyStreamURL
+		}
 	}
 
 	writeJSON(w, http.StatusOK, stream)

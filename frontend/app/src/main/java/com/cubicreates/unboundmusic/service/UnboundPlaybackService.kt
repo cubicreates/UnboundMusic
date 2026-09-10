@@ -39,12 +39,8 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
-import androidx.media3.extractor.flac.FlacExtractor
-import androidx.media3.extractor.mkv.MatroskaExtractor
-import androidx.media3.extractor.mp4.FragmentedMp4Extractor
-import androidx.media3.extractor.mp4.Mp4Extractor
-import androidx.media3.extractor.text.DefaultSubtitleParserFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -80,6 +76,35 @@ class UnboundPlaybackService : MediaSessionService() {
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            var url = request.url.toString()
+            val builder = request.newBuilder()
+            if (url.contains("googlevideo.com")) {
+                val ua = when {
+                    url.contains("c=IOS") -> "com.google.ios.youtube/20.08.3 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X;)"
+                    url.contains("c=TVHTML5") -> "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15"
+                    else -> "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+                }
+                builder.header("User-Agent", ua)
+                builder.header("Referer", "https://music.youtube.com/")
+                builder.header("Origin", "https://music.youtube.com")
+
+                // SmartTube Google throttle fix: append range param if missing
+                if (!url.contains("&range=") && !url.contains("?range=")) {
+                    val rangeHdr = request.header("Range")
+                    val rangeParam = if (rangeHdr != null && rangeHdr.startsWith("bytes=")) {
+                        "range=" + rangeHdr.removePrefix("bytes=")
+                    } else {
+                        "range=0-"
+                    }
+                    val sep = if (url.contains("?")) "&" else "?"
+                    url = url + sep + rangeParam
+                    builder.url(url)
+                }
+            }
+            chain.proceed(builder.build())
+        }
         .build()
 
     companion object {
@@ -132,15 +157,8 @@ class UnboundPlaybackService : MediaSessionService() {
             }
         )
 
-        // 1. SimpMusic ExtractorsFactory: direct audio extractors without forcing constant bitrate seeking
-        val extractorsFactory = ExtractorsFactory {
-            arrayOf(
-                FlacExtractor(FlacExtractor.FLAG_DISABLE_ID3_METADATA),
-                MatroskaExtractor(DefaultSubtitleParserFactory()),
-                FragmentedMp4Extractor(DefaultSubtitleParserFactory()),
-                Mp4Extractor(DefaultSubtitleParserFactory())
-            )
-        }
+        // 1. Universal ExtractorsFactory: supports WebM Opus, MP4 AAC, Ogg, MP3, FLAC, WAV with CBR seeking
+        val extractorsFactory = DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)
 
         // 2. SimpMusic DataSourceFactory with mobile User-Agent and redirect support
         val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
@@ -148,7 +166,7 @@ class UnboundPlaybackService : MediaSessionService() {
         val dataSourceFactory = DefaultDataSource.Factory(this, okHttpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        // 3. SimpMusic RenderersFactory with DSP AudioSink chain (EQ, Fade, Crossfade, Sonic)
+        // 3. SimpMusic RenderersFactory with robust AudioSink chain (SimpMusic reference)
         val renderersFactory = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(
                 context: Context,
@@ -160,14 +178,8 @@ class UnboundPlaybackService : MediaSessionService() {
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                     .setAudioProcessorChain(
                         DefaultAudioSink.DefaultAudioProcessorChain(
-                            arrayOf(equalizerProcessor, sleepFadeProcessor, crossfadeProcessor),
-                            SilenceSkippingAudioProcessor(
-                                2_000_000,
-                                (20_000 / 2_000_000).toFloat(),
-                                2_000_000,
-                                0,
-                                256
-                            ),
+                            emptyArray(),
+                            SilenceSkippingAudioProcessor(),
                             SonicAudioProcessor()
                         )
                     )
@@ -203,7 +215,7 @@ class UnboundPlaybackService : MediaSessionService() {
         exoPlayer?.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 Log.i(TAG, "onMediaItemTransition: title=${mediaItem?.mediaMetadata?.title}, id=${mediaItem?.mediaId}, uri=${mediaItem?.localConfiguration?.uri}")
-                proxyFallbackAttempted = false
+                lastFailedMediaId = null
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -282,46 +294,71 @@ class UnboundPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    private var proxyFallbackAttempted = false
+    private var lastFailedMediaId: String? = null
 
     /**
      * Seamlessly recovers from 403 Forbidden or expired YouTube CDN streams by redirecting
      * the player to the local embedded Go daemon streaming proxy on 127.0.0.1.
+     */
+    /**
+     * Seamlessly recovers from stream errors by switching between the direct YouTube CDN stream
+     * and the local embedded Go daemon streaming proxy on 127.0.0.1.
      */
     private fun fallbackToProxyStream() {
         val player = exoPlayer ?: return
         val currentItem = player.currentMediaItem ?: return
         val currentPos = player.currentPosition
         val mediaId = currentItem.mediaId
+        val currentUri = currentItem.localConfiguration?.uri?.toString() ?: ""
 
-        if (proxyFallbackAttempted) {
-            Log.w(TAG, "Proxy fallback already attempted for $mediaId, halting to avoid loop.")
+        if (mediaId == lastFailedMediaId) {
+            Log.w(TAG, "Stream fallback already attempted for $mediaId, halting to avoid loop.")
             return
         }
-        proxyFallbackAttempted = true
+        lastFailedMediaId = mediaId
 
         if (mediaId.isBlank() || mediaId.startsWith("local:") || mediaId.startsWith("file://") || mediaId.startsWith("content://")) {
             Log.w(TAG, "Cannot proxy local/file mediaId: $mediaId")
             return
         }
 
-        val proxyUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
-        Log.i(TAG, "Switching to resilient localhost proxy stream for '$mediaId' at $currentPos ms...")
-
-        serviceScope.launch(Dispatchers.Main) {
-            val uri = Uri.parse(proxyUrl)
-            val newItem = currentItem.buildUpon()
-                .setUri(uri)
-                .setRequestMetadata(
-                    currentItem.requestMetadata.buildUpon()
-                        .setMediaUri(uri)
+        serviceScope.launch(Dispatchers.IO) {
+            val fallbackUrl = if (currentUri.contains("127.0.0.1") || currentUri.contains("localhost")) {
+                // Localhost proxy failed, query daemon for direct signed stream URL
+                try {
+                    val client = okhttp3.OkHttpClient()
+                    val req = okhttp3.Request.Builder()
+                        .url("http://127.0.0.1:45731/api/v1/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}")
                         .build()
-                )
-                .build()
-            player.setMediaItem(newItem, currentPos)
-            player.prepare()
-            player.play()
-            Log.i(TAG, "Proxy fallback stream active for $mediaId.")
+                    val resp = client.newCall(req).execute()
+                    val body = resp.body?.string() ?: ""
+                    if (resp.isSuccessful && body.isNotBlank()) {
+                        val json = JSONObject(body)
+                        val direct = json.optString("direct_stream_url", "")
+                        if (direct.isNotBlank()) direct else json.optString("stream_url", "")
+                    } else ""
+                } catch (_: Exception) { "" }
+            } else {
+                "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+            }
+
+            if (fallbackUrl.isNotBlank() && fallbackUrl != currentUri) {
+                withContext(Dispatchers.Main) {
+                    Log.i(TAG, "Executing resilient stream fallback for '$mediaId' to $fallbackUrl at $currentPos ms...")
+                    val uri = Uri.parse(fallbackUrl)
+                    val newItem = currentItem.buildUpon()
+                        .setUri(uri)
+                        .setRequestMetadata(
+                            currentItem.requestMetadata.buildUpon()
+                                .setMediaUri(uri)
+                                .build()
+                        )
+                        .build()
+                    player.setMediaItem(newItem, currentPos)
+                    player.prepare()
+                    player.play()
+                }
+            }
         }
     }
 
@@ -355,12 +392,17 @@ class UnboundPlaybackService : MediaSessionService() {
             val mediaId = item.mediaId
 
             val finalUri: Uri? = when {
-                candidateUri != null -> candidateUri
-                mediaId.startsWith("http://") || mediaId.startsWith("https://") || mediaId.startsWith("file://") || mediaId.startsWith("content://") -> Uri.parse(mediaId)
+                // If candidate URI is already provided and non-blank (direct googlevideo.com, localhost proxy, or file/content URI), use it directly!
+                candidateUri != null && candidateUri.toString().isNotBlank() -> {
+                    Log.i(TAG, "Playing provided stream URI for $mediaId: $candidateUri")
+                    candidateUri
+                }
+                // If mediaId is an 11-char YouTube ID and no URI was provided, route through localhost proxy
                 mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.startsWith("local:") -> {
-                    Log.i(TAG, "Resolving bare YouTube mediaId ($mediaId) to localhost streaming proxy")
+                    Log.i(TAG, "Routing track $mediaId through localhost streaming proxy")
                     Uri.parse("http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}")
                 }
+                mediaId.startsWith("http://") || mediaId.startsWith("https://") || mediaId.startsWith("file://") || mediaId.startsWith("content://") -> Uri.parse(mediaId)
                 else -> null
             }
 

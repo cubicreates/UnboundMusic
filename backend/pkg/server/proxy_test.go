@@ -124,3 +124,34 @@ func TestStreamWithLookahead(t *testing.T) {
 		t.Error("stream content mismatch between source and lookahead output")
 	}
 }
+
+func TestLiveProxyStream(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45737,
+		DatabasePath:   filepath.Join(tempDir, "test_live_proxy.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Test with a real video ID
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/stream?id=T6eK-2OQtew", nil)
+	req.Header.Set("Range", "bytes=0-1024")
+	w := httptest.NewRecorder()
+	srv.handleProxyStream(w, req)
+
+	resp := w.Result()
+	t.Logf("Live proxy stream response: status=%d, headers=%v, bodyLen=%d", resp.StatusCode, resp.Header, w.Body.Len())
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		t.Errorf("expected 200 or 206 from proxy, got %d: %s", resp.StatusCode, w.Body.String())
+	}
+	if w.Body.Len() == 0 {
+		t.Errorf("expected non-empty body from live proxy stream")
+	}
+}

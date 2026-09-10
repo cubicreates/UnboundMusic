@@ -65,6 +65,9 @@ class MainActivity : ComponentActivity() {
         serviceConnection = ServiceConnection.getInstance(this)
         serviceConnection.connect()
 
+        // Unconditionally deploy visible Unbound storage directory structure for File Manager
+        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+
         // Check & request runtime audio and notification permissions
         checkAndRequestPermissions()
 
@@ -136,7 +139,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         DaemonManager.getInstance(this).startDaemonAuto(force = false)
-        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
         val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
         } else {

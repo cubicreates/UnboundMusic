@@ -200,52 +200,63 @@ object UnboundStorageManager {
 
     /**
      * Deploys and provisions the complete visible Unbound storage structure on install / cold start.
-     * Guarantees that the Unbound folder appears in the Phone File Manager under Music/Unbound
-     * and internal storage with Downloads/, Music/, Playlists/, and Recaps/.
+     * Guarantees that the Unbound folder appears in the Phone File Manager under both:
+     * 1. /storage/emulated/0/Music/Unbound
+     * 2. /storage/emulated/0/Unbound
+     * Each provisioned with Downloads/, Music/, Playlists/, Recaps/, and README.txt.
      */
     fun deployUnboundStorage(context: Context): File {
         val publicRoot = getPublicUnboundDir(context)
-        val backendRoot = getBackendStorageRoot(context)
-
         val subDirs = listOf("Downloads", "Music", "Playlists", "Recaps")
-        for (sub in subDirs) {
-            val s = File(publicRoot, sub)
-            if (!s.exists()) {
-                s.mkdirs()
+        val readmeText = "Unbound Music Storage\n\nThis directory contains your offline music, downloads, playlists, and recaps.\nFiles placed in the Music or Downloads folders are automatically indexed and available offline.\n"
+
+        // Provision Primary: /storage/emulated/0/Music/Unbound
+        try {
+            if (!publicRoot.exists()) {
+                publicRoot.mkdirs()
             }
-            scanPathWithMediaScanner(context, s.absolutePath)
+            for (sub in subDirs) {
+                val s = File(publicRoot, sub)
+                if (!s.exists()) {
+                    s.mkdirs()
+                }
+                scanPathWithMediaScanner(context, s.absolutePath)
+            }
+            val infoFile = File(publicRoot, "README.txt")
+            if (!infoFile.exists()) {
+                infoFile.writeText(readmeText)
+            }
+            scanPathWithMediaScanner(context, infoFile.absolutePath)
+            scanPathWithMediaScanner(context, publicRoot.absolutePath)
+        } catch (e: Exception) {
+            Log.w(TAG, "Error provisioning primary Unbound storage: ${e.message}")
         }
 
-        // Also deploy root-level mirror at /storage/emulated/0/Unbound for maximum visibility
+        // Provision Secondary Mirror: /storage/emulated/0/Unbound (visible at internal storage root)
         try {
             val extStorage = Environment.getExternalStorageDirectory()
             if (extStorage != null && extStorage.exists()) {
-                val rootUnbound = File(extStorage, "Unbound")
-                if (!rootUnbound.exists()) {
-                    rootUnbound.mkdirs()
+                val rootMirror = File(extStorage, "Unbound")
+                if (!rootMirror.exists()) {
+                    rootMirror.mkdirs()
                 }
                 for (sub in subDirs) {
-                    val s = File(rootUnbound, sub)
-                    if (!s.exists()) s.mkdirs()
+                    val s = File(rootMirror, sub)
+                    if (!s.exists()) {
+                        s.mkdirs()
+                    }
                     scanPathWithMediaScanner(context, s.absolutePath)
                 }
-                scanPathWithMediaScanner(context, rootUnbound.absolutePath)
+                val infoFile = File(rootMirror, "README.txt")
+                if (!infoFile.exists()) {
+                    infoFile.writeText(readmeText)
+                }
+                scanPathWithMediaScanner(context, infoFile.absolutePath)
+                scanPathWithMediaScanner(context, rootMirror.absolutePath)
             }
         } catch (e: Exception) {
-            Log.d(TAG, "Root mirror deploy note: ${e.message}")
+            Log.w(TAG, "Error provisioning root mirror Unbound storage: ${e.message}")
         }
-
-        // Ensure an introductory README file exists so file managers clearly display the folder
-        try {
-            val infoFile = File(publicRoot, "README.txt")
-            if (!infoFile.exists()) {
-                infoFile.writeText("Unbound Music Storage\n\nThis directory contains your offline music, downloads, playlists, and recaps.\nFiles placed in the Music or Downloads folders are automatically indexed and available offline.\n")
-                scanPathWithMediaScanner(context, infoFile.absolutePath)
-            }
-        } catch (_: Exception) {}
-
-        // Trigger media scan on the public root
-        scanPathWithMediaScanner(context, publicRoot.absolutePath)
 
         cleanupOrphanBackendFromPublic()
 

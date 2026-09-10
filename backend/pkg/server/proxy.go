@@ -75,6 +75,20 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve bare title or non-11-char ID via search
+	if len(videoID) != 11 || strings.Contains(videoID, " ") {
+		searchTracks, sErr := s.ytClient.Search(r.Context(), videoID)
+		if sErr == nil && len(searchTracks) > 0 {
+			videoID = searchTracks[0].ID
+			cachedFile = filepath.Join(cacheDir, videoID+".opus")
+			if fi, err := os.Stat(cachedFile); err == nil && fi.Size() > 0 {
+				w.Header().Set("X-Unbound-Cache", "HIT")
+				http.ServeFile(w, r, cachedFile)
+				return
+			}
+		}
+	}
+
 	// 2. Cache Miss: resolve stream URL from YouTube Innertube
 	streamInfo, err := s.ytClient.GetStreamInfo(r.Context(), videoID)
 	if err != nil || streamInfo == nil || streamInfo.StreamURL == "" {
@@ -130,42 +144,73 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer respUpstream.Body.Close()
 
-	// 4. Mirror upstream response headers to client
+	// 4. Mirror upstream response headers to client (excluding hop-by-hop headers)
+	hopByHop := map[string]bool{
+		"connection":          true,
+		"keep-alive":          true,
+		"proxy-authenticate":  true,
+		"proxy-authorization": true,
+		"te":                  true,
+		"trailers":            true,
+		"transfer-encoding":   true,
+		"upgrade":             true,
+	}
 	for k, v := range respUpstream.Header {
+		if hopByHop[strings.ToLower(k)] {
+			continue
+		}
 		for _, val := range v {
 			w.Header().Add(k, val)
 		}
 	}
 	w.Header().Set("X-Unbound-Cache", "MISS")
+	w.Header().Set("Accept-Ranges", "bytes")
 	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "audio/ogg; codecs=opus")
+		w.Header().Set("Content-Type", "audio/webm; codecs=opus")
 	}
 
 	w.WriteHeader(respUpstream.StatusCode)
 
+	flusher, hasFlusher := w.(http.Flusher)
+	buf := make([]byte, 32*1024)
+
 	// If streaming from byte 0, spool to disk in parallel for transparent caching
-	isFullDownload := (r.Header.Get("Range") == "" || strings.HasPrefix(r.Header.Get("Range"), "bytes=0-")) && respUpstream.StatusCode == http.StatusOK
+	isFullDownload := (r.Header.Get("Range") == "" || strings.HasPrefix(r.Header.Get("Range"), "bytes=0-")) &&
+		(respUpstream.StatusCode == http.StatusOK || respUpstream.StatusCode == http.StatusPartialContent)
+	var partFile *os.File
 	if isFullDownload {
 		partPath := cachedFile + ".part"
-		partFile, pErr := os.Create(partPath)
-		if pErr == nil {
-			multiWriter := io.MultiWriter(w, partFile)
-			_, _ = StreamWithLookahead(r.Context(), multiWriter, respUpstream.Body, 256*1024, 2)
-			_ = partFile.Close()
+		partFile, _ = os.Create(partPath)
+	}
 
-			// Check size and rename .part to .opus
-			if pfi, sErr := os.Stat(partPath); sErr == nil && pfi.Size() > 0 {
-				_ = os.Rename(partPath, cachedFile)
-				go s.pruneAudioCacheIfNeeded(cacheDir)
-			} else {
-				_ = os.Remove(partPath)
+	for {
+		n, rErr := respUpstream.Body.Read(buf)
+		if n > 0 {
+			if _, wErr := w.Write(buf[:n]); wErr != nil {
+				break
 			}
-			return
+			if hasFlusher {
+				flusher.Flush()
+			}
+			if partFile != nil {
+				_, _ = partFile.Write(buf[:n])
+			}
+		}
+		if rErr != nil {
+			break
 		}
 	}
 
-	// Stream with 2-chunk lookahead buffer (512 KB) to prevent audio underruns on flaky cellular links
-	_, _ = StreamWithLookahead(r.Context(), w, respUpstream.Body, 256*1024, 2)
+	if partFile != nil {
+		_ = partFile.Close()
+		partPath := cachedFile + ".part"
+		if pfi, sErr := os.Stat(partPath); sErr == nil && pfi.Size() > 0 {
+			_ = os.Rename(partPath, cachedFile)
+			go s.pruneAudioCacheIfNeeded(cacheDir)
+		} else {
+			_ = os.Remove(partPath)
+		}
+	}
 }
 
 // StreamWithLookahead pipes data from upstream Reader to downstream Writer using a 2-chunk lookahead buffer.

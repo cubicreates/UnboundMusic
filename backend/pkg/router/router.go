@@ -32,15 +32,17 @@ const (
 
 // ResolvedStream represents the final playback URL, technical format, and origin source.
 type ResolvedStream struct {
-	TrackID      string     `json:"track_id"`
-	Title        string     `json:"title"`
-	Artist       string     `json:"artist"`
-	StreamURL    string     `json:"stream_url"`
-	StreamType   StreamType `json:"stream_type"`
-	Codec        string     `json:"codec"`
-	BitrateKbps  int        `json:"bitrate_kbps"`
-	DataConsumed int64      `json:"data_consumed_bytes"`
-	LocalPath    string     `json:"local_path,omitempty"`
+	TrackID         string     `json:"track_id"`
+	Title           string     `json:"title"`
+	Artist          string     `json:"artist"`
+	StreamURL       string     `json:"stream_url"`
+	DirectStreamURL string     `json:"direct_stream_url,omitempty"`
+	ProxyStreamURL  string     `json:"proxy_stream_url,omitempty"`
+	StreamType      StreamType `json:"stream_type"`
+	Codec           string     `json:"codec"`
+	BitrateKbps     int        `json:"bitrate_kbps"`
+	DataConsumed    int64      `json:"data_consumed_bytes"`
+	LocalPath       string     `json:"local_path,omitempty"`
 }
 
 // Router orchestrates zero-data local playback interception and remote stream fallbacks.
@@ -150,13 +152,14 @@ func (r *Router) ResolvePlayback(ctx context.Context, trackID, title, artist str
 	}
 
 	return &ResolvedStream{
-		TrackID:      videoID,
-		Title:        title,
-		Artist:       artist,
-		StreamURL:    streamInfo.StreamURL,
-		StreamType:   StreamTypeRemoteOpus,
-		Codec:        streamInfo.Codec,
-		BitrateKbps:  streamInfo.BitrateKbps,
-		DataConsumed: streamInfo.ContentLength,
+		TrackID:         videoID,
+		Title:           title,
+		Artist:          artist,
+		StreamURL:       streamInfo.StreamURL,
+		DirectStreamURL: streamInfo.StreamURL,
+		StreamType:      StreamTypeRemoteOpus,
+		Codec:           streamInfo.Codec,
+		BitrateKbps:     streamInfo.BitrateKbps,
+		DataConsumed:    streamInfo.ContentLength,
 	}, nil
 }

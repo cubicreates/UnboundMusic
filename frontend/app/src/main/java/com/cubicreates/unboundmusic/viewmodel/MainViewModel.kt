@@ -707,11 +707,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (code in 200..299 && resp.isNotBlank()) {
                     val json = JSONObject(resp)
+                    val direct = json.optString("direct_stream_url", "")
+                    val proxy = json.optString("proxy_stream_url", "")
                     val resolved = json.optString("stream_url", "")
                     val streamType = json.optString("stream_type", "REMOTE")
-                    if (resolved.isNotBlank() && (resolved.startsWith("http://") || resolved.startsWith("https://") || resolved.startsWith("file://") || resolved.startsWith("content://"))) {
-                        Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}'")
-                        return resolved
+
+                    // Prefer direct YouTube CDN stream URL, fallback to resolved or localhost proxy
+                    val finalUrl = when {
+                        direct.isNotBlank() && direct.startsWith("http") -> direct
+                        resolved.isNotBlank() && (resolved.startsWith("http") || resolved.startsWith("file://") || resolved.startsWith("content://")) -> resolved
+                        proxy.isNotBlank() && proxy.startsWith("http") -> proxy
+                        else -> ""
+                    }
+
+                    if (finalUrl.isNotBlank()) {
+                        Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
+                        return finalUrl
                     }
                 }
             } catch (e: Exception) {

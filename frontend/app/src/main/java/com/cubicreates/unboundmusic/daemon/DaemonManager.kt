@@ -118,7 +118,9 @@ class DaemonManager private constructor(private val context: Context) {
                 }
 
                 if (ret < 0 && ret != -2) {
-                    _state.value = DaemonLifecycleState.Error("Native startEngine failed (code: $ret)")
+                    val errMsg = "Native startEngine failed (code: $ret)"
+                    _state.value = DaemonLifecycleState.Error(errMsg)
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Engine Error: $errMsg")
                     return@launch
                 }
 
@@ -135,12 +137,17 @@ class DaemonManager private constructor(private val context: Context) {
                 if (isAlive) {
                     _state.value = DaemonLifecycleState.Running(DAEMON_PORT, publicRoot.absolutePath)
                     Log.i(TAG, "Production Go Engine is running and healthy on 127.0.0.1:$DAEMON_PORT")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Engine Online: 127.0.0.1:$DAEMON_PORT", isLong = false)
                 } else {
-                    _state.value = DaemonLifecycleState.Error("Daemon failed to answer health check within timeout.")
+                    val timeoutMsg = "Daemon failed to answer health check on 127.0.0.1:$DAEMON_PORT"
+                    _state.value = DaemonLifecycleState.Error(timeoutMsg)
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Engine Error: $timeoutMsg")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error booting daemon: ${e.message}", e)
-                _state.value = DaemonLifecycleState.Error(e.message ?: "Unknown startup exception")
+                val exMsg = e.message ?: "Unknown startup exception"
+                _state.value = DaemonLifecycleState.Error(exMsg)
+                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Engine Crash: $exMsg")
             }
         }
     }

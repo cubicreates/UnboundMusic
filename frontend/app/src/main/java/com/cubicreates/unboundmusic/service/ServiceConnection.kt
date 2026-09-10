@@ -155,6 +155,7 @@ class ServiceConnection private constructor(private val context: Context) {
         val targetUrl = streamUrl ?: track.streamUrl
         if (targetUrl.isBlank()) {
             Log.w(TAG, "No stream URL available for track: ${track.title}")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Playback Error: No stream URL for '${track.title}'")
             return
         }
 
@@ -162,12 +163,14 @@ class ServiceConnection private constructor(private val context: Context) {
             Uri.parse(targetUrl)
         } catch (e: Exception) {
             Log.e(TAG, "Invalid stream URI for track: ${track.title} ($targetUrl): ${e.message}")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Playback Error: Invalid URI for '${track.title}': ${e.message}")
             return
         }
 
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https" && scheme != "file" && scheme != "content") {
             Log.e(TAG, "Unsupported or non-audio URI scheme '$scheme' for track: ${track.title} ($targetUrl)")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Playback Error: Unsupported URI scheme '$scheme' for '${track.title}'")
             return
         }
 
@@ -565,6 +568,10 @@ class ServiceConnection private constructor(private val context: Context) {
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = syncState()
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "ExoPlayer playback error: ${error.errorCodeName} (${error.errorCode}): ${error.message}", error)
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                context,
+                "Playback Error: ${error.errorCodeName} (code=${error.errorCode})\n${error.message}"
+            )
             syncState()
         }
     }

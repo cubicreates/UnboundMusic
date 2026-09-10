@@ -632,6 +632,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun playTrack(track: TrackItem) {
         _currentTrack.value = track
+        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
 
         // Ensure queue is populated with meaningful surrounding list context
         val currentQ = _currentQueue.value
@@ -667,11 +668,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     serviceConnection.playTrack(resolvedTrack, streamUrl)
                 } else {
                     Log.w(TAG, "Direct stream resolution empty for ${track.title}, using localhost proxy stream")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream empty for '${track.title}', falling back to proxy")
                     val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
                         "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
                     } else track.streamUrl
                     if (fallbackUrl.isNotBlank()) {
                         serviceConnection.playTrack(track.copy(streamUrl = fallbackUrl), fallbackUrl)
+                    } else {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Error: No fallback URL for '${track.title}'")
                     }
                 }
 
@@ -681,6 +685,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Play Track Exception:\n${e.message}")
                 val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
                     "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
                 } else track.streamUrl
@@ -702,11 +707,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             track.streamUrl.startsWith("content://") ||
             track.streamUrl.contains("127.0.0.1") ||
             (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing direct URL for '${track.title}'", isLong = false)
             return track.streamUrl
         }
 
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
         _streamDebugMessage.value = "Resolving stream for ${track.title}..."
+        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolving '${track.title}' (ID: ${track.id})...", isLong = false)
         for (attempt in 1..5) {
             try {
                 val (code, resp) = client.getStream(
@@ -732,12 +739,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (finalUrl.isNotBlank()) {
                         Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
                         _streamDebugMessage.value = "Stream ready: $streamType (${finalUrl.take(45)}...)"
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Stream Ready: $streamType", isLong = false)
                         return finalUrl
                     }
+                } else {
+                    Log.w(TAG, "Daemon stream resolution error attempt $attempt: code=$code, resp=$resp")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Daemon error (try $attempt/5): code=$code\n${resp.take(80)}")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
                 _streamDebugMessage.value = "Attempt $attempt failed: ${e.message}"
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolution try $attempt failed: ${e.message}")
             }
             if (attempt < 5) {
                 kotlinx.coroutines.delay(400)
@@ -748,6 +760,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (track.title.isNotBlank()) {
             try {
                 _streamDebugMessage.value = "Direct stream not ready; searching for '${track.title}'"
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream failed. Searching YouTube for '${track.title}'...")
                 val searchQuery = "${track.title} ${track.artist}".trim()
                 val (searchCode, searchResp) = client.search(searchQuery)
                 if (searchCode in 200..299 && searchResp.isNotBlank()) {
@@ -764,17 +777,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 if (resolved.isNotBlank()) {
                                     Log.i(TAG, "Stream resolved via search fallback for '${track.title}'")
                                     _streamDebugMessage.value = "Stream resolved via search match for '${track.title}'"
+                                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolved via YouTube search!", isLong = false)
                                     return resolved
                                 }
                             }
                             // Direct localhost proxy fallback for matched video ID
                             _streamDebugMessage.value = "Using proxy fallback for match ID $matchId"
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using proxy for matched ID $matchId")
                             return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$matchId"
                         }
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Search fallback resolution failed: ${e.message}")
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Search fallback failed: ${e.message}")
             }
         }
 
@@ -782,11 +798,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
             Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
             _streamDebugMessage.value = "Using localhost proxy stream for '${track.title}'"
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using localhost proxy stream for '${track.title}'")
             return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
         }
 
         // Fallback: return existing stream URL if valid, otherwise empty string
         val fallback = track.streamUrl
+        if (fallback.isBlank()) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "FATAL: No stream URL could be found for '${track.title}'. Daemon may be offline.")
+        }
         return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://") || fallback.startsWith("content://")) {
             fallback
         } else {

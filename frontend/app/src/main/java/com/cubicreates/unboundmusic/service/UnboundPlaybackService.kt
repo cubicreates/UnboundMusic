@@ -249,6 +249,10 @@ class UnboundPlaybackService : MediaSessionService() {
                 if (isNetworkError) {
                     Log.w(TAG, "Network playback error detected (${error.errorCodeName}), executing resilient proxy stream fallback...")
                 }
+                com.cubicreates.unboundmusic.util.UnboundToast.show(
+                    applicationContext,
+                    "Playback Failed (${error.errorCodeName}):\n${error.message}"
+                )
                 fallbackToProxyStream()
             }
         })
@@ -353,6 +357,11 @@ class UnboundPlaybackService : MediaSessionService() {
             if (fallbackUrl.isNotBlank() && fallbackUrl != currentUri) {
                 withContext(Dispatchers.Main) {
                     Log.i(TAG, "Executing resilient stream fallback for '$mediaId' to $fallbackUrl at $currentPos ms...")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        applicationContext,
+                        "Proxy Fallback: Retrying audio for '$mediaId' via localhost...",
+                        isLong = false
+                    )
                     val uri = Uri.parse(fallbackUrl)
                     val newItem = currentItem.buildUpon()
                         .setUri(uri)
@@ -365,6 +374,13 @@ class UnboundPlaybackService : MediaSessionService() {
                     player.setMediaItem(newItem, currentPos)
                     player.prepare()
                     player.play()
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        applicationContext,
+                        "Playback Error: Fallback stream could not be resolved for '$mediaId'"
+                    )
                 }
             }
         }

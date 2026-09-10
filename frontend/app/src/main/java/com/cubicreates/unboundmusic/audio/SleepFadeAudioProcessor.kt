@@ -22,10 +22,14 @@ import java.nio.ByteOrder
 class SleepFadeAudioProcessor(
     private val gain: () -> Float,
 ) : BaseAudioProcessor() {
+    private var encoding = C.ENCODING_PCM_16BIT
+
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
+            inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
+        encoding = inputAudioFormat.encoding
         return inputAudioFormat
     }
 
@@ -44,11 +48,17 @@ class SleepFadeAudioProcessor(
         }
 
         inputBuffer.order(ByteOrder.nativeOrder())
-        while (inputBuffer.remaining() >= 2) {
-            output.putShort((inputBuffer.short * currentGain).toInt().toShort())
-        }
-        while (inputBuffer.hasRemaining()) {
-            output.put(inputBuffer.get())
+        if (encoding == C.ENCODING_PCM_FLOAT) {
+            while (inputBuffer.remaining() >= 4) {
+                output.putFloat(inputBuffer.float * currentGain)
+            }
+        } else {
+            while (inputBuffer.remaining() >= 2) {
+                output.putShort((inputBuffer.short * currentGain).toInt().toShort())
+            }
+            while (inputBuffer.hasRemaining()) {
+                output.put(inputBuffer.get())
+            }
         }
 
         output.flip()

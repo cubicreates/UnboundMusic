@@ -163,22 +163,29 @@ class UnboundPlaybackService : MediaSessionService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): AudioSink {
                 return DefaultAudioSink.Builder(context)
-                    .setEnableFloatOutput(false) // Force standard 16-bit integer PCM across all devices & emulators
+                    .setEnableFloatOutput(enableFloatOutput) // Pass system capability (supports float PCM from Opus decoder)
                     .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessorChain(
+                        DefaultAudioSink.DefaultAudioProcessorChain(
+                            equalizerProcessor,
+                            sleepFadeProcessor,
+                            crossfadeProcessor
+                        )
+                    )
                     .build()
             }
         }
 
-        // 4. SimpMusic LoadControl: bufferForPlaybackMs = 0 -> audio starts IMMEDIATELY without lag
+        // 4. Stable LoadControl buffer: 1000ms initial buffer prevents hardware AudioTrack underruns
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 DEFAULT_MIN_BUFFER_MS * 4,
                 DEFAULT_MAX_BUFFER_MS * 4,
-                0,
-                0
+                1000,
+                2000
             ).build()
 
-        // 5. ExoPlayer instance with C.AUDIO_CONTENT_TYPE_MUSIC and handleAudioFocus = true
+        // 5. ExoPlayer instance with C.AUDIO_CONTENT_TYPE_MUSIC and handleAudioFocus = true (requests AUDIOFOCUS_GAIN from AudioManager for audio routing)
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)

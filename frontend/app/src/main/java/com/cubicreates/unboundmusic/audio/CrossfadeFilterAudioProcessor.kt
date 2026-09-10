@@ -57,11 +57,14 @@ class CrossfadeFilterAudioProcessor : BaseAudioProcessor() {
 
     private var sampleRate = 0
     private var channelCount = 0
+    private var encoding = C.ENCODING_PCM_16BIT
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
+            inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
+        encoding = inputAudioFormat.encoding
         sampleRate = inputAudioFormat.sampleRate
         channelCount = inputAudioFormat.channelCount
         coefficientsDirty = true
@@ -92,10 +95,18 @@ class CrossfadeFilterAudioProcessor : BaseAudioProcessor() {
         val output = replaceOutputBuffer(remaining)
         inputBuffer.order(ByteOrder.nativeOrder())
 
-        when (channelCount) {
-            1 -> processMonoBlock(inputBuffer, output)
-            2 -> processStereoBlock(inputBuffer, output)
-            else -> copyBuffer(inputBuffer, output, remaining)
+        if (encoding == C.ENCODING_PCM_FLOAT) {
+            when (channelCount) {
+                1 -> processMonoBlockFloat(inputBuffer, output)
+                2 -> processStereoBlockFloat(inputBuffer, output)
+                else -> copyBuffer(inputBuffer, output, remaining)
+            }
+        } else {
+            when (channelCount) {
+                1 -> processMonoBlock(inputBuffer, output)
+                2 -> processStereoBlock(inputBuffer, output)
+                else -> copyBuffer(inputBuffer, output, remaining)
+            }
         }
 
         output.flip()
@@ -132,6 +143,24 @@ class CrossfadeFilterAudioProcessor : BaseAudioProcessor() {
         }
     }
 
+    private fun processMonoBlockFloat(input: ByteBuffer, output: ByteBuffer) {
+        while (input.remaining() >= 4) {
+            val sample = input.float.toDouble()
+            val filtered = filter.processSampleMono(sample)
+            output.putFloat(filtered.coerceIn(-1.0, 1.0).toFloat())
+        }
+    }
+
+    private fun processStereoBlockFloat(input: ByteBuffer, output: ByteBuffer) {
+        while (input.remaining() >= 8) {
+            val left = input.float.toDouble()
+            val right = input.float.toDouble()
+            val (filteredL, filteredR) = filter.processStereo(left, right)
+            output.putFloat(filteredL.coerceIn(-1.0, 1.0).toFloat())
+            output.putFloat(filteredR.coerceIn(-1.0, 1.0).toFloat())
+        }
+    }
+
     override fun onFlush() {
         super.onFlush()
         filter.reset()
@@ -140,6 +169,7 @@ class CrossfadeFilterAudioProcessor : BaseAudioProcessor() {
     override fun onReset() {
         super.onReset()
         enabled = false
+        encoding = C.ENCODING_PCM_16BIT
         cutoffFrequencyHz = 20000f
         filterType = BiquadFilter.FilterType.LOW_PASS
         filter.reset()

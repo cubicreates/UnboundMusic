@@ -35,43 +35,26 @@ object AudioEffectController {
         if (sessionId == 0 || sessionId == currentSessionId) return
         release()
         currentSessionId = sessionId
-        try {
-            bassBoost = BassBoost(0, sessionId).apply {
-                if (strengthSupported) {
-                    setStrength(bassBoostStrength.toShort())
-                    enabled = bassBoostStrength > 0
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to initialize BassBoost: ${e.message}")
-        }
 
-        try {
-            virtualizer = Virtualizer(0, sessionId).apply {
-                if (strengthSupported) {
-                    setStrength(virtualizerStrength.toShort())
-                    enabled = virtualizerStrength > 0
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to initialize Virtualizer: ${e.message}")
+        // Only attach effects if non-zero to avoid polluting audio pipeline
+        if (bassBoostStrength > 0) {
+            applyBassBoostInternal()
         }
-
-        try {
-            loudnessEnhancer = LoudnessEnhancer(sessionId).apply {
-                setTargetGain(loudnessGainMb)
-                enabled = loudnessGainMb > 0
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to initialize LoudnessEnhancer: ${e.message}")
+        if (virtualizerStrength > 0) {
+            applyVirtualizerInternal()
         }
-        Log.i(TAG, "AudioEffectController attached to audioSessionId: $sessionId")
+        if (loudnessGainMb > 0) {
+            applyLoudnessInternal()
+        }
+        Log.i(TAG, "AudioEffectController session registered: $sessionId")
     }
 
-    @Synchronized
-    fun setBassBoost(strength: Int) {
-        bassBoostStrength = strength.coerceIn(0, 1000)
+    private fun applyBassBoostInternal() {
+        if (currentSessionId == 0) return
         try {
+            if (bassBoost == null) {
+                bassBoost = BassBoost(0, currentSessionId)
+            }
             bassBoost?.let {
                 if (it.strengthSupported) {
                     it.setStrength(bassBoostStrength.toShort())
@@ -79,14 +62,16 @@ object AudioEffectController {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error applying BassBoost: ${e.message}")
+            Log.w(TAG, "Failed to apply BassBoost: ${e.message}")
         }
     }
 
-    @Synchronized
-    fun setVirtualizer(strength: Int) {
-        virtualizerStrength = strength.coerceIn(0, 1000)
+    private fun applyVirtualizerInternal() {
+        if (currentSessionId == 0) return
         try {
+            if (virtualizer == null) {
+                virtualizer = Virtualizer(0, currentSessionId)
+            }
             virtualizer?.let {
                 if (it.strengthSupported) {
                     it.setStrength(virtualizerStrength.toShort())
@@ -94,20 +79,55 @@ object AudioEffectController {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error applying Virtualizer: ${e.message}")
+            Log.w(TAG, "Failed to apply Virtualizer: ${e.message}")
+        }
+    }
+
+    private fun applyLoudnessInternal() {
+        if (currentSessionId == 0) return
+        try {
+            if (loudnessEnhancer == null) {
+                loudnessEnhancer = LoudnessEnhancer(currentSessionId)
+            }
+            loudnessEnhancer?.let {
+                it.setTargetGain(loudnessGainMb)
+                it.enabled = loudnessGainMb > 0
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply LoudnessEnhancer: ${e.message}")
+        }
+    }
+
+    @Synchronized
+    fun setBassBoost(strength: Int) {
+        bassBoostStrength = strength.coerceIn(0, 1000)
+        if (bassBoostStrength > 0) {
+            applyBassBoostInternal()
+        } else {
+            try { bassBoost?.release() } catch (_: Exception) {}
+            bassBoost = null
+        }
+    }
+
+    @Synchronized
+    fun setVirtualizer(strength: Int) {
+        virtualizerStrength = strength.coerceIn(0, 1000)
+        if (virtualizerStrength > 0) {
+            applyVirtualizerInternal()
+        } else {
+            try { virtualizer?.release() } catch (_: Exception) {}
+            virtualizer = null
         }
     }
 
     @Synchronized
     fun setLoudness(gainMb: Int) {
         loudnessGainMb = gainMb.coerceIn(0, 1500)
-        try {
-            loudnessEnhancer?.let {
-                it.setTargetGain(loudnessGainMb)
-                it.enabled = loudnessGainMb > 0
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error applying LoudnessEnhancer: ${e.message}")
+        if (loudnessGainMb > 0) {
+            applyLoudnessInternal()
+        } else {
+            try { loudnessEnhancer?.release() } catch (_: Exception) {}
+            loudnessEnhancer = null
         }
     }
 

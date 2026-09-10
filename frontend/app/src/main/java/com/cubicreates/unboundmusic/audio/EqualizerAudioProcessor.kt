@@ -34,6 +34,7 @@ class EqualizerAudioProcessor(
 ) : BaseAudioProcessor() {
     private var sampleRate = 0
     private var channelCount = 0
+    private var encoding = C.ENCODING_PCM_16BIT
     private var appliedCurve: EqualizerCurve? = null
     private var coefficients = DoubleArray(0)
     private var state = DoubleArray(0)
@@ -41,9 +42,11 @@ class EqualizerAudioProcessor(
     private var bypass = true
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT &&
+            inputAudioFormat.encoding != C.ENCODING_PCM_FLOAT) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
+        encoding = inputAudioFormat.encoding
         sampleRate = inputAudioFormat.sampleRate
         channelCount = inputAudioFormat.channelCount
         state = DoubleArray(EQUALIZER_BANDS_HZ.size * STATE_PER_BAND * channelCount)
@@ -61,6 +64,7 @@ class EqualizerAudioProcessor(
         appliedCurve = null
         sampleRate = 0
         channelCount = 0
+        encoding = C.ENCODING_PCM_16BIT
         bypass = true
     }
 
@@ -78,15 +82,25 @@ class EqualizerAudioProcessor(
         }
 
         inputBuffer.order(ByteOrder.nativeOrder())
-        var channel = 0
-        while (inputBuffer.remaining() >= 2) {
-            val processed = process(inputBuffer.short.toDouble(), channel)
-            output.putShort(processed.coerceIn(PCM16_MIN, PCM16_MAX).toInt().toShort())
-            channel++
-            if (channel == channelCount) channel = 0
-        }
-        while (inputBuffer.hasRemaining()) {
-            output.put(inputBuffer.get())
+        if (encoding == C.ENCODING_PCM_FLOAT) {
+            var channel = 0
+            while (inputBuffer.remaining() >= 4) {
+                val processed = process(inputBuffer.float.toDouble(), channel)
+                output.putFloat(processed.coerceIn(-1.0, 1.0).toFloat())
+                channel++
+                if (channel == channelCount) channel = 0
+            }
+        } else {
+            var channel = 0
+            while (inputBuffer.remaining() >= 2) {
+                val processed = process(inputBuffer.short.toDouble(), channel)
+                output.putShort(processed.coerceIn(PCM16_MIN, PCM16_MAX).toInt().toShort())
+                channel++
+                if (channel == channelCount) channel = 0
+            }
+            while (inputBuffer.hasRemaining()) {
+                output.put(inputBuffer.get())
+            }
         }
 
         output.flip()

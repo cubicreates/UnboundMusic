@@ -451,7 +451,7 @@ fun MainApp(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+                    .padding(top = 40.dp, start = 12.dp, end = 12.dp),
                 contentAlignment = Alignment.TopCenter
             ) {
                 Surface(
@@ -459,33 +459,49 @@ fun MainApp(
                                 msg.contains("Fail", ignoreCase = true) ||
                                 msg.contains("FATAL", ignoreCase = true) ||
                                 msg.contains("Exception", ignoreCase = true)) {
-                        Color(0xFFB71C1C)
+                        Color(0xFF8B0000)
+                    } else if (msg.contains("Fallback", ignoreCase = true) || msg.contains("Retrying", ignoreCase = true)) {
+                        Color(0xFFB45309) // Amber/warning
                     } else {
                         Color(0xFF1E293B)
                     },
                     shape = RoundedCornerShape(12.dp),
-                    shadowElevation = 8.dp,
-                    modifier = Modifier.clickable { com.cubicreates.unboundmusic.util.UnboundToast.clear() }
+                    shadowElevation = 10.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Text(
-                            text = msg,
-                            color = Color.White,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (msg.contains("Error", ignoreCase = true) || msg.contains("Fail", ignoreCase = true)) {
+                                    "DIAGNOSTIC ERROR REPORT"
+                                } else {
+                                    "DIAGNOSTIC STATUS"
+                                },
+                                color = Color.White.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = msg,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(
                             onClick = { com.cubicreates.unboundmusic.util.UnboundToast.clear() },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Dismiss",
-                                tint = Color.White.copy(alpha = 0.8f)
+                                tint = Color.White
                             )
                         }
                     }

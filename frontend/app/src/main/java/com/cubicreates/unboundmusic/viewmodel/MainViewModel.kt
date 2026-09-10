@@ -798,8 +798,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
             Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
             _streamDebugMessage.value = "Using localhost proxy stream for '${track.title}'"
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using localhost proxy stream for '${track.title}'")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using engine proxy stream for '${track.title}'")
             return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
+        }
+
+        // Quaternary fallback: use title + artist on localhost proxy (Go engine automatically searches YouTube)
+        if (track.title.isNotBlank()) {
+            val query = if (track.artist.isNotBlank()) "${track.title} ${track.artist}" else track.title
+            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+            Log.i(TAG, "Stream resolved via query proxy fallback for '$query'")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Falling back to engine query proxy for '${track.title}'")
+            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$encodedQuery"
         }
 
         // Fallback: return existing stream URL if valid, otherwise empty string
@@ -1047,11 +1056,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val parsed = mutableListOf<TrackItem>()
                             for (i in 0 until tracksArray.length()) {
                                 val item = tracksArray.getJSONObject(i)
+                                val vId = item.optString("id").ifBlank { item.optString("video_id", "") }
                                 parsed.add(TrackItem(
+                                    id = vId,
                                     title = item.optString("title", "Vibe Match"),
                                     artist = item.optString("artist", "Unknown"),
                                     coverUrl = item.optString("thumbnail_url", ""),
-                                    streamUrl = item.optString("video_id", "")
+                                    streamUrl = ""
                                 ))
                             }
                             _searchResults.value = parsed
@@ -1261,11 +1272,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val parsed = mutableListOf<TrackItem>()
                         for (i in 0 until minOf(tracks.length(), 20)) {
                             val t = tracks.getJSONObject(i)
+                            val vId = t.optString("id").ifBlank { t.optString("video_id", "") }
                             parsed.add(TrackItem(
+                                id = vId,
                                 title = t.optString("title", ""),
                                 artist = t.optString("artist", ""),
                                 coverUrl = t.optString("thumbnail_url", ""),
-                                streamUrl = t.optString("video_id", "")
+                                streamUrl = ""
                             ))
                         }
                         _chartTracks.value = parsed
@@ -2040,12 +2053,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (tracksArr != null) {
                         for (i in 0 until tracksArr.length()) {
                             val t = tracksArr.getJSONObject(i)
+                            val vId = t.optString("id").ifBlank { t.optString("video_id", "") }
                             parsedTracks.add(
                                 TrackItem(
+                                    id = vId,
                                     title = t.optString("title"),
                                     artist = t.optString("artist", artistName),
                                     coverUrl = t.optString("thumbnail_url"),
-                                    streamUrl = t.optString("video_id")
+                                    streamUrl = ""
                                 )
                             )
                         }

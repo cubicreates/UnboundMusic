@@ -249,11 +249,7 @@ class UnboundPlaybackService : MediaSessionService() {
                 if (isNetworkError) {
                     Log.w(TAG, "Network playback error detected (${error.errorCodeName}), executing resilient proxy stream fallback...")
                 }
-                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                    applicationContext,
-                    "Playback Failed (${error.errorCodeName}):\n${error.message}"
-                )
-                fallbackToProxyStream()
+                fallbackToProxyStream(error)
             }
         })
 
@@ -309,19 +305,20 @@ class UnboundPlaybackService : MediaSessionService() {
     private var lastFailedMediaId: String? = null
 
     /**
-     * Seamlessly recovers from 403 Forbidden or expired YouTube CDN streams by redirecting
-     * the player to the local embedded Go daemon streaming proxy on 127.0.0.1.
-     */
-    /**
      * Seamlessly recovers from stream errors by switching between the direct YouTube CDN stream
-     * and the local embedded Go daemon streaming proxy on 127.0.0.1.
+     * and the local embedded Go daemon streaming proxy on 127.0.0.1, showing full diagnostics.
      */
-    private fun fallbackToProxyStream() {
+    private fun fallbackToProxyStream(originalError: PlaybackException? = null) {
         val player = exoPlayer ?: return
         val currentItem = player.currentMediaItem ?: return
         val currentPos = player.currentPosition
         val mediaId = currentItem.mediaId
+        val title = currentItem.mediaMetadata.title?.toString() ?: mediaId
+        val artist = currentItem.mediaMetadata.artist?.toString() ?: ""
         val currentUri = currentItem.localConfiguration?.uri?.toString() ?: ""
+
+        val errCode = originalError?.errorCodeName ?: "UNKNOWN_ERROR"
+        val errMsg = originalError?.message ?: originalError?.cause?.message ?: "Playback stream interrupted"
 
         if (mediaId == lastFailedMediaId) {
             Log.w(TAG, "Stream fallback already attempted for $mediaId, halting to avoid loop.")
@@ -330,36 +327,77 @@ class UnboundPlaybackService : MediaSessionService() {
         lastFailedMediaId = mediaId
 
         if (mediaId.isBlank() || mediaId.startsWith("local:") || mediaId.startsWith("file://") || mediaId.startsWith("content://")) {
-            Log.w(TAG, "Cannot proxy local/file mediaId: $mediaId")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                applicationContext,
+                "Playback Error ($errCode):\n$errMsg\nCannot stream local track: $mediaId"
+            )
             return
         }
 
         serviceScope.launch(Dispatchers.IO) {
-            val fallbackUrl = if (currentUri.contains("127.0.0.1") || currentUri.contains("localhost")) {
-                // Localhost proxy failed, query daemon for direct signed stream URL
+            val isCurrentUriProxy = currentUri.contains("127.0.0.1") || currentUri.contains("localhost")
+            var fallbackTargetDesc = ""
+            var fallbackUrl = ""
+            var fallbackErrorReason = ""
+
+            if (isCurrentUriProxy) {
+                // Localhost proxy failed -> try querying daemon for direct signed stream URL
+                fallbackTargetDesc = "Direct Remote CDN"
                 try {
+                    val query = if (mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.contains(" ")) {
+                        "id=${URLEncoder.encode(mediaId, "UTF-8")}"
+                    } else {
+                        "title=${URLEncoder.encode(title, "UTF-8")}&artist=${URLEncoder.encode(artist, "UTF-8")}"
+                    }
                     val client = okhttp3.OkHttpClient()
                     val req = okhttp3.Request.Builder()
-                        .url("http://127.0.0.1:45731/api/v1/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}")
+                        .url("http://127.0.0.1:45731/api/v1/stream?$query")
                         .build()
                     val resp = client.newCall(req).execute()
                     val body = resp.body?.string() ?: ""
                     if (resp.isSuccessful && body.isNotBlank()) {
                         val json = JSONObject(body)
                         val direct = json.optString("direct_stream_url", "")
-                        if (direct.isNotBlank()) direct else json.optString("stream_url", "")
-                    } else ""
-                } catch (_: Exception) { "" }
+                        fallbackUrl = if (direct.isNotBlank()) direct else json.optString("stream_url", "")
+                        if (fallbackUrl.isBlank()) {
+                            fallbackErrorReason = "Engine returned no stream URL: ${body.take(80)}"
+                        }
+                    } else {
+                        fallbackErrorReason = "Engine returned HTTP ${resp.code}: ${body.take(80)}"
+                    }
+                } catch (e: Exception) {
+                    fallbackErrorReason = "Cannot connect to engine at 127.0.0.1:45731: ${e.message}"
+                }
             } else {
-                "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(mediaId, "UTF-8")}"
+                // Direct YouTube stream failed -> switch to embedded engine proxy
+                fallbackTargetDesc = "Localhost Engine Proxy"
+                val proxyId = if (mediaId.isNotBlank() && mediaId.length == 11 && !mediaId.contains(" ")) {
+                    mediaId
+                } else if (title.isNotBlank()) {
+                    if (artist.isNotBlank()) "$title $artist" else title
+                } else {
+                    ""
+                }
+
+                if (proxyId.isNotBlank()) {
+                    fallbackUrl = "http://127.0.0.1:45731/api/v1/proxy/stream?id=${URLEncoder.encode(proxyId, "UTF-8")}"
+                } else {
+                    fallbackErrorReason = "No video ID or title available for proxy resolution."
+                }
             }
 
             if (fallbackUrl.isNotBlank() && fallbackUrl != currentUri) {
                 withContext(Dispatchers.Main) {
-                    Log.i(TAG, "Executing resilient stream fallback for '$mediaId' to $fallbackUrl at $currentPos ms...")
+                    val fromSource = if (isCurrentUriProxy) "Localhost Engine Proxy" else "Direct YouTube CDN"
+                    Log.i(TAG, "Stream failed on $fromSource ($errCode). Falling back to $fallbackTargetDesc: $fallbackUrl")
+                    val notice = buildString {
+                        append("Stream Failed on $fromSource ($errCode):\n")
+                        append("Cause: $errMsg\n")
+                        append("-> Falling back to $fallbackTargetDesc...")
+                    }
                     com.cubicreates.unboundmusic.util.UnboundToast.show(
                         applicationContext,
-                        "Proxy Fallback: Retrying audio for '$mediaId' via localhost...",
+                        notice,
                         isLong = false
                     )
                     val uri = Uri.parse(fallbackUrl)
@@ -377,9 +415,23 @@ class UnboundPlaybackService : MediaSessionService() {
                 }
             } else {
                 withContext(Dispatchers.Main) {
+                    val uriSnippet = if (currentUri.length > 50) currentUri.take(25) + "..." + currentUri.takeLast(20) else currentUri
+                    val fullReport = buildString {
+                        append("Playback Error ($errCode):\n")
+                        append("Track: '$title'\n")
+                        append("Failed URL: $uriSnippet\n")
+                        append("Cause: $errMsg\n")
+                        if (fallbackErrorReason.isNotBlank()) {
+                            append("Fallback Failed: $fallbackErrorReason")
+                        } else {
+                            append("Fallback stream could not be constructed.")
+                        }
+                    }
+                    Log.e(TAG, fullReport)
                     com.cubicreates.unboundmusic.util.UnboundToast.show(
                         applicationContext,
-                        "Playback Error: Fallback stream could not be resolved for '$mediaId'"
+                        fullReport,
+                        isLong = true
                     )
                 }
             }

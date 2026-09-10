@@ -203,3 +203,42 @@ function descramble(a) {
 		t.Errorf("expected solved signature 'DEBA', got %q", solved)
 	}
 }
+
+func TestExtractPlayerJSURL(t *testing.T) {
+	mockHTML := `<html><script src="/s/player/abcdef12/player_ias.vflset/en_US/base.js"></script></html>`
+	url := ExtractPlayerJSURLFromHTML(mockHTML)
+	expected := "https://www.youtube.com/s/player/abcdef12/player_ias.vflset/en_US/base.js"
+	if url != expected {
+		t.Fatalf("expected %s, got %s", expected, url)
+	}
+}
+
+func TestCipherOpsBootstrap(t *testing.T) {
+	mockJS := `
+		var XX = {
+			ab: function(a, b) { a.reverse(); },
+			cd: function(a, b) { var c = a[0]; a[0] = a[b % a.length]; a[b % a.length] = c; },
+			ef: function(a, b) { a.splice(0, b); }
+		};
+		function decipher(a) {
+			a = a.split("");
+			XX.ab(a, 0);
+			XX.cd(a, 3);
+			XX.ef(a, 2);
+			return a.join("");
+		}
+	`
+	ops, err := ParsePlayerCipherJS(mockJS)
+	if err != nil {
+		t.Fatalf("failed to parse ops: %v", err)
+	}
+	SetCachedCipherOps(ops)
+
+	cachedOpsMu.RLock()
+	count := len(cachedOps)
+	cachedOpsMu.RUnlock()
+	if count != 3 {
+		t.Fatalf("expected 3 cached ops, got %d", count)
+	}
+}
+

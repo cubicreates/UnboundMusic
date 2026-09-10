@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -344,3 +345,82 @@ func FetchAndExtractCipherOps(ctx context.Context, httpClient *http.Client, play
 	SetCachedCipherOps(ops)
 	return ops, nil
 }
+
+var (
+	regexPlayerJSSrc = regexp.MustCompile(`(?:src=["']|/s/player/)([a-zA-Z0-9_/-]+(?:player_ias|base)[^"']*\.js)`)
+)
+
+// ExtractPlayerJSURLFromHTML parses YouTube web pages or iframe APIs to discover the current base player JS.
+func ExtractPlayerJSURLFromHTML(htmlContent string) string {
+	m := regexPlayerJSSrc.FindStringSubmatch(htmlContent)
+	if len(m) >= 2 {
+		path := m[1]
+		if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "http") {
+			path = "/s/player/" + path
+		}
+		if strings.HasPrefix(path, "http") {
+			return path
+		}
+		return "https://www.youtube.com" + path
+	}
+	return "https://www.youtube.com/s/player/28169123/player_ias.vflset/en_US/base.js"
+}
+
+// BootstrapPlayerOps fetches the latest YouTube player JS and initializes cipher operations.
+func BootstrapPlayerOps(ctx context.Context, httpClient *http.Client) error {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.youtube.com/iframe_api", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", UserAgentWebRemix)
+
+	resp, err := httpClient.Do(req)
+	var playerURL string
+	if err == nil && resp.StatusCode == http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		playerURL = ExtractPlayerJSURLFromHTML(string(body))
+	} else {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		playerURL = "https://www.youtube.com/s/player/28169123/player_ias.vflset/en_US/base.js"
+	}
+
+	ops, err := FetchAndExtractCipherOps(ctx, httpClient, playerURL)
+	if err != nil {
+		return fmt.Errorf("failed bootstrapping cipher ops: %w", err)
+	}
+
+	log.Printf("[CIPHER] Successfully bootstrapped %d cipher operations from player JS", len(ops))
+	return nil
+}
+
+// StartCipherRefresher runs an ongoing periodic loop refreshing cipher ops every 6 hours.
+func StartCipherRefresher(ctx context.Context) {
+	client := &http.Client{Timeout: 20 * time.Second}
+	// Initial bootstrap immediately on boot
+	if err := BootstrapPlayerOps(ctx, client); err != nil {
+		log.Printf("[CIPHER] Initial bootstrap notice: %v (will retry in loop)", err)
+	}
+
+	ticker := time.NewTicker(6 * time.Hour)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := BootstrapPlayerOps(ctx, client); err != nil {
+					log.Printf("[CIPHER] Periodic cipher refresh warning: %v", err)
+				}
+			}
+		}
+	}()
+}
+

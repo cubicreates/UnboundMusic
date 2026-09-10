@@ -320,6 +320,11 @@ func (s *Server) Start() error {
 		}
 	}
 
+	// Bootstrap YouTube player cipher operations asynchronously on startup
+	go func() {
+		ytmusic.StartCipherRefresher(context.Background())
+	}()
+
 	// Auto-unpack AI payload if models.zst is present and primary model is missing
 	go func() {
 		modelsDir := s.cfg.ModelsPath

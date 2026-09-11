@@ -25,6 +25,13 @@ var (
 		regexp.MustCompile(`(?i)\b(podcast\s*ep(isode)?\s*#?\d+|full\s*podcast)\b`),
 		regexp.MustCompile(`(?i)\b(reaction\s*video|reacting\s*to)\b`),
 		regexp.MustCompile(`(?i)\b(breaking\s*news|press\s*conference)\b`),
+		regexp.MustCompile(`(?i)(#shorts\b|#short\b|\bshorts\b|\breels?\b|\btiktok\b)`),
+	}
+
+	// Channel / Artist names that are vloggers, couple channels, or content creators (not musicians)
+	nonMusicArtistPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\b(vlogs?|couples?|family|gaming|shorts|podcast|reacts?|reaction|pranks?|comedy)\b`),
+		regexp.MustCompile(`(?i)\b(sam\s*and\s*monica|troom\s*troom|mrbeast|dude\s*perfect|pewdiepie|sidemen|dhar\s*mann|5-minute\s*crafts)\b`),
 	}
 
 	// Long form music indicators that allow durations > 20 minutes
@@ -33,6 +40,34 @@ var (
 	}
 )
 
+// IsShortsVideo returns true if a track has YouTube Shorts duration or hashtags.
+func IsShortsVideo(track models.Track) bool {
+	// YouTube Shorts are strictly <= 60 seconds. Rejecting <= 75s eliminates all Shorts and intro bumpers.
+	if track.DurationMs > 0 && track.DurationMs < 75000 {
+		return true
+	}
+	lowerTitle := strings.ToLower(track.Title)
+	if strings.Contains(lowerTitle, "#short") || strings.Contains(lowerTitle, "#shorts") || strings.Contains(lowerTitle, "shorts") {
+		return true
+	}
+	return false
+}
+
+// IsAuthenticMusicArtist checks if a channel or artist is authentic musical creator rather than a vlog/shorts channel.
+func IsAuthenticMusicArtist(artist string) bool {
+	trimmed := strings.TrimSpace(artist)
+	if trimmed == "" || trimmed == "YouTube Artist" || trimmed == "Various Artists" {
+		return false
+	}
+	lower := strings.ToLower(trimmed)
+	for _, p := range nonMusicArtistPatterns {
+		if p.MatchString(lower) {
+			return false
+		}
+	}
+	return true
+}
+
 // IsMusicTrack inspects a track's metadata to determine if it is authentic musical content.
 func IsMusicTrack(track models.Track) bool {
 	title := strings.TrimSpace(track.Title)
@@ -40,13 +75,19 @@ func IsMusicTrack(track models.Track) bool {
 		return false
 	}
 
+	// Strict YouTube Shorts elimination
+	if IsShortsVideo(track) {
+		return false
+	}
+
 	lowerTitle := strings.ToLower(title)
 	lowerArtist := strings.ToLower(strings.TrimSpace(track.Artist))
 
-	// Duration constraints
-	// Less than 15 seconds is almost certainly a meme, sound effect, or notification sound
-	if track.DurationMs > 0 && track.DurationMs < 15000 {
-		return false
+	// Reject if artist is a known non-music channel or creator
+	for _, p := range nonMusicArtistPatterns {
+		if p.MatchString(lowerArtist) {
+			return false
+		}
 	}
 
 	// Tracks exceeding 20 minutes (1,200,000 ms) must contain explicit music album / mix indicators
@@ -84,16 +125,43 @@ func FilterMusicTracks(tracks []models.Track) []models.Track {
 	return result
 }
 
-// FilterRelaxedTracks provides a permissive filter for user's personal libraries when strict music filter yields 0 items.
+// FilterRelaxedTracks provides a fallback music filter while strictly barring YouTube Shorts, vlogs, and non-music channels.
 func FilterRelaxedTracks(tracks []models.Track) []models.Track {
 	result := make([]models.Track, 0, len(tracks))
 	for _, t := range tracks {
 		if strings.TrimSpace(t.Title) == "" || t.ID == "" {
 			continue
 		}
-		if t.DurationMs > 0 && t.DurationMs < 10000 {
-			continue // skip under 10s sound clips
+		// Never allow YouTube Shorts even in relaxed mode
+		if IsShortsVideo(t) {
+			continue
 		}
+		lowerTitle := strings.ToLower(strings.TrimSpace(t.Title))
+		lowerArtist := strings.ToLower(strings.TrimSpace(t.Artist))
+
+		// Check non-music video patterns (vlog, podcast, prank, tutorial, gameplay)
+		isNonMusic := false
+		for _, p := range nonMusicPatterns {
+			if p.MatchString(lowerTitle) || p.MatchString(lowerArtist) {
+				isNonMusic = true
+				break
+			}
+		}
+		if isNonMusic {
+			continue
+		}
+
+		// Check non-music creator patterns
+		for _, p := range nonMusicArtistPatterns {
+			if p.MatchString(lowerArtist) {
+				isNonMusic = true
+				break
+			}
+		}
+		if isNonMusic {
+			continue
+		}
+
 		result = append(result, t)
 	}
 	return result

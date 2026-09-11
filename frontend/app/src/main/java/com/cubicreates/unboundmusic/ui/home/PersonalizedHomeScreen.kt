@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.DaypartingState
+import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
@@ -63,130 +64,298 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+
 @Composable
 fun PersonalizedHomeScreen(
     modifier: Modifier = Modifier,
     accountName: String? = null,
     userAvatarUrl: String? = null,
     syncedTracks: List<TrackItem> = emptyList(),
+    userMixes: List<MixDto> = emptyList(),
     daypartingState: DaypartingState? = null,
     isSyncing: Boolean = false,
+    isLoadingMore: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSyncClick: () -> Unit = {}
 ) {
-    Column(
+    val listState = rememberLazyListState()
+
+    // Detect when user has scrolled near bottom (within 3 items of the end)
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleIndex >= totalItems - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && !isLoadingMore && syncedTracks.isNotEmpty()) {
+            onLoadMore()
+        }
+    }
+
+    LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(top = 76.dp, bottom = 24.dp)
     ) {
         // 1. Personalized Google Welcome Card
-        PersonalizedWelcomeCard(
-            accountName = accountName,
-            userAvatarUrl = userAvatarUrl,
-            syncedCount = syncedTracks.size,
-            isSyncing = isSyncing,
-            onProfileClick = onProfileClick,
-            onSyncClick = onSyncClick
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
+        item(key = "welcome_card") {
+            PersonalizedWelcomeCard(
+                accountName = accountName,
+                userAvatarUrl = userAvatarUrl,
+                syncedCount = syncedTracks.size,
+                isSyncing = isSyncing,
+                onProfileClick = onProfileClick,
+                onSyncClick = onSyncClick
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // 2. "Jump Back In" Liked Songs Carousel (if tracks synced)
         if (syncedTracks.isNotEmpty()) {
-            PersonalizedLikedCarousel(
-                tracks = syncedTracks,
-                accountName = accountName,
-                onTrackClick = { track ->
-                    onTrackSelect(track, syncedTracks)
-                },
-                onPlayAll = {
-                    if (syncedTracks.isNotEmpty()) {
-                        onTrackSelect(syncedTracks.first(), syncedTracks)
+            item(key = "liked_carousel") {
+                PersonalizedLikedCarousel(
+                    tracks = syncedTracks,
+                    accountName = accountName,
+                    onTrackClick = { track ->
+                        onTrackSelect(track, syncedTracks)
+                    },
+                    onPlayAll = {
+                        if (syncedTracks.isNotEmpty()) {
+                            onTrackSelect(syncedTracks.first(), syncedTracks)
+                        }
                     }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
+                )
+                Spacer(modifier = Modifier.height(28.dp))
+            }
 
             // 3. YouTube Infinite Mix Hero Card
-            PersonalizedMixHeroCard(
-                tracks = syncedTracks,
-                onPlayStation = {
-                    if (syncedTracks.isNotEmpty()) {
-                        onTrackSelect(syncedTracks.first(), syncedTracks.shuffled())
+            item(key = "hero_station") {
+                PersonalizedMixHeroCard(
+                    tracks = syncedTracks,
+                    onPlayStation = {
+                        if (syncedTracks.isNotEmpty()) {
+                            onTrackSelect(syncedTracks.first(), syncedTracks.shuffled())
+                        }
                     }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(30.dp))
-        }
-
-        // 4. Time-Aware Situational Mood Mixes
-        if (daypartingState != null && daypartingState.capsules.isNotEmpty()) {
-            PersonalizedCapsulesSection(
-                state = daypartingState,
-                onCapsuleClick = onCapsuleSelect
-            )
-            Spacer(modifier = Modifier.height(28.dp))
-        }
-
-        // 5. "Tuned To Your Taste" / "My Music" Grid
-        // NOTE: Strictly displays user's personalized music — never falls back to Global Billboard Top 100!
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.ThumbUp,
-                    contentDescription = null,
-                    tint = UnboundPrimary,
-                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.height(30.dp))
+            }
+        }
+
+        // 4. YouTube Mixes & Artist Radios Shelf (My Supermix, Artist Mixes, Replay & Discover)
+        if (userMixes.isNotEmpty()) {
+            item(key = "user_mixes") {
+                PersonalizedMixesSection(
+                    mixes = userMixes,
+                    onMixClick = { _ ->
+                        if (syncedTracks.isNotEmpty()) {
+                            onTrackSelect(syncedTracks.first(), syncedTracks.shuffled())
+                        }
+                    }
+                )
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+        }
+
+        // 5. Time-Aware Situational Mood Mixes
+        if (daypartingState != null && daypartingState.capsules.isNotEmpty()) {
+            item(key = "mood_capsules") {
+                PersonalizedCapsulesSection(
+                    state = daypartingState,
+                    onCapsuleClick = onCapsuleSelect
+                )
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+        }
+
+        // 6. "Tuned To Your Taste" Header (Strictly personal music, zero Billboard Top 100)
+        item(key = "taste_header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.ThumbUp,
+                        contentDescription = null,
+                        tint = UnboundPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Tuned To Your Taste",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface
+                    )
+                }
                 Text(
-                    text = "Tuned To Your Taste",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface
+                    text = if (syncedTracks.isNotEmpty()) {
+                        "${syncedTracks.size} Tracks"
+                    } else if (isSyncing) {
+                        "Syncing..."
+                    } else {
+                        "0 Tracks"
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isSyncing) UnboundPrimary else OnSurfaceVariant
                 )
             }
-            Text(
-                text = if (syncedTracks.isNotEmpty()) {
-                    "${syncedTracks.size} Tracks"
-                } else if (isSyncing) {
-                    "Syncing..."
-                } else {
-                    "0 Tracks"
-                },
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isSyncing) UnboundPrimary else OnSurfaceVariant
-            )
+            Spacer(modifier = Modifier.height(14.dp))
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
 
         if (syncedTracks.isNotEmpty()) {
-            TopTracksGrid(
-                tracks = syncedTracks,
-                onTrackClick = { track, queue ->
-                    onTrackSelect(track, queue)
+            // 7. Infinite Music Grid in 2-column chunks
+            val chunked = syncedTracks.chunked(2)
+            items(
+                count = chunked.size,
+                key = { index -> chunked[index].firstOrNull()?.id ?: "$index" }
+            ) { index ->
+                val rowItems = chunked[index]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    rowItems.forEach { track ->
+                        PersonalizedGridTrackCard(
+                            track = track,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onTrackSelect(track, syncedTracks) }
+                        )
+                    }
+                    if (rowItems.size == 1) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
-            )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // 8. Infinite Scroll Loading Indicator / Continuous Stream Footer
+            item(key = "infinite_footer") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLoadingMore) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = UnboundPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Loading more music for you...",
+                                fontSize = 13.sp,
+                                color = OnSurfaceVariant,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "• Infinite Music Feed •",
+                            fontSize = 11.sp,
+                            color = OnSurfaceVariant.copy(alpha = 0.5f),
+                            letterSpacing = 1.2.sp
+                        )
+                    }
+                }
+            }
         } else {
             // Loading / Ingestion state — strictly personal, NO Global Top 100
-            PersonalizedSyncingPlaceholder(
-                isSyncing = isSyncing,
-                onSyncClick = onSyncClick
-            )
+            item(key = "sync_placeholder") {
+                PersonalizedSyncingPlaceholder(
+                    isSyncing = isSyncing,
+                    onSyncClick = onSyncClick
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun PersonalizedGridTrackCard(
+    track: TrackItem,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(SurfaceGlassHighest)
+                .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
+        ) {
+            if (track.coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = track.coverUrl,
+                    contentDescription = track.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LibraryMusic,
+                        contentDescription = null,
+                        tint = OnSurfaceVariant,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = track.title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = track.artist,
+            fontSize = 12.sp,
+            color = OnSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -450,7 +619,16 @@ private fun PersonalizedMixHeroCard(
     tracks: List<TrackItem>,
     onPlayStation: () -> Unit
 ) {
-    val sampleArtists = tracks.map { it.artist }.distinct().take(3).joinToString(", ")
+    val nonMusicKeywords = listOf("shorts", "sam and monica", "vlog", "prank", "tiktok", "couple", "reaction", "gaming")
+    val sampleArtists = tracks
+        .map { it.artist }
+        .filter { artist ->
+            val lower = artist.lowercase()
+            nonMusicKeywords.none { lower.contains(it) }
+        }
+        .distinct()
+        .take(3)
+        .joinToString(", ")
 
     Box(
         modifier = Modifier
@@ -526,6 +704,130 @@ private fun PersonalizedMixHeroCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PersonalizedMixesSection(
+    mixes: List<MixDto>,
+    onMixClick: (MixDto) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "MIXES FOR YOU",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = UnboundPrimary,
+                    letterSpacing = 1.2.sp
+                )
+                Text(
+                    text = "YouTube Mixes & Radios",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OnSurface
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(mixes) { mix ->
+                PersonalizedMixCard(mix = mix, onClick = { onMixClick(mix) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalizedMixCard(
+    mix: MixDto,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(148.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(148.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(SurfaceGlassHighest)
+                .border(1.dp, BorderGlass, RoundedCornerShape(16.dp))
+        ) {
+            if (mix.coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = mix.coverUrl,
+                    contentDescription = mix.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = UnboundTertiary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            // Overlay play badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .border(1.dp, UnboundPrimary.copy(alpha = 0.6f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play Mix",
+                    tint = UnboundPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = mix.title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = mix.subtitle,
+            fontSize = 11.sp,
+            color = OnSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

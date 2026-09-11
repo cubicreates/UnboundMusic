@@ -258,6 +258,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/account/status", s.handleAccountStatus)
 	mux.HandleFunc("/api/v1/account/disconnect", s.handleAccountDisconnect)
 	mux.HandleFunc("/api/v1/account/liked", s.handleAccountLiked)
+	mux.HandleFunc("/api/v1/account/feed/infinite", s.handleAccountFeedInfinite)
 	mux.HandleFunc("/api/v1/account/device/start", s.handleAccountDeviceStart)
 	mux.HandleFunc("/api/v1/account/device/poll", s.handleAccountDevicePoll)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
@@ -1187,7 +1188,31 @@ func (s *Server) handleAccountLiked(w http.ResponseWriter, r *http.Request) {
 	lib, _ := s.accountSync.SyncLibrary(r.Context())
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tracks": lib.LikedTracks,
+		"mixes":  lib.Mixes,
 		"count":  len(lib.LikedTracks),
+	})
+}
+
+// handleAccountFeedInfinite streams continuous music tracks and related radio recommendations for infinite home scroll.
+func (s *Server) handleAccountFeedInfinite(w http.ResponseWriter, r *http.Request) {
+	seed := r.URL.Query().Get("seed")
+	if seed == "" {
+		tracks := s.accountSync.GetLikedTracks()
+		if len(tracks) > 0 {
+			idx := int(time.Now().UnixNano() % int64(len(tracks)))
+			seed = tracks[idx].ID
+		}
+	}
+
+	tracks, err := s.ytClient.FetchInfinitePersonalizedFeed(r.Context(), seed)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tracks": tracks,
+		"count":  len(tracks),
 	})
 }
 

@@ -23,13 +23,14 @@ import (
 
 // UserLibrary encapsulates synced personal library items.
 type UserLibrary struct {
-	AccountName       string         `json:"account_name"`
-	AvatarURL         string         `json:"avatar_url"`
-	LikedTracksCount  int            `json:"liked_tracks_count"`
-	LikedTracks       []models.Track `json:"liked_tracks"`
-	PlaylistsCount    int            `json:"playlists_count"`
-	SubscribedArtists []string       `json:"subscribed_artists"`
-	LastSynced        time.Time      `json:"last_synced"`
+	AccountName       string            `json:"account_name"`
+	AvatarURL         string            `json:"avatar_url"`
+	LikedTracksCount  int               `json:"liked_tracks_count"`
+	LikedTracks       []models.Track    `json:"liked_tracks"`
+	Mixes             []ytmusic.MixItem `json:"mixes"`
+	PlaylistsCount    int               `json:"playlists_count"`
+	SubscribedArtists []string          `json:"subscribed_artists"`
+	LastSynced        time.Time         `json:"last_synced"`
 }
 
 // AccountStatus summarizes the current YouTube connection state.
@@ -59,6 +60,7 @@ func NewSyncer(deps ...interface{}) *Syncer {
 			AccountName:       "Local Unbound User",
 			AvatarURL:         "",
 			LikedTracks:       make([]models.Track, 0),
+			Mixes:             make([]ytmusic.MixItem, 0),
 			SubscribedArtists: make([]string, 0),
 		},
 	}
@@ -310,6 +312,9 @@ func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshTo
 		s.mu.Lock()
 		s.userLibrary.LikedTracks = tracks
 		s.userLibrary.LikedTracksCount = len(tracks)
+		if s.ytClient != nil {
+			s.userLibrary.Mixes = s.ytClient.GenerateUserMixes(tracks)
+		}
 		s.userLibrary.LastSynced = time.Now()
 		s.mu.Unlock()
 
@@ -442,6 +447,9 @@ func (s *Syncer) SyncLibrary(ctx context.Context) (*UserLibrary, error) {
 			s.mu.Lock()
 			s.userLibrary.LikedTracks = tracks
 			s.userLibrary.LikedTracksCount = len(tracks)
+			if s.ytClient != nil {
+				s.userLibrary.Mixes = s.ytClient.GenerateUserMixes(tracks)
+			}
 			s.userLibrary.LastSynced = time.Now()
 			s.mu.Unlock()
 

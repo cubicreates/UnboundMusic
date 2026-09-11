@@ -341,6 +341,12 @@ data class SleepTimerState(
             return String.format("%02d:%02d", minutes, seconds)
         }
 }
-
-
-
+/**
+ * Represents a curated YouTube song mix or artist station.
+ */
+data class MixDto(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val coverUrl: String
+)

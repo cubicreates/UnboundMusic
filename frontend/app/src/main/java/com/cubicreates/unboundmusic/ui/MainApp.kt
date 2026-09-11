@@ -99,6 +99,7 @@ fun MainApp(
 
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
     val isSyncingAccount by viewModel.isSyncingAccount.collectAsStateWithLifecycle()
+    val userMixes by viewModel.userMixes.collectAsStateWithLifecycle()
 
     LaunchedEffect(isYouTubeConnected) {
         if (isYouTubeConnected) {
@@ -121,6 +122,7 @@ fun MainApp(
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
     val syncedYouTubeTracks by viewModel.syncedYouTubeTracks.collectAsStateWithLifecycle()
+    val isLoadingMoreTracks by viewModel.isLoadingMoreTracks.collectAsStateWithLifecycle()
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
@@ -290,12 +292,15 @@ fun MainApp(
                                 HomeScreen(
                                     tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
                                     syncedYouTubeTracks = syncedYouTubeTracks,
+                                    userMixes = userMixes,
                                     daypartingState = daypartingState,
                                     genreSections = genreSections,
                                     userAvatarUrl = userAvatarUrl,
                                     accountName = accountName,
                                     isYouTubeConnected = isYouTubeConnected,
                                     isSyncing = isSyncingAccount,
+                                    isLoadingMore = isLoadingMoreTracks,
+                                    onLoadMore = { viewModel.loadMorePersonalizedTracks() },
                                     onSyncClick = { viewModel.loadSyncedYouTubeTracks() },
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)

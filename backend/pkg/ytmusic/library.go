@@ -29,7 +29,29 @@ type PlaylistSummary struct {
 	ThumbnailURL string `json:"thumbnail_url"`
 }
 
+// MixItem represents a curated YouTube song mix or artist station.
+type MixItem struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Subtitle     string `json:"subtitle"`
+	ThumbnailURL string `json:"thumbnail_url"`
+}
+
 var thumbRegex = regexp.MustCompile(`=w\d+-h\d+`)
+
+// formatMusicFirstThumbnail formats a thumbnail URL prioritizing YouTube Music square artwork, with YouTube fallback.
+func formatMusicFirstThumbnail(rawURL string, vid string) string {
+	if rawURL != "" {
+		if strings.Contains(rawURL, "googleusercontent.com") || strings.Contains(rawURL, "ggpht.com") {
+			return thumbRegex.ReplaceAllString(rawURL, "=w800-h800")
+		}
+		return rawURL
+	}
+	if vid != "" {
+		return fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", vid)
+	}
+	return ""
+}
 
 // parseDurationMs converts a time string like "3:45" or "1:02:15" to milliseconds.
 func parseDurationMs(durStr string) int64 {
@@ -144,6 +166,21 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 // parseGenericVideoRenderer extracts a normalized Track model from standard YouTube video renderers.
 func parseGenericVideoRenderer(item map[string]interface{}) (models.Track, bool) {
 	var track models.Track
+
+	// 1. Shorts / Reel Endpoint Detection -> Immediate Rejection
+	if nav, ok := item["navigationEndpoint"].(map[string]interface{}); ok {
+		if _, ok := nav["reelWatchEndpoint"]; ok {
+			return track, false
+		}
+		if cmdMeta, ok := nav["commandMetadata"].(map[string]interface{}); ok {
+			if webMeta, ok := cmdMeta["webCommandMetadata"].(map[string]interface{}); ok {
+				if urlStr, _ := webMeta["url"].(string); strings.Contains(urlStr, "/shorts/") {
+					return track, false
+				}
+			}
+		}
+	}
+
 	vid, _ := item["videoId"].(string)
 	if vid == "" {
 		if nav, ok := item["navigationEndpoint"].(map[string]interface{}); ok {
@@ -168,6 +205,58 @@ func parseGenericVideoRenderer(item map[string]interface{}) (models.Track, bool)
 		return track, false
 	}
 	track.ID = vid
+
+	// 2. Duration extraction from lengthText
+	if lenObj, ok := item["lengthText"].(map[string]interface{}); ok {
+		if s, ok := lenObj["simpleText"].(string); ok && s != "" {
+			track.DurationMs = parseDurationMs(s)
+		} else if runs, ok := lenObj["runs"].([]interface{}); ok && len(runs) > 0 {
+			if r0, ok := runs[0].(map[string]interface{}); ok {
+				if s, ok := r0["text"].(string); ok {
+					track.DurationMs = parseDurationMs(s)
+				}
+			}
+		}
+	}
+
+	// 3. Shorts Badge & Overlay Detection
+	if overlays, ok := item["thumbnailOverlays"].([]interface{}); ok {
+		for _, ov := range overlays {
+			if ovMap, ok := ov.(map[string]interface{}); ok {
+				if timeStatus, ok := ovMap["thumbnailOverlayTimeStatusRenderer"].(map[string]interface{}); ok {
+					if style, _ := timeStatus["style"].(string); strings.EqualFold(style, "SHORTS") {
+						return track, false
+					}
+					if iconObj, ok := timeStatus["icon"].(map[string]interface{}); ok {
+						if iconType, _ := iconObj["iconType"].(string); strings.Contains(strings.ToUpper(iconType), "SHORTS") {
+							return track, false
+						}
+					}
+					if textObj, ok := timeStatus["text"].(map[string]interface{}); ok {
+						durStr := ""
+						if s, ok := textObj["simpleText"].(string); ok {
+							durStr = s
+						} else if runs, ok := textObj["runs"].([]interface{}); ok && len(runs) > 0 {
+							if r0, ok := runs[0].(map[string]interface{}); ok {
+								durStr, _ = r0["text"].(string)
+							}
+						}
+						if strings.EqualFold(durStr, "SHORTS") {
+							return track, false
+						}
+						if durStr != "" && track.DurationMs == 0 {
+							track.DurationMs = parseDurationMs(durStr)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Strict shorts threshold: any video < 75 seconds is discarded
+	if track.DurationMs > 0 && track.DurationMs < 75000 {
+		return track, false
+	}
 
 	// Title
 	if titleObj, ok := item["title"].(map[string]interface{}); ok {
@@ -219,6 +308,12 @@ func parseGenericVideoRenderer(item map[string]interface{}) (models.Track, bool)
 	if track.Title == "" {
 		return track, false
 	}
+
+	// Strict music validation: non-music vlogs, gaming, couple channels, or #shorts are barred
+	if !gatekeeper.IsMusicTrack(track) {
+		return track, false
+	}
+
 	return track, true
 }
 
@@ -309,6 +404,12 @@ func parseTileRenderer(item map[string]interface{}) (models.Track, bool) {
 	if track.Title == "" {
 		return track, false
 	}
+
+	// Strict music validation
+	if !gatekeeper.IsMusicTrack(track) {
+		return track, false
+	}
+
 	return track, true
 }
 
@@ -375,6 +476,20 @@ func parseMusicTwoRowItemRenderer(item map[string]interface{}) (models.Track, bo
 func recursiveExtractTracks(data interface{}, out *[]models.Track) {
 	switch v := data.(type) {
 	case map[string]interface{}:
+		// Strict skip: immediately reject all Shorts and Reels renderers
+		if _, ok := v["reelItemRenderer"]; ok {
+			return
+		}
+		if _, ok := v["shortsLockupViewModel"]; ok {
+			return
+		}
+		if _, ok := v["reelShelfRenderer"]; ok {
+			return
+		}
+		if _, ok := v["shortsVideoRenderer"]; ok {
+			return
+		}
+
 		if item, ok := v["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
 			if tr, ok := parseMusicResponsiveItem(item); ok {
 				*out = append(*out, tr)
@@ -426,29 +541,14 @@ func (c *Client) FetchLikedMusic(ctx context.Context) ([]models.Track, error) {
 }
 
 // FetchUserTasteAndHistory extracts music tracks directly from the user's authentic YouTube activity.
+// Prioritizes YouTube Music (FEmusic_home, FLLM, LM, FEmusic_history) to guarantee pure music content without shorts.
 func (c *Client) FetchUserTasteAndHistory(ctx context.Context) ([]models.Track, error) {
 	var allTracks []models.Track
 
-	// 1. YouTube Watch History (FEhistory) - the primary source of user's active listening
-	for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigTVHTML5Simply, ConfigWeb} {
-		body := map[string]interface{}{
-			"context":  c.buildContext(cfg),
-			"browseId": "FEhistory",
-		}
-		if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
-			var root map[string]interface{}
-			if err := json.Unmarshal(respBytes, &root); err == nil {
-				recursiveExtractTracks(root, &allTracks)
-				if len(allTracks) >= 20 {
-					break
-				}
-			}
-		}
-	}
-
-	// 2. YouTube Liked Videos (VLLL) & Library playlists (VLWM, VLWL, FElibrary)
-	for _, browseID := range []string{"VLLL", "VLWM", "VLWL", "FElibrary"} {
-		for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigWeb} {
+	// 1. PRIMARY SOURCE: YouTube Music (Pure music only, zero shorts)
+	// Query FEmusic_home, FLLM (Liked Music), LM, and FEmusic_history
+	for _, cfg := range []ClientConfig{ConfigWebRemix, ConfigAndroidMusic} {
+		for _, browseID := range []string{"FLLM", "LM", "FEmusic_home", "FEmusic_history"} {
 			body := map[string]interface{}{
 				"context":  c.buildContext(cfg),
 				"browseId": browseID,
@@ -468,50 +568,33 @@ func (c *Client) FetchUserTasteAndHistory(ctx context.Context) ([]models.Track, 
 		}
 	}
 
-	// 3. YouTube Music Liked Music across ANDROID_MUSIC and WEB_REMIX
-	for _, cfg := range []ClientConfig{ConfigAndroidMusic, ConfigWebRemix} {
-		for _, browseID := range []string{"FLLM", "LM", "VLLM"} {
-			body := map[string]interface{}{
-				"context":  c.buildContext(cfg),
-				"browseId": browseID,
-			}
-			if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
-				var root map[string]interface{}
-				if err := json.Unmarshal(respBytes, &root); err == nil {
-					recursiveExtractTracks(root, &allTracks)
-					if len(allTracks) >= 40 {
-						break
+	// 2. SECONDARY SOURCE: YouTube Liked Videos (VLLL) & Playlists
+	// Strictly filtered: only genuine music tracks pass parseGenericVideoRenderer and FilterMusicTracks
+	if len(allTracks) < 30 {
+		for _, browseID := range []string{"VLLL", "VLWM", "FElibrary"} {
+			for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigWeb} {
+				body := map[string]interface{}{
+					"context":  c.buildContext(cfg),
+					"browseId": browseID,
+				}
+				if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
+					var root map[string]interface{}
+					if err := json.Unmarshal(respBytes, &root); err == nil {
+						recursiveExtractTracks(root, &allTracks)
+						if len(allTracks) >= 35 {
+							break
+						}
 					}
 				}
 			}
-		}
-		if len(allTracks) >= 40 {
-			break
-		}
-	}
-
-	// 4. Personalized YouTube Home Recommendations (FEwhat_to_watch)
-	if len(allTracks) < 10 {
-		for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigWeb} {
-			body := map[string]interface{}{
-				"context":  c.buildContext(cfg),
-				"browseId": "FEwhat_to_watch",
-			}
-			if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
-				var root map[string]interface{}
-				if err := json.Unmarshal(respBytes, &root); err == nil {
-					recursiveExtractTracks(root, &allTracks)
-				}
+			if len(allTracks) >= 35 {
+				break
 			}
 		}
 	}
 
-	// Filter all items so strictly music tracks/videos are preserved
+	// Filter all items so strictly pure music tracks/videos are preserved
 	filtered := gatekeeper.FilterMusicTracks(allTracks)
-	// If strict music filter yields 0 tracks, use relaxed filter to retain user's content
-	if len(filtered) == 0 && len(allTracks) > 0 {
-		filtered = gatekeeper.FilterRelaxedTracks(allTracks)
-	}
 
 	// Deduplicate by track ID
 	seen := make(map[string]bool)
@@ -523,7 +606,142 @@ func (c *Client) FetchUserTasteAndHistory(ctx context.Context) ([]models.Track, 
 		}
 	}
 
+	// 3. ENRICH WITH INFINITE MUSIC: If we have music seeds, fetch related songs via YouTube Music /next
+	if len(unique) > 0 && len(unique) < 50 {
+		seedTrack := unique[0]
+		if nextTracks, err := c.FetchRadioForTrack(ctx, seedTrack.ID); err == nil && len(nextTracks) > 0 {
+			for _, nt := range nextTracks {
+				if !seen[nt.ID] {
+					seen[nt.ID] = true
+					unique = append(unique, nt)
+				}
+			}
+		}
+	}
+
 	return unique, nil
+}
+
+// FetchRadioForTrack queries YouTube Music /next to generate pure music songs related to a track.
+func (c *Client) FetchRadioForTrack(ctx context.Context, videoID string) ([]models.Track, error) {
+	body := map[string]interface{}{
+		"context": c.buildContext(ConfigWebRemix),
+		"videoId": videoID,
+	}
+
+	respBytes, err := c.post(ctx, "next", body, ConfigWebRemix)
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := ParseNextTracks(respBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	var tracks []models.Track
+	for _, item := range items {
+		t := models.Track{
+			ID:           item.ID,
+			Title:        item.Title,
+			Artist:       item.Artist,
+			Album:        item.Album,
+			DurationMs:   item.DurationMs,
+			ThumbnailURL: item.Thumbnail,
+		}
+		if t.ThumbnailURL == "" {
+			t.ThumbnailURL = formatMusicFirstThumbnail(item.Thumbnail, t.ID)
+		}
+		if gatekeeper.IsMusicTrack(t) {
+			tracks = append(tracks, t)
+		}
+	}
+
+	return tracks, nil
+}
+
+// GenerateUserMixes builds rich YouTube song and artist mixes derived strictly from authentic music artists.
+func (c *Client) GenerateUserMixes(tracks []models.Track) []MixItem {
+	var mixes []MixItem
+	seenTitles := make(map[string]bool)
+
+	// 1. My Supermix (Personalized Endless Mix)
+	if len(tracks) > 0 {
+		firstTrack := tracks[0]
+		mixes = append(mixes, MixItem{
+			ID:           "RDTMAK5uy_kset8DisdE7LSD4TNjEVsnKrtGctD5JU8",
+			Title:        "My Supermix",
+			Subtitle:     "Endless personalized music blend",
+			ThumbnailURL: firstTrack.ThumbnailURL,
+		})
+		seenTitles["My Supermix"] = true
+	}
+
+	// 2. Discover / Replay Mix
+	if len(tracks) > 3 {
+		t := tracks[len(tracks)/2]
+		mixes = append(mixes, MixItem{
+			ID:           "RDAMVM" + t.ID,
+			Title:        "Replay & Discover Mix",
+			Subtitle:     "Fresh picks & songs you love",
+			ThumbnailURL: t.ThumbnailURL,
+		})
+		seenTitles["Replay & Discover Mix"] = true
+	}
+
+	// 3. Artist Radios from verified music artists in the user's tracks
+	artistCounts := make(map[string]int)
+	artistThumb := make(map[string]string)
+	artistFirstID := make(map[string]string)
+
+	for _, t := range tracks {
+		if gatekeeper.IsAuthenticMusicArtist(t.Artist) {
+			artistCounts[t.Artist]++
+			if artistThumb[t.Artist] == "" {
+				artistThumb[t.Artist] = t.ThumbnailURL
+				artistFirstID[t.Artist] = t.ID
+			}
+		}
+	}
+
+	for artist, count := range artistCounts {
+		if count >= 1 && len(mixes) < 10 {
+			title := artist + " Mix"
+			if !seenTitles[title] {
+				seenTitles[title] = true
+				firstID := artistFirstID[artist]
+				mixes = append(mixes, MixItem{
+					ID:           "RDAMVM" + firstID,
+					Title:        title,
+					Subtitle:     "Songs by " + artist + " & similar artists",
+					ThumbnailURL: artistThumb[artist],
+				})
+			}
+		}
+	}
+
+	return mixes
+}
+
+// FetchInfinitePersonalizedFeed retrieves the next wave of personalized music recommendations.
+func (c *Client) FetchInfinitePersonalizedFeed(ctx context.Context, seedVideoID string) ([]models.Track, error) {
+	if seedVideoID != "" {
+		return c.FetchRadioForTrack(ctx, seedVideoID)
+	}
+
+	// Fetch from FEmusic_home
+	body := map[string]interface{}{
+		"context":  c.buildContext(ConfigWebRemix),
+		"browseId": "FEmusic_home",
+	}
+	var tracks []models.Track
+	if respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix); err == nil {
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err == nil {
+			recursiveExtractTracks(root, &tracks)
+		}
+	}
+	return gatekeeper.FilterMusicTracks(tracks), nil
 }
 
 // FetchUserPlaylists retrieves the user's custom and liked playlists.

@@ -123,6 +123,7 @@ val defaultTopTracks = listOf(
 fun TopTracksGrid(
     modifier: Modifier = Modifier,
     tracks: List<TrackItem> = defaultTopTracks,
+    title: String? = null,
     onTrackClick: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> }
 ) {
     Column(
@@ -130,15 +131,16 @@ fun TopTracksGrid(
             .fillMaxWidth()
             .padding(horizontal = 20.dp)
     ) {
-        Text(
-            text = "Global Top 100",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = OnSurface,
-            letterSpacing = (-0.01).sp
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
+        if (!title.isNullOrBlank()) {
+            Text(
+                text = title,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnSurface,
+                letterSpacing = (-0.01).sp
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // 2-column Grid Pairs
         val chunked = tracks.chunked(2)

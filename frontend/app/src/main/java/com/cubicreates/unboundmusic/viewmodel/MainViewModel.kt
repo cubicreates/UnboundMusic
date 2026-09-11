@@ -236,6 +236,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _syncedYouTubeTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val syncedYouTubeTracks: StateFlow<List<TrackItem>> = _syncedYouTubeTracks.asStateFlow()
 
+    private val _userMixes = MutableStateFlow<List<com.cubicreates.unboundmusic.data.MixDto>>(emptyList())
+    val userMixes: StateFlow<List<com.cubicreates.unboundmusic.data.MixDto>> = _userMixes.asStateFlow()
+
     private val _isSyncingAccount = MutableStateFlow(false)
     val isSyncingAccount: StateFlow<Boolean> = _isSyncingAccount.asStateFlow()
 
@@ -1685,7 +1688,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val (code, resp) = client.getLikedTracks()
                 if (code in 200..299 && resp.isNotBlank()) {
                     val tracks = client.parseLikedTracks(resp)
+                    val mixes = client.parseUserMixes(resp)
                     _syncedYouTubeTracks.value = tracks
+                    _userMixes.value = mixes
                     _youtubeCount.value = tracks.size
                     withContext(Dispatchers.Main) {
                         if (tracks.isNotEmpty()) {
@@ -1699,6 +1704,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Load synced tracks note: ${e.message}")
             } finally {
                 _isSyncingAccount.value = false
+            }
+        }
+    }
+
+    private val _isLoadingMoreTracks = MutableStateFlow(false)
+    val isLoadingMoreTracks: StateFlow<Boolean> = _isLoadingMoreTracks.asStateFlow()
+
+    /** Continuously loads next wave of music tracks for infinite scroll. */
+    fun loadMorePersonalizedTracks() {
+        if (_isLoadingMoreTracks.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingMoreTracks.value = true
+            try {
+                val seed = _syncedYouTubeTracks.value.shuffled().firstOrNull()?.id
+                val (code, resp) = client.getAccountFeedInfinite(seed)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val newTracks = client.parseLikedTracks(resp)
+                    if (newTracks.isNotEmpty()) {
+                        val existingIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
+                        val uniqueNew = newTracks.filter { it.id !in existingIds }
+                        if (uniqueNew.isNotEmpty()) {
+                            _syncedYouTubeTracks.value = _syncedYouTubeTracks.value + uniqueNew
+                            _youtubeCount.value = _syncedYouTubeTracks.value.size
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Load more infinite tracks: ${e.message}")
+            } finally {
+                _isLoadingMoreTracks.value = false
             }
         }
     }

@@ -337,6 +337,12 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         get("/api/v1/account/liked")
     }
 
+    /** Streams continuous music tracks and related radio recommendations for infinite home scroll. */
+    suspend fun getAccountFeedInfinite(seed: String? = null): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val query = if (!seed.isNullOrBlank()) "?seed=${URLEncoder.encode(seed, "UTF-8")}" else ""
+        get("/api/v1/account/feed/infinite$query")
+    }
+
     // ==================== SECTION 11: Explore, Artists & Podcasts ====================
 
     /** Curated moods & moments categories. */
@@ -866,6 +872,29 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                         coverUrl = t.optString("thumbnail_url", ""),
                         streamUrl = "",
                         source = "YouTube Liked"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
+    /** Parses mixes array from JSON string. */
+    fun parseUserMixes(jsonStr: String): List<MixDto> {
+        val list = mutableListOf<MixDto>()
+        try {
+            val root = JSONObject(jsonStr.trim())
+            val arr = root.optJSONArray("mixes") ?: return list
+            for (i in 0 until arr.length()) {
+                val m = arr.optJSONObject(i) ?: continue
+                val id = m.optString("id", "")
+                if (id.isBlank()) continue
+                list.add(
+                    MixDto(
+                        id = id,
+                        title = m.optString("title", "Music Mix"),
+                        subtitle = m.optString("subtitle", "YouTube Mix"),
+                        coverUrl = m.optString("thumbnail_url", "")
                     )
                 )
             }

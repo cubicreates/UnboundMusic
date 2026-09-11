@@ -27,7 +27,9 @@ import (
 )
 
 var (
-	proxyCacheMu sync.Mutex
+	proxyCacheMu   sync.Mutex
+	spoolingMu     sync.Mutex
+	spoolingTracks = make(map[string]bool)
 )
 
 const (
@@ -129,11 +131,17 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Match the User-Agent to the client profile encoded in the signed URL
-	ua := ytmusic.UserAgentIOS
-	if strings.Contains(upstreamURL, "c=WEB_REMIX") {
+	ua := ytmusic.ConfigVisionOS.UserAgent
+	if strings.Contains(upstreamURL, "c=VISIONOS") {
+		ua = ytmusic.ConfigVisionOS.UserAgent
+	} else if strings.Contains(upstreamURL, "c=ANDROID") {
+		ua = ytmusic.ConfigAndroid.UserAgent
+	} else if strings.Contains(upstreamURL, "c=WEB_REMIX") {
 		ua = ytmusic.UserAgentWebRemix
 	} else if strings.Contains(upstreamURL, "c=TVHTML5") {
 		ua = ytmusic.UserAgentTV
+	} else if strings.Contains(upstreamURL, "c=IOS") {
+		ua = ytmusic.UserAgentIOS
 	}
 
 	// 3. Parse client Range request
@@ -233,9 +241,14 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	flusher, hasFlusher := w.(http.Flusher)
 	isFullDownload := (clientStart == 0 && (clientEnd < 0 || clientEnd >= totalSize-1))
 	var partFile *os.File
+	partPath := cachedFile + ".part"
 	if isFullDownload {
-		partPath := cachedFile + ".part"
-		partFile, _ = os.Create(partPath)
+		spoolingMu.Lock()
+		if !spoolingTracks[videoID] {
+			spoolingTracks[videoID] = true
+			partFile, _ = os.Create(partPath)
+		}
+		spoolingMu.Unlock()
 	}
 
 	buf := make([]byte, 32*1024)
@@ -243,19 +256,20 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		n, rErr := respUpstream.Body.Read(buf)
 		if n > 0 {
+			if partFile != nil {
+				_, _ = partFile.Write(buf[:n])
+			}
 			if _, wErr := w.Write(buf[:n]); wErr != nil {
 				respUpstream.Body.Close()
 				if partFile != nil {
-					_ = partFile.Close()
-					_ = os.Remove(cachedFile + ".part")
+					f := partFile
+					partFile = nil
+					go s.finishSpoolingInBackground(videoID, f, partPath, cachedFile, upstreamURL, ua, clientStart+bytesWritten+int64(n), totalSize, upstreamChunkSize)
 				}
 				return
 			}
 			if hasFlusher {
 				flusher.Flush()
-			}
-			if partFile != nil {
-				_, _ = partFile.Write(buf[:n])
 			}
 			bytesWritten += int64(n)
 		}
@@ -317,19 +331,20 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, rErr := respChunk.Body.Read(buf)
 			if n > 0 {
+				if partFile != nil {
+					_, _ = partFile.Write(buf[:n])
+				}
 				if _, wErr := w.Write(buf[:n]); wErr != nil {
 					respChunk.Body.Close()
 					if partFile != nil {
-						_ = partFile.Close()
-						_ = os.Remove(cachedFile + ".part")
+						f := partFile
+						partFile = nil
+						go s.finishSpoolingInBackground(videoID, f, partPath, cachedFile, upstreamURL, ua, curStart+chunkBytes+int64(n), totalSize, upstreamChunkSize)
 					}
 					return
 				}
 				if hasFlusher {
 					flusher.Flush()
-				}
-				if partFile != nil {
-					_, _ = partFile.Write(buf[:n])
 				}
 				chunkBytes += int64(n)
 			}
@@ -346,14 +361,105 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if partFile != nil {
-		_ = partFile.Close()
-		partPath := cachedFile + ".part"
 		if curStart >= totalSize && totalSize > 0 {
+			_ = partFile.Sync()
+			_ = partFile.Close()
 			_ = os.Rename(partPath, cachedFile)
+			spoolingMu.Lock()
+			delete(spoolingTracks, videoID)
+			spoolingMu.Unlock()
 			go s.pruneAudioCacheIfNeeded(cacheDir)
 		} else {
-			_ = os.Remove(partPath)
+			f := partFile
+			partFile = nil
+			go s.finishSpoolingInBackground(videoID, f, partPath, cachedFile, upstreamURL, ua, curStart, totalSize, upstreamChunkSize)
 		}
+	}
+}
+
+// finishSpoolingInBackground continues downloading audio chunks into the .part file after the client disconnects or pauses.
+func (s *Server) finishSpoolingInBackground(videoID string, partFile *os.File, partPath, cachedFile, upstreamURL, ua string, curStart, totalSize int64, chunkSize int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[BACKGROUND SPOOL PANIC]: %v", r)
+		}
+		spoolingMu.Lock()
+		delete(spoolingTracks, videoID)
+		spoolingMu.Unlock()
+		if partFile != nil {
+			_ = partFile.Close()
+		}
+	}()
+
+	client := &http.Client{Timeout: 45 * time.Second}
+	buf := make([]byte, 32*1024)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	for curStart < totalSize {
+		curEnd := curStart + chunkSize - 1
+		if curEnd >= totalSize {
+			curEnd = totalSize - 1
+		}
+		if curStart > curEnd {
+			break
+		}
+
+		reqChunk, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+		if err != nil {
+			_ = os.Remove(partPath)
+			return
+		}
+		reqChunk.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+		reqChunk.Header.Set("User-Agent", ua)
+		if ua == ytmusic.UserAgentWebRemix {
+			reqChunk.Header.Set("Referer", "https://music.youtube.com/")
+			reqChunk.Header.Set("Origin", "https://music.youtube.com")
+		}
+
+		respChunk, doErr := client.Do(reqChunk)
+		if doErr != nil {
+			_ = os.Remove(partPath)
+			return
+		}
+		if respChunk.StatusCode != http.StatusOK && respChunk.StatusCode != http.StatusPartialContent {
+			respChunk.Body.Close()
+			_ = os.Remove(partPath)
+			return
+		}
+
+		chunkBytes := int64(0)
+		for {
+			n, rErr := respChunk.Body.Read(buf)
+			if n > 0 {
+				if _, wErr := partFile.Write(buf[:n]); wErr != nil {
+					respChunk.Body.Close()
+					_ = os.Remove(partPath)
+					return
+				}
+				chunkBytes += int64(n)
+			}
+			if rErr != nil {
+				break
+			}
+		}
+		respChunk.Body.Close()
+
+		if chunkBytes == 0 {
+			_ = os.Remove(partPath)
+			return
+		}
+		curStart += chunkBytes
+	}
+
+	if curStart >= totalSize && totalSize > 0 {
+		_ = partFile.Sync()
+		_ = partFile.Close()
+		partFile = nil
+		_ = os.Rename(partPath, cachedFile)
+		s.pruneAudioCacheIfNeeded(filepath.Dir(cachedFile))
+	} else {
+		_ = os.Remove(partPath)
 	}
 }
 

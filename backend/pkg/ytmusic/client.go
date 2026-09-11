@@ -34,26 +34,29 @@ const (
 // ClientContext models the Innertube client identification payload.
 type ClientContext struct {
 	Client struct {
-		ClientName    string `json:"clientName"`
-		ClientVersion string `json:"clientVersion"`
-		Hl            string `json:"hl"`
-		Gl            string `json:"gl"`
-		ClientScreen  string `json:"clientScreen,omitempty"`
-		DeviceMake    string `json:"deviceMake,omitempty"`
-		DeviceModel   string `json:"deviceModel,omitempty"`
-		OsName        string `json:"osName,omitempty"`
-		OsVersion     string `json:"osVersion,omitempty"`
-		VisitorData   string `json:"visitorData,omitempty"`
+		ClientName        string `json:"clientName"`
+		ClientVersion     string `json:"clientVersion"`
+		Hl                string `json:"hl"`
+		Gl                string `json:"gl"`
+		ClientScreen      string `json:"clientScreen,omitempty"`
+		DeviceMake        string `json:"deviceMake,omitempty"`
+		DeviceModel       string `json:"deviceModel,omitempty"`
+		AndroidSdkVersion int    `json:"androidSdkVersion,omitempty"`
+		OsName            string `json:"osName,omitempty"`
+		OsVersion         string `json:"osVersion,omitempty"`
+		VisitorData       string `json:"visitorData,omitempty"`
 	} `json:"client"`
 }
 
 // Client provides authenticated and anonymous interaction with the YouTube Music Innertube API.
 type Client struct {
-	httpClient *http.Client
-	hl         string
-	gl         string
-	mu         sync.RWMutex
-	cookieStr  string
+	httpClient  *http.Client
+	hl          string
+	gl          string
+	mu          sync.RWMutex
+	cookieStr   string
+	visitorData string
+	poToken     string
 }
 
 // NewClient instantiates a new YouTube Music scraper client with connection pooling and timeouts.
@@ -96,21 +99,64 @@ func (c *Client) HasCredentials() bool {
 	return c.cookieStr != ""
 }
 
+// SetVisitorData configures YouTube guest visitorData token for full stream access.
+func (c *Client) SetVisitorData(vd string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.visitorData = vd
+}
+
+// GetVisitorData returns the current visitorData token.
+func (c *Client) GetVisitorData() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.visitorData
+}
+
+// SetPoToken configures YouTube Proof of Origin token for stream access.
+func (c *Client) SetPoToken(pot string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.poToken = pot
+}
+
+// GetPoToken returns the current Proof of Origin token.
+func (c *Client) GetPoToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.poToken
+}
+
 // ClientConfig holds endpoint configuration for specific Innertube clients.
 type ClientConfig struct {
-	Name        string
-	Version     string
-	APIKey      string
-	UserAgent   string
-	BaseURL     string
-	XClientName string
-	DeviceMake  string
-	DeviceModel string
-	OSName      string
-	OSVersion   string
+	Name              string
+	Version           string
+	APIKey            string
+	UserAgent         string
+	BaseURL           string
+	XClientName       string
+	DeviceMake        string
+	DeviceModel       string
+	AndroidSdkVersion int
+	OSName            string
+	OSVersion         string
 }
 
 var (
+	ConfigAndroid = ClientConfig{
+		Name:              "ANDROID",
+		Version:           "20.10.38",
+		APIKey:            "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
+		UserAgent:         "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+		BaseURL:           "https://www.youtube.com/youtubei/v1",
+		XClientName:       "3",
+		DeviceMake:        "Google",
+		DeviceModel:       "Pixel 7",
+		AndroidSdkVersion: 30,
+		OSName:            "Android",
+		OSVersion:         "11",
+	}
+
 	ConfigWebRemix = ClientConfig{
 		Name:        "WEB_REMIX",
 		Version:     "1.20260304.03.00",
@@ -185,8 +231,12 @@ func (c *Client) buildContext(cfg ClientConfig) ClientContext {
 	ctx.Client.Gl = c.gl
 	ctx.Client.DeviceMake = cfg.DeviceMake
 	ctx.Client.DeviceModel = cfg.DeviceModel
+	ctx.Client.AndroidSdkVersion = cfg.AndroidSdkVersion
 	ctx.Client.OsName = cfg.OSName
 	ctx.Client.OsVersion = cfg.OSVersion
+	c.mu.RLock()
+	ctx.Client.VisitorData = c.visitorData
+	c.mu.RUnlock()
 	return ctx
 }
 
@@ -255,5 +305,24 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		return nil, fmt.Errorf("API error status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	return io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Capture visitorData if returned in responseContext to maintain valid session identity
+	var vResp struct {
+		ResponseContext struct {
+			VisitorData string `json:"visitorData"`
+		} `json:"responseContext"`
+	}
+	if err := json.Unmarshal(bodyBytes, &vResp); err == nil && vResp.ResponseContext.VisitorData != "" {
+		c.mu.Lock()
+		if c.visitorData == "" {
+			c.visitorData = vResp.ResponseContext.VisitorData
+		}
+		c.mu.Unlock()
+	}
+
+	return bodyBytes, nil
 }

@@ -27,19 +27,26 @@ type PlaybackContext struct {
 	} `json:"contentPlaybackContext"`
 }
 
+// ServiceIntegrityDimensions allows passing poToken when provided.
+type ServiceIntegrityDimensions struct {
+	PoToken string `json:"poToken,omitempty"`
+}
+
 // PlayerRequestBody models the JSON envelope sent to /youtubei/v1/player.
 type PlayerRequestBody struct {
-	Context         ClientContext   `json:"context"`
-	VideoID         string          `json:"videoId"`
-	PlaybackContext PlaybackContext `json:"playbackContext"`
-	ContentCheckOk  bool            `json:"contentCheckOk"`
-	RacyCheckOk     bool            `json:"racyCheckOk"`
+	Context                    ClientContext               `json:"context"`
+	VideoID                    string                      `json:"videoId"`
+	PlaybackContext            PlaybackContext             `json:"playbackContext"`
+	ContentCheckOk             bool                        `json:"contentCheckOk"`
+	RacyCheckOk                bool                        `json:"racyCheckOk"`
+	ServiceIntegrityDimensions *ServiceIntegrityDimensions `json:"serviceIntegrityDimensions,omitempty"`
 }
 
 var fallbackConfigs = []ClientConfig{
+	ConfigVisionOS,
+	ConfigAndroid,
 	ConfigIOS,
 	ConfigWebRemix,
-	ConfigTVHTML5Simply,
 }
 
 // GetStreamInfo queries YouTube's player API across client profiles until a valid pure audio stream is extracted.
@@ -56,12 +63,18 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 		pb.ContentPlaybackContext.HTML5Preference = "HTML5_PREF_WANTS"
 		pb.ContentPlaybackContext.SignatureTimestamp = sigTimestamp
 
+		var sid *ServiceIntegrityDimensions
+		if poToken := c.GetPoToken(); poToken != "" {
+			sid = &ServiceIntegrityDimensions{PoToken: poToken}
+		}
+
 		body := PlayerRequestBody{
-			Context:         c.buildContext(cfg),
-			VideoID:         videoID,
-			PlaybackContext: pb,
-			ContentCheckOk:  true,
-			RacyCheckOk:     true,
+			Context:                    c.buildContext(cfg),
+			VideoID:                    videoID,
+			PlaybackContext:            pb,
+			ContentCheckOk:             true,
+			RacyCheckOk:                true,
+			ServiceIntegrityDimensions: sid,
 		}
 
 		respBytes, err := c.post(ctx, "player", body, cfg)

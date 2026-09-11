@@ -176,14 +176,18 @@ class UnboundPlaybackService : MediaSessionService() {
             }
         }
 
-        // 4. Stable LoadControl buffer: 1000ms initial buffer prevents hardware AudioTrack underruns
+        // 4. Aggressive LoadControl buffer (SimpMusic download-while-listening pattern):
+        // Buffers up to 15 minutes ahead so the whole song rapidly pre-caches within seconds.
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                DEFAULT_MIN_BUFFER_MS * 4,
-                DEFAULT_MAX_BUFFER_MS * 4,
-                1000,
-                2000
-            ).build()
+                360_000, // minBufferMs: 6 minutes
+                900_000, // maxBufferMs: 15 minutes (full track pre-buffering)
+                1_500,   // bufferForPlaybackMs: 1.5s fast start
+                3_000    // bufferForPlaybackAfterRebufferMs: 3.0s rebuffer start
+            )
+            .setBackBuffer(120_000, /* retainBackBufferFromKeyframe = */ true)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 
         // 5. ExoPlayer instance with C.AUDIO_CONTENT_TYPE_MUSIC and handleAudioFocus = true (requests AUDIOFOCUS_GAIN from AudioManager for audio routing)
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)

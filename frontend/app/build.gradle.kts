@@ -70,3 +70,24 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }
+
+// Automatically deploy latest built APK to apk_test on every build
+tasks.register<Copy>("copyApkToTestFolder") {
+    val apkDir = layout.buildDirectory.dir("outputs/apk/debug")
+    val destDir = rootProject.projectDir.parentFile.resolve("apk_test")
+    from(apkDir) {
+        include("app-debug.apk")
+        rename("app-debug.apk", "unbound-music-debug.apk")
+    }
+    into(destDir)
+    doLast {
+        val sourceApk = apkDir.get().file("app-debug.apk").asFile
+        if (sourceApk.exists()) {
+            sourceApk.copyTo(destDir.resolve("app-debug.apk"), overwrite = true)
+        }
+    }
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    finalizedBy("copyApkToTestFolder")
+}

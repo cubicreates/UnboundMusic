@@ -148,6 +148,17 @@ data class AccountStatusData(
 )
 
 /**
+ * Initial device handshake for zero-typing YouTube login from POST /api/v1/account/device/start.
+ */
+data class DeviceCodeData(
+    val deviceCode: String,
+    val userCode: String,
+    val verificationUrl: String,
+    val expiresIn: Int,
+    val interval: Int
+)
+
+/**
  * Result from 4-stage intelligent search cascade GET /api/v1/search/cascade.
  */
 data class CascadeSearchResponse(

@@ -258,6 +258,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/account/status", s.handleAccountStatus)
 	mux.HandleFunc("/api/v1/account/disconnect", s.handleAccountDisconnect)
 	mux.HandleFunc("/api/v1/account/liked", s.handleAccountLiked)
+	mux.HandleFunc("/api/v1/account/device/start", s.handleAccountDeviceStart)
+	mux.HandleFunc("/api/v1/account/device/poll", s.handleAccountDevicePoll)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
 	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
 	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
@@ -1184,6 +1186,66 @@ func (s *Server) handleAccountDisconnect(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleAccountLiked(w http.ResponseWriter, r *http.Request) {
 	lib, _ := s.accountSync.SyncLibrary(r.Context())
 	writeJSON(w, http.StatusOK, lib.LikedTracks)
+}
+
+// handleAccountDeviceStart initiates the zero-typing OAuth 2.0 Device Code flow.
+func (s *Server) handleAccountDeviceStart(w http.ResponseWriter, r *http.Request) {
+	type StartReq struct {
+		ClientID string `json:"client_id,omitempty"`
+	}
+	var req StartReq
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	dResp, err := account.StartDeviceCodeFlow(r.Context(), req.ClientID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to initiate device flow: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dResp)
+}
+
+// handleAccountDevicePoll checks whether the user has authorized the device in their browser.
+func (s *Server) handleAccountDevicePoll(w http.ResponseWriter, r *http.Request) {
+	type PollReq struct {
+		DeviceCode   string `json:"device_code"`
+		ClientID     string `json:"client_id,omitempty"`
+		ClientSecret string `json:"client_secret,omitempty"`
+	}
+	var req PollReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceCode == "" {
+		writeError(w, http.StatusBadRequest, "device_code is required")
+		return
+	}
+
+	tResp, isPending, err := account.CheckDeviceCodeToken(r.Context(), req.DeviceCode, req.ClientID, req.ClientSecret)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if isPending {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "pending",
+		})
+		return
+	}
+
+	// User authorized! Connect account with OAuth tokens
+	if err := s.accountSync.ConnectOAuthAccount(r.Context(), tResp.AccessToken, tResp.RefreshToken); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to connect account: %v", err))
+		return
+	}
+
+	status := s.accountSync.GetStatus()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":              "success",
+		"connected":           status.Connected,
+		"account_name":        status.AccountName,
+		"avatar_url":          status.AvatarURL,
+		"synced_tracks_count": status.SyncedTracksCount,
+		"last_synced":         status.LastSynced,
+	})
 }
 
 // handleExploreMoods returns curated mood categories.

@@ -8,6 +8,8 @@
 
 package com.cubicreates.unboundmusic.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -24,12 +26,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,6 +63,7 @@ import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.GenreItemDto
+import com.cubicreates.unboundmusic.ui.account.YouTubeDeviceAuthSheet
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
@@ -73,6 +78,7 @@ fun MainApp(
     modifier: Modifier = Modifier,
     viewModel: MainViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(NavigationTab.HOME) }
     var isPlayerExpanded by remember { mutableStateOf(false) }
 
@@ -82,10 +88,35 @@ fun MainApp(
     var showAutoEqPicker by remember { mutableStateOf(false) }
     var showRecap by remember { mutableStateOf(false) }
     var showYouTubeLoginSheet by remember { mutableStateOf(false) }
+    var showYouTubeDeviceAuthSheet by remember { mutableStateOf(false) }
     var viewingArtist by remember { mutableStateOf<String?>(null) }
     var viewingGenre by remember { mutableStateOf<GenreItemDto?>(null) }
 
+    val deviceAuthData by viewModel.deviceAuthData.collectAsStateWithLifecycle()
+    val isStartingDeviceAuth by viewModel.isStartingDeviceAuth.collectAsStateWithLifecycle()
+    val isPollingDeviceAuth by viewModel.isPollingDeviceAuth.collectAsStateWithLifecycle()
+    val deviceAuthError by viewModel.deviceAuthError.collectAsStateWithLifecycle()
+
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
+
+    LaunchedEffect(isYouTubeConnected) {
+        if (isYouTubeConnected) {
+            showYouTubeDeviceAuthSheet = false
+            showYouTubeLoginSheet = false
+        }
+    }
+
+    val launchYouTubeAuth: () -> Unit = {
+        showYouTubeDeviceAuthSheet = true
+        viewModel.startYouTubeDeviceAuth { activateUrl ->
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(activateUrl)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (_: Exception) {}
+        }
+    }
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
     val syncedYouTubeTracks by viewModel.syncedYouTubeTracks.collectAsStateWithLifecycle()
@@ -257,6 +288,7 @@ fun MainApp(
                             NavigationTab.HOME -> {
                                 HomeScreen(
                                     tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                    syncedYouTubeTracks = syncedYouTubeTracks,
                                     daypartingState = daypartingState,
                                     genreSections = genreSections,
                                     userAvatarUrl = userAvatarUrl,
@@ -315,7 +347,7 @@ fun MainApp(
                                     onDeleteDownload = { viewModel.deleteTrackDownload(it) },
                                     onSourceClick = { source ->
                                         if (source.title == "Synced YouTube" && !isYouTubeConnected) {
-                                            showYouTubeLoginSheet = true
+                                            launchYouTubeAuth()
                                         } else {
                                             viewModel.refreshLibrary()
                                         }
@@ -349,14 +381,36 @@ fun MainApp(
                 currentTheme = selectedTheme,
                 cachePurgeStatus = cachePurgeStatus,
                 onThemeSelected = { viewModel.setTheme(it) },
-                onYouTubeSyncClick = { showYouTubeLoginSheet = true },
+                onYouTubeSyncClick = { launchYouTubeAuth() },
                 onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
                 onPurgeCacheClick = { viewModel.purgeCache() },
                 onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() }
             )
         }
 
-        // Modal 1.1: YouTube In-App WebView Login Sheet
+        // Modal 1.0: Zero-Typing YouTube Device Activation Sheet (Method 1)
+        if (showYouTubeDeviceAuthSheet) {
+            YouTubeDeviceAuthSheet(
+                deviceData = deviceAuthData,
+                isStarting = isStartingDeviceAuth,
+                isPolling = isPollingDeviceAuth,
+                errorMessage = deviceAuthError,
+                onDismiss = {
+                    showYouTubeDeviceAuthSheet = false
+                    viewModel.cancelDeviceAuth()
+                },
+                onRetry = {
+                    launchYouTubeAuth()
+                },
+                onSwitchToWebView = {
+                    showYouTubeDeviceAuthSheet = false
+                    viewModel.cancelDeviceAuth()
+                    showYouTubeLoginSheet = true
+                }
+            )
+        }
+
+        // Modal 1.1: YouTube In-App WebView Login Sheet (Manual Fallback)
         if (showYouTubeLoginSheet) {
             YouTubeLoginSheet(
                 onDismiss = { showYouTubeLoginSheet = false },

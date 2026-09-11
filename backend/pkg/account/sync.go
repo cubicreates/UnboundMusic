@@ -43,11 +43,13 @@ type AccountStatus struct {
 
 // Syncer coordinates YouTube account authentication and playlist synchronization.
 type Syncer struct {
-	mu          sync.RWMutex
-	cookieStr   string
-	userLibrary *UserLibrary
-	repo        *database.Repository
-	ytClient    *ytmusic.Client
+	mu           sync.RWMutex
+	cookieStr    string
+	accessToken  string
+	refreshToken string
+	userLibrary  *UserLibrary
+	repo         *database.Repository
+	ytClient     *ytmusic.Client
 }
 
 // NewSyncer initializes an account synchronization engine. Optional dependencies: repo (*database.Repository), ytClient (*ytmusic.Client).
@@ -74,11 +76,25 @@ func NewSyncer(deps ...interface{}) *Syncer {
 	if s.repo != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if savedCookie, err := s.repo.GetCredential(ctx, "yt_cookie"); err == nil && savedCookie != "" {
+
+		savedToken, _ := s.repo.GetCredential(ctx, "yt_access_token")
+		savedRefresh, _ := s.repo.GetCredential(ctx, "yt_refresh_token")
+		savedCookie, _ := s.repo.GetCredential(ctx, "yt_cookie")
+
+		if savedToken != "" {
+			s.accessToken = savedToken
+			s.refreshToken = savedRefresh
+			if s.ytClient != nil {
+				s.ytClient.SetAccessToken(savedToken)
+			}
+		} else if savedCookie != "" {
 			s.cookieStr = savedCookie
 			if s.ytClient != nil {
 				s.ytClient.SetCredentials(savedCookie)
 			}
+		}
+
+		if savedToken != "" || savedCookie != "" {
 			if savedName, _ := s.repo.GetCredential(ctx, "yt_account_name"); savedName != "" {
 				s.userLibrary.AccountName = savedName
 			} else {
@@ -163,12 +179,95 @@ func (s *Syncer) ConnectAccount(ctx context.Context, rawCookie string) error {
 	return nil
 }
 
+// ConnectOAuthAccount validates and stores OAuth tokens, fetches user profile, and performs an initial sync.
+func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshToken string) error {
+	accountName := "Connected User"
+	avatarURL := ""
+
+	// Try fetching Google / YouTube profile details
+	if profile, err := FetchGoogleUserProfile(ctx, accessToken); err == nil && profile != nil {
+		if profile.Name != "" {
+			accountName = profile.Name
+		}
+		if profile.Picture != "" {
+			avatarURL = profile.Picture
+		}
+	}
+	if (avatarURL == "" || accountName == "Connected User") && s.ytClient != nil {
+		s.ytClient.SetAccessToken(accessToken)
+		if info, err := s.ytClient.FetchAccountInfo(ctx); err == nil && info != nil {
+			if info.Name != "" && accountName == "Connected User" {
+				accountName = info.Name
+			}
+			if info.AvatarURL != "" && avatarURL == "" {
+				avatarURL = info.AvatarURL
+			}
+		}
+	}
+
+	s.mu.Lock()
+	s.accessToken = accessToken
+	s.refreshToken = refreshToken
+	if s.ytClient != nil {
+		s.ytClient.SetAccessToken(accessToken)
+	}
+	s.userLibrary.AccountName = accountName
+	s.userLibrary.AvatarURL = avatarURL
+	s.userLibrary.LastSynced = time.Now()
+	s.mu.Unlock()
+
+	if s.repo != nil {
+		_ = s.repo.SaveCredential(ctx, "yt_access_token", accessToken)
+		_ = s.repo.SaveCredential(ctx, "yt_refresh_token", refreshToken)
+		_ = s.repo.SaveCredential(ctx, "yt_account_name", accountName)
+		_ = s.repo.SaveCredential(ctx, "yt_avatar_url", avatarURL)
+	}
+
+	// Trigger library fetch: first YouTube Music, then fallback to standard YouTube Liked Videos (LL)
+	var tracks []models.Track
+	if s.ytClient != nil {
+		tracks, _ = s.ytClient.FetchLikedMusic(ctx)
+	}
+
+	if len(tracks) < 5 {
+		if normalYTTracks, err := FetchYouTubeLikedVideosDataAPI(ctx, accessToken); err == nil && len(normalYTTracks) > 0 {
+			existingIDs := make(map[string]bool)
+			for _, t := range tracks {
+				existingIDs[t.ID] = true
+			}
+			for _, nt := range normalYTTracks {
+				if !existingIDs[nt.ID] {
+					tracks = append(tracks, nt)
+					existingIDs[nt.ID] = true
+				}
+			}
+		}
+	}
+
+	if len(tracks) > 0 {
+		s.mu.Lock()
+		s.userLibrary.LikedTracks = tracks
+		s.userLibrary.LikedTracksCount = len(tracks)
+		s.userLibrary.LastSynced = time.Now()
+		s.mu.Unlock()
+
+		if s.repo != nil {
+			_ = s.repo.SaveSyncedTracks(ctx, tracks)
+		}
+	}
+
+	return nil
+}
+
 // DisconnectAccount clears session credentials and purges synced library caches.
 func (s *Syncer) DisconnectAccount(ctx context.Context) error {
 	s.mu.Lock()
 	s.cookieStr = ""
+	s.accessToken = ""
+	s.refreshToken = ""
 	if s.ytClient != nil {
 		s.ytClient.SetCredentials("")
+		s.ytClient.SetAccessToken("")
 	}
 	s.userLibrary = &UserLibrary{
 		AccountName:       "Local Unbound User",
@@ -179,6 +278,9 @@ func (s *Syncer) DisconnectAccount(ctx context.Context) error {
 	s.mu.Unlock()
 
 	if s.repo != nil {
+		_ = s.repo.SaveCredential(ctx, "yt_access_token", "")
+		_ = s.repo.SaveCredential(ctx, "yt_refresh_token", "")
+		_ = s.repo.SaveCredential(ctx, "yt_cookie", "")
 		return s.repo.ClearSyncedData(ctx)
 	}
 	return nil
@@ -190,7 +292,7 @@ func (s *Syncer) GetStatus() AccountStatus {
 	defer s.mu.RUnlock()
 
 	return AccountStatus{
-		Connected:         s.cookieStr != "",
+		Connected:         s.cookieStr != "" || s.accessToken != "",
 		AccountName:       s.userLibrary.AccountName,
 		AvatarURL:         s.userLibrary.AvatarURL,
 		SyncedTracksCount: len(s.userLibrary.LikedTracks),
@@ -211,10 +313,11 @@ func (s *Syncer) GetLikedTracks() []models.Track {
 // SyncLibrary fetches the latest Liked Music and playlists from YouTube.
 func (s *Syncer) SyncLibrary(ctx context.Context) (*UserLibrary, error) {
 	s.mu.RLock()
-	cookie := s.cookieStr
+	hasAuth := s.cookieStr != "" || s.accessToken != ""
+	refreshToken := s.refreshToken
 	s.mu.RUnlock()
 
-	if cookie == "" {
+	if !hasAuth {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		return s.userLibrary, nil
@@ -222,7 +325,42 @@ func (s *Syncer) SyncLibrary(ctx context.Context) (*UserLibrary, error) {
 
 	if s.ytClient != nil {
 		tracks, err := s.ytClient.FetchLikedMusic(ctx)
+		// If OAuth token expired, attempt automatic refresh
+		if err != nil && refreshToken != "" {
+			if tResp, rErr := RefreshOAuthToken(ctx, refreshToken, "", ""); rErr == nil && tResp != nil {
+				s.mu.Lock()
+				s.accessToken = tResp.AccessToken
+				if tResp.RefreshToken != "" {
+					s.refreshToken = tResp.RefreshToken
+				}
+				s.ytClient.SetAccessToken(tResp.AccessToken)
+				s.mu.Unlock()
+
+				if s.repo != nil {
+					_ = s.repo.SaveCredential(ctx, "yt_access_token", tResp.AccessToken)
+				}
+				// Retry fetch with fresh token
+				tracks, err = s.ytClient.FetchLikedMusic(ctx)
+			}
+		}
+
 		if err == nil {
+			// If YouTube Music tracks are sparse (< 5), supplement with normal YouTube liked videos
+			if len(tracks) < 5 && s.accessToken != "" {
+				if normalYTTracks, nErr := FetchYouTubeLikedVideosDataAPI(ctx, s.accessToken); nErr == nil && len(normalYTTracks) > 0 {
+					existingIDs := make(map[string]bool)
+					for _, t := range tracks {
+						existingIDs[t.ID] = true
+					}
+					for _, nt := range normalYTTracks {
+						if !existingIDs[nt.ID] {
+							tracks = append(tracks, nt)
+							existingIDs[nt.ID] = true
+						}
+					}
+				}
+			}
+
 			s.mu.Lock()
 			s.userLibrary.LikedTracks = tracks
 			s.userLibrary.LikedTracksCount = len(tracks)

@@ -55,6 +55,7 @@ type Client struct {
 	gl          string
 	mu          sync.RWMutex
 	cookieStr   string
+	accessToken string
 	visitorData string
 	poToken     string
 }
@@ -92,11 +93,25 @@ func (c *Client) GetCredentials() string {
 	return c.cookieStr
 }
 
-// HasCredentials returns true if authentication cookies are active.
+// SetAccessToken configures an OAuth Bearer token for YouTube API access.
+func (c *Client) SetAccessToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.accessToken = token
+}
+
+// GetAccessToken returns the current OAuth access token.
+func (c *Client) GetAccessToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.accessToken
+}
+
+// HasCredentials returns true if authentication cookies or OAuth tokens are active.
 func (c *Client) HasCredentials() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.cookieStr != ""
+	return c.cookieStr != "" || c.accessToken != ""
 }
 
 // SetVisitorData configures YouTube guest visitorData token for full stream access.
@@ -208,6 +223,15 @@ var (
 		XClientName: "85",
 	}
 
+	ConfigTVHTML5 = ClientConfig{
+		Name:        "TVHTML5",
+		Version:     "7.20260304.08.00",
+		APIKey:      "AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8",
+		UserAgent:   UserAgentTV,
+		BaseURL:     "https://www.youtube.com/youtubei/v1",
+		XClientName: "85",
+	}
+
 	ConfigVisionOS = ClientConfig{
 		Name:        "VISIONOS",
 		Version:     "1.02",
@@ -276,12 +300,15 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("Referer", "https://www.youtube.com/")
 	}
 
-	// Attach authentication cookies and dynamic SAPISIDHASH if configured
+	// Attach authentication: OAuth Bearer token or cookies with dynamic SAPISIDHASH
 	c.mu.RLock()
 	rawCookie := c.cookieStr
+	token := c.accessToken
 	c.mu.RUnlock()
 
-	if rawCookie != "" {
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if rawCookie != "" {
 		req.Header.Set("Cookie", rawCookie)
 		cookies := ParseCookies(rawCookie)
 		sapisid := cookies["SAPISID"]

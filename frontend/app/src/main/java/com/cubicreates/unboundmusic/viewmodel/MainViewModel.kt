@@ -20,6 +20,7 @@ import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.AccountStatusData
 import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.DaypartingState
+import com.cubicreates.unboundmusic.data.DeviceCodeData
 import com.cubicreates.unboundmusic.data.DownloadStartRequest
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
@@ -50,6 +51,8 @@ import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
 import com.cubicreates.unboundmusic.ui.recap.RecapData
 import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -235,6 +238,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isSyncingAccount = MutableStateFlow(false)
     val isSyncingAccount: StateFlow<Boolean> = _isSyncingAccount.asStateFlow()
+
+    private val _deviceAuthData = MutableStateFlow<DeviceCodeData?>(null)
+    val deviceAuthData: StateFlow<DeviceCodeData?> = _deviceAuthData.asStateFlow()
+
+    private val _isStartingDeviceAuth = MutableStateFlow(false)
+    val isStartingDeviceAuth: StateFlow<Boolean> = _isStartingDeviceAuth.asStateFlow()
+
+    private val _isPollingDeviceAuth = MutableStateFlow(false)
+    val isPollingDeviceAuth: StateFlow<Boolean> = _isPollingDeviceAuth.asStateFlow()
+
+    private val _deviceAuthError = MutableStateFlow<String?>(null)
+    val deviceAuthError: StateFlow<String?> = _deviceAuthError.asStateFlow()
+
+    private var deviceAuthJob: Job? = null
 
     private val _cascadeSearchResponse = MutableStateFlow<CascadeSearchResponse?>(null)
     val cascadeSearchResponse: StateFlow<CascadeSearchResponse?> = _cascadeSearchResponse.asStateFlow()
@@ -1528,13 +1545,118 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _isYouTubeConnected.value = true
                     checkAccountStatus()
                     loadSyncedYouTubeTracks()
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "YouTube synced successfully!", isLong = false)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Sync Error [HTTP $code]: $resp", isLong = true)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Account sync failed: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Sync Exception: ${e.message}", isLong = true)
+                }
             } finally {
                 _isSyncingAccount.value = false
             }
         }
+    }
+
+    /** Initiates YouTube Device Code flow, opens browser, and starts background polling. */
+    fun startYouTubeDeviceAuth(onLaunchBrowser: (String) -> Unit) {
+        deviceAuthJob?.cancel()
+        deviceAuthJob = viewModelScope.launch(Dispatchers.IO) {
+            _isStartingDeviceAuth.value = true
+            _deviceAuthError.value = null
+            try {
+                val (code, resp) = client.startDeviceAuth()
+                if (code in 200..299) {
+                    val data = client.parseDeviceCodeData(resp)
+                    if (data != null && data.userCode.isNotBlank()) {
+                        _deviceAuthData.value = data
+                        _isStartingDeviceAuth.value = false
+
+                        val activateUrl = "${data.verificationUrl}?user_code=${data.userCode}"
+                        withContext(Dispatchers.Main) {
+                            onLaunchBrowser(activateUrl)
+                        }
+
+                        pollDeviceAuthToken(data.deviceCode, data.interval)
+                        return@launch
+                    }
+                }
+                val errMsg = if (resp.isNotBlank()) "Device Auth Error [HTTP $code]: $resp" else "Device Auth Error [HTTP $code]"
+                _deviceAuthError.value = errMsg
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = true)
+                }
+            } catch (e: Exception) {
+                val exMsg = "Device Auth Exception: ${e.message ?: "Unknown error"}"
+                _deviceAuthError.value = exMsg
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), exMsg, isLong = true)
+                }
+            } finally {
+                _isStartingDeviceAuth.value = false
+            }
+        }
+    }
+
+    private suspend fun pollDeviceAuthToken(deviceCode: String, intervalSeconds: Int) {
+        _isPollingDeviceAuth.value = true
+        val pollDelay = (if (intervalSeconds > 0) intervalSeconds else 5) * 1000L
+        val maxAttempts = 60 // 5 minutes max
+
+        for (i in 0 until maxAttempts) {
+            if (!currentCoroutineContext().isActive) break
+            delay(pollDelay)
+            try {
+                val (code, resp) = client.pollDeviceAuth(deviceCode)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val root = JSONObject(resp)
+                    val status = root.optString("status", "")
+                    if (status == "success") {
+                        _isYouTubeConnected.value = true
+                        _deviceAuthData.value = null
+                        _isPollingDeviceAuth.value = false
+                        checkAccountStatus()
+                        loadSyncedYouTubeTracks()
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "YouTube account connected successfully!",
+                                isLong = false
+                            )
+                        }
+                        return
+                    } else if (status == "pending") {
+                        continue
+                    }
+                } else if (code in 400..599 && !resp.contains("authorization_pending") && !resp.contains("slow_down")) {
+                    val pollErr = "Device Poll Error [HTTP $code]: $resp"
+                    _deviceAuthError.value = pollErr
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), pollErr, isLong = true)
+                    }
+                    break
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Device poll iteration note: ${e.message}")
+            }
+        }
+        _isPollingDeviceAuth.value = false
+    }
+
+    /** Cancels any active device code authorization polling. */
+    fun cancelDeviceAuth() {
+        deviceAuthJob?.cancel()
+        deviceAuthJob = null
+        _deviceAuthData.value = null
+        _isStartingDeviceAuth.value = false
+        _isPollingDeviceAuth.value = false
+        _deviceAuthError.value = null
     }
 
     /** Disconnects YouTube account and purges credentials and synced library data. */

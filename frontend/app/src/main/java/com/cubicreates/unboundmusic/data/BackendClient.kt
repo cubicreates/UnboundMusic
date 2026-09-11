@@ -774,6 +774,40 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         post("/api/v1/account/disconnect", "{}")
     }
 
+    /** Initiates zero-typing OAuth 2.0 device flow for YouTube on TV / device activation. */
+    suspend fun startDeviceAuth(clientId: String? = null): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            if (!clientId.isNullOrBlank()) put("client_id", clientId)
+        }.toString()
+        post("/api/v1/account/device/start", payload)
+    }
+
+    /** Polls Google's device token endpoint via local Go daemon. */
+    suspend fun pollDeviceAuth(deviceCode: String, clientId: String? = null, clientSecret: String? = null): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("device_code", deviceCode)
+            if (!clientId.isNullOrBlank()) put("client_id", clientId)
+            if (!clientSecret.isNullOrBlank()) put("client_secret", clientSecret)
+        }.toString()
+        post("/api/v1/account/device/poll", payload)
+    }
+
+    /** Parses DeviceCodeData response from JSON. */
+    fun parseDeviceCodeData(jsonStr: String): DeviceCodeData? {
+        return try {
+            val root = JSONObject(jsonStr)
+            DeviceCodeData(
+                deviceCode = root.optString("device_code", ""),
+                userCode = root.optString("user_code", ""),
+                verificationUrl = root.optString("verification_url", "https://www.youtube.com/activate"),
+                expiresIn = root.optInt("expires_in", 1800),
+                interval = root.optInt("interval", 5)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** Retrieves all cached synced Liked Music tracks from Go daemon. */
     suspend fun getLikedTracks(): Pair<Int, String> = withContext(Dispatchers.IO) {
         get("/api/v1/account/liked")

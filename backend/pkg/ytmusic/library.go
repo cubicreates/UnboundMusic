@@ -141,12 +141,88 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 	return track, true
 }
 
-// recursiveExtractTracks traverses an arbitrary InnerTube JSON tree searching for musicResponsiveListItemRenderer objects.
+// parseGenericVideoRenderer extracts a normalized Track model from standard YouTube video renderers.
+func parseGenericVideoRenderer(item map[string]interface{}) (models.Track, bool) {
+	var track models.Track
+	vid, _ := item["videoId"].(string)
+	if vid == "" {
+		return track, false
+	}
+	track.ID = vid
+
+	// Title
+	if titleObj, ok := item["title"].(map[string]interface{}); ok {
+		if s, ok := titleObj["simpleText"].(string); ok && s != "" {
+			track.Title = s
+		} else if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 {
+			if r0, ok := runs[0].(map[string]interface{}); ok {
+				track.Title, _ = r0["text"].(string)
+			}
+		}
+	}
+
+	// Artist / Channel
+	byline := item["shortBylineText"]
+	if byline == nil {
+		byline = item["ownerText"]
+	}
+	if bylineObj, ok := byline.(map[string]interface{}); ok {
+		if runs, ok := bylineObj["runs"].([]interface{}); ok && len(runs) > 0 {
+			if r0, ok := runs[0].(map[string]interface{}); ok {
+				track.Artist, _ = r0["text"].(string)
+			}
+		} else if s, ok := bylineObj["simpleText"].(string); ok {
+			track.Artist = s
+		}
+	}
+	if track.Artist == "" {
+		track.Artist = "YouTube Artist"
+	}
+	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
+	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
+
+	// Thumbnail
+	if thumbObj, ok := item["thumbnail"].(map[string]interface{}); ok {
+		if thumbs, ok := thumbObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+			lastThumb, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+			if rawURL, ok := lastThumb["url"].(string); ok {
+				track.ThumbnailURL = thumbRegex.ReplaceAllString(rawURL, "=w800-h800")
+			}
+		}
+	}
+
+	if track.Title == "" {
+		return track, false
+	}
+	return track, true
+}
+
+// recursiveExtractTracks traverses an arbitrary InnerTube JSON tree searching for music and video renderer objects.
 func recursiveExtractTracks(data interface{}, out *[]models.Track) {
 	switch v := data.(type) {
 	case map[string]interface{}:
 		if item, ok := v["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
 			if tr, ok := parseMusicResponsiveItem(item); ok {
+				*out = append(*out, tr)
+			}
+		}
+		if item, ok := v["videoRenderer"].(map[string]interface{}); ok {
+			if tr, ok := parseGenericVideoRenderer(item); ok {
+				*out = append(*out, tr)
+			}
+		}
+		if item, ok := v["compactVideoRenderer"].(map[string]interface{}); ok {
+			if tr, ok := parseGenericVideoRenderer(item); ok {
+				*out = append(*out, tr)
+			}
+		}
+		if item, ok := v["playlistVideoRenderer"].(map[string]interface{}); ok {
+			if tr, ok := parseGenericVideoRenderer(item); ok {
+				*out = append(*out, tr)
+			}
+		}
+		if item, ok := v["gridVideoRenderer"].(map[string]interface{}); ok {
+			if tr, ok := parseGenericVideoRenderer(item); ok {
 				*out = append(*out, tr)
 			}
 		}
@@ -160,26 +236,78 @@ func recursiveExtractTracks(data interface{}, out *[]models.Track) {
 	}
 }
 
-// FetchLikedMusic queries the YouTube Music InnerTube browse endpoint for the authenticated user's Liked Music (FLLM).
+// FetchLikedMusic queries InnerTube for the user's Liked Music, standard YouTube liked videos, library, and history.
 func (c *Client) FetchLikedMusic(ctx context.Context) ([]models.Track, error) {
-	body := map[string]interface{}{
+	var allTracks []models.Track
+
+	// 1. First attempt: YouTube Music Liked Music (browseId: FLLM)
+	bodyLM := map[string]interface{}{
 		"context":  c.buildContext(ConfigWebRemix),
 		"browseId": "FLLM",
 	}
-
-	respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch liked music: %w", err)
+	if respBytes, err := c.post(ctx, "browse", bodyLM, ConfigWebRemix); err == nil {
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err == nil {
+			recursiveExtractTracks(root, &allTracks)
+		}
 	}
 
-	var root map[string]interface{}
-	if err := json.Unmarshal(respBytes, &root); err != nil {
-		return nil, fmt.Errorf("failed to decode browse response: %w", err)
+	// 2. Second attempt: Standard YouTube Liked Videos & Library playlists (VLVM, VLLL, FLLL, FElibrary)
+	if len(allTracks) < 5 {
+		for _, browseID := range []string{"VLVM", "VLLL", "FLLL", "FElibrary"} {
+			for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigWeb} {
+				body := map[string]interface{}{
+					"context":  c.buildContext(cfg),
+					"browseId": browseID,
+				}
+				if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
+					var root map[string]interface{}
+					if err := json.Unmarshal(respBytes, &root); err == nil {
+						recursiveExtractTracks(root, &allTracks)
+						if len(allTracks) >= 15 {
+							break
+						}
+					}
+				}
+			}
+			if len(allTracks) >= 15 {
+				break
+			}
+		}
 	}
 
-	var tracks []models.Track
-	recursiveExtractTracks(root, &tracks)
-	return gatekeeper.FilterMusicTracks(tracks), nil
+	// 3. Third attempt: User's History (browseId: FEhistory)
+	if len(allTracks) < 5 {
+		for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigWeb} {
+			body := map[string]interface{}{
+				"context":  c.buildContext(cfg),
+				"browseId": "FEhistory",
+			}
+			if respBytes, err := c.post(ctx, "browse", body, cfg); err == nil {
+				var root map[string]interface{}
+				if err := json.Unmarshal(respBytes, &root); err == nil {
+					recursiveExtractTracks(root, &allTracks)
+				}
+			}
+			if len(allTracks) >= 15 {
+				break
+			}
+		}
+	}
+
+	// Filter all items so strictly music tracks/videos are preserved
+	filtered := gatekeeper.FilterMusicTracks(allTracks)
+	// Deduplicate by track ID
+	seen := make(map[string]bool)
+	unique := make([]models.Track, 0, len(filtered))
+	for _, t := range filtered {
+		if !seen[t.ID] {
+			seen[t.ID] = true
+			unique = append(unique, t)
+		}
+	}
+
+	return unique, nil
 }
 
 // FetchUserPlaylists retrieves the user's custom and liked playlists.

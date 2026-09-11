@@ -83,3 +83,18 @@ func FilterMusicTracks(tracks []models.Track) []models.Track {
 	}
 	return result
 }
+
+// FilterRelaxedTracks provides a permissive filter for user's personal libraries when strict music filter yields 0 items.
+func FilterRelaxedTracks(tracks []models.Track) []models.Track {
+	result := make([]models.Track, 0, len(tracks))
+	for _, t := range tracks {
+		if strings.TrimSpace(t.Title) == "" || t.ID == "" {
+			continue
+		}
+		if t.DurationMs > 0 && t.DurationMs < 10000 {
+			continue // skip under 10s sound clips
+		}
+		result = append(result, t)
+	}
+	return result
+}

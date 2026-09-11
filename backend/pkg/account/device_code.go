@@ -31,7 +31,7 @@ const (
 	// YouTube on TV / Limited-Input Device credentials (live extracted from youtube.com/tv)
 	DefaultTVClientID     = "861556708454-d6dlm3lh05idd8npek18k6be8ba3oc68.apps.googleusercontent.com"
 	DefaultTVClientSecret = "SboVhoG9s0rNafixCSGGKXAT"
-	DefaultScope          = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube-paid-content"
+	DefaultScope          = "http://gdata.youtube.com https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/userinfo.profile email openid"
 )
 
 // DeviceCodeResponse encapsulates the initial device handshake returned by Google.
@@ -427,11 +427,123 @@ func FetchYouTubeLikedVideosDataAPI(ctx context.Context, accessToken string) ([]
 	return gatekeeper.FilterMusicTracks(tracks), nil
 }
 
-// FetchGoogleUserProfile queries YouTube Data API v3 and Google userinfo endpoints to obtain the user's profile picture and name.
+// FetchYouTubePlaylistsDataAPI queries user's personal playlists on YouTube via Data API v3.
+func FetchYouTubePlaylistsDataAPI(ctx context.Context, accessToken string) ([]models.Track, error) {
+	reqURL := "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=10"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("playlists API returned %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	var allTracks []models.Track
+	for _, p := range data.Items {
+		if p.ID == "" {
+			continue
+		}
+		pReqURL := fmt.Sprintf("https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=%s&maxResults=25", p.ID)
+		pReq, err := http.NewRequestWithContext(ctx, http.MethodGet, pReqURL, nil)
+		if err != nil {
+			continue
+		}
+		pReq.Header.Set("Authorization", "Bearer "+accessToken)
+		pResp, err := client.Do(pReq)
+		if err != nil {
+			continue
+		}
+		var pData struct {
+			Items []struct {
+				ContentDetails struct {
+					VideoID string `json:"videoId"`
+				} `json:"contentDetails"`
+				Snippet struct {
+					Title                  string `json:"title"`
+					VideoOwnerChannelTitle string `json:"videoOwnerChannelTitle"`
+					Thumbnails             struct {
+						High struct {
+							URL string `json:"url"`
+						} `json:"high"`
+						Default struct {
+							URL string `json:"url"`
+						} `json:"default"`
+					} `json:"thumbnails"`
+					ResourceID struct {
+						VideoID string `json:"videoId"`
+					} `json:"resourceId"`
+				} `json:"snippet"`
+			} `json:"items"`
+		}
+		if err := json.NewDecoder(pResp.Body).Decode(&pData); err == nil {
+			for _, item := range pData.Items {
+				vid := item.ContentDetails.VideoID
+				if vid == "" {
+					vid = item.Snippet.ResourceID.VideoID
+				}
+				if vid == "" {
+					continue
+				}
+				artist := item.Snippet.VideoOwnerChannelTitle
+				artist = strings.TrimSuffix(artist, " - Topic")
+				artist = strings.TrimSuffix(artist, "VEVO")
+				if artist == "" {
+					artist = "YouTube Artist"
+				}
+				thumb := item.Snippet.Thumbnails.High.URL
+				if thumb == "" {
+					thumb = item.Snippet.Thumbnails.Default.URL
+				}
+				allTracks = append(allTracks, models.Track{
+					ID:           vid,
+					Title:        item.Snippet.Title,
+					Artist:       artist,
+					ThumbnailURL: thumb,
+				})
+			}
+		}
+		pResp.Body.Close()
+		if len(allTracks) >= 50 {
+			break
+		}
+	}
+	return gatekeeper.FilterMusicTracks(allTracks), nil
+}
+
+// FetchGoogleUserProfile queries Google userinfo v3/v1 and YouTube Data API v3 to obtain the user's profile picture and name.
 func FetchGoogleUserProfile(ctx context.Context, accessToken string) (*UserProfile, error) {
-	// 1. First attempt YouTube Data API (channels?mine=true) which is authorized under http://gdata.youtube.com
-	if profile, err := FetchYouTubeChannelProfile(ctx, accessToken); err == nil && profile != nil && (profile.Picture != "" || profile.Name != "") {
-		return profile, nil
+	// 1. First attempt: Google userinfo v3 endpoint (gives the real Google account name and profile picture)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GoogleUserInfoURL, nil)
+	if err == nil {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		client := &http.Client{Timeout: 8 * time.Second}
+		if resp, err := client.Do(req); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var profile UserProfile
+				if err := json.NewDecoder(resp.Body).Decode(&profile); err == nil && (profile.Name != "" || profile.Picture != "") {
+					return &profile, nil
+				}
+			}
+		}
 	}
 
 	// 2. Second attempt: Google userinfo v1 API with alt=json
@@ -450,28 +562,10 @@ func FetchGoogleUserProfile(ctx context.Context, accessToken string) (*UserProfi
 		}
 	}
 
-	// 3. Third attempt: Google userinfo v3 endpoint
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GoogleUserInfoURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("userinfo returned status %d", resp.StatusCode)
+	// 3. Third attempt: YouTube Data API (channels?mine=true)
+	if profile, err := FetchYouTubeChannelProfile(ctx, accessToken); err == nil && profile != nil && (profile.Picture != "" || profile.Name != "") {
+		return profile, nil
 	}
 
-	var profile UserProfile
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		return nil, err
-	}
-
-	return &profile, nil
+	return nil, fmt.Errorf("userinfo request failed")
 }

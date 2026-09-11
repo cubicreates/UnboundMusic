@@ -46,9 +46,6 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (*AccountInfo, error) {
 
 		info := parseAccountInfoFromJSON(root)
 		if info != nil && (info.Name != "" || info.AvatarURL != "") {
-			if info.Name == "" {
-				info.Name = "YouTube User"
-			}
 			return info, nil
 		}
 	}
@@ -71,9 +68,6 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (*AccountInfo, error) {
 
 		info := parseAccountInfoFromJSON(root)
 		if info != nil && (info.Name != "" || info.AvatarURL != "") {
-			if info.Name == "" {
-				info.Name = "YouTube User"
-			}
 			return info, nil
 		}
 	}
@@ -97,15 +91,12 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (*AccountInfo, error) {
 
 		info := parseAccountInfoFromJSON(root)
 		if info != nil && (info.Name != "" || info.AvatarURL != "") {
-			if info.Name == "" {
-				info.Name = "YouTube User"
-			}
 			return info, nil
 		}
 	}
 
 	return &AccountInfo{
-		Name:      "YouTube User",
+		Name:      "",
 		AvatarURL: "",
 	}, nil
 }
@@ -160,6 +151,26 @@ func findAccountDetails(data interface{}, info *AccountInfo) {
 			}
 			if thumbObj, ok := acc["thumbnail"].(map[string]interface{}); ok {
 				if thumbs, ok := thumbObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+					lastThumb, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+					if rawURL, ok := lastThumb["url"].(string); ok && info.AvatarURL == "" {
+						info.AvatarURL = upgradeAvatarResolution(rawURL)
+					}
+				}
+			}
+		}
+
+		if accItem, ok := v["accountItemRenderer"].(map[string]interface{}); ok {
+			if titleObj, ok := accItem["accountName"].(map[string]interface{}); ok {
+				if s, ok := titleObj["simpleText"].(string); ok && s != "" && info.Name == "" {
+					info.Name = s
+				} else if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 && info.Name == "" {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						info.Name, _ = r0["text"].(string)
+					}
+				}
+			}
+			if photoObj, ok := accItem["accountPhoto"].(map[string]interface{}); ok {
+				if thumbs, ok := photoObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
 					lastThumb, _ := thumbs[len(thumbs)-1].(map[string]interface{})
 					if rawURL, ok := lastThumb["url"].(string); ok && info.AvatarURL == "" {
 						info.AvatarURL = upgradeAvatarResolution(rawURL)

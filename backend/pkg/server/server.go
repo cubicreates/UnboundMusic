@@ -169,7 +169,7 @@ func NewServer(cfg Config) (*Server, error) {
 		canvasCacheDir = filepath.Join(tree.CachePath, "canvas")
 	}
 	canvasCli := canvas.NewClient(canvasCacheDir)
-	accSyncer := account.NewSyncer()
+	accSyncer := account.NewSyncer(repo, ytClient)
 	exploreEngine := explore.NewEngine(ytClient)
 	ytExploreEngine := ytmusic.NewExploreEngine(repo)
 	artistEngine := artist.NewEngine(ytClient)
@@ -1185,7 +1185,10 @@ func (s *Server) handleAccountDisconnect(w http.ResponseWriter, r *http.Request)
 // handleAccountLiked returns synced liked tracks.
 func (s *Server) handleAccountLiked(w http.ResponseWriter, r *http.Request) {
 	lib, _ := s.accountSync.SyncLibrary(r.Context())
-	writeJSON(w, http.StatusOK, lib.LikedTracks)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tracks": lib.LikedTracks,
+		"count":  len(lib.LikedTracks),
+	})
 }
 
 // handleAccountDeviceStart initiates the zero-typing OAuth 2.0 Device Code flow.

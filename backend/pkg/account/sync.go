@@ -103,10 +103,52 @@ func NewSyncer(deps ...interface{}) *Syncer {
 			if savedAvatar, _ := s.repo.GetCredential(ctx, "yt_avatar_url"); savedAvatar != "" {
 				s.userLibrary.AvatarURL = savedAvatar
 			}
-			if tracks, err := s.repo.GetSyncedTracks(ctx); err == nil {
+			if tracks, err := s.repo.GetSyncedTracks(ctx); err == nil && len(tracks) > 0 {
 				s.userLibrary.LikedTracks = tracks
 				s.userLibrary.LikedTracksCount = len(tracks)
 				s.userLibrary.LastSynced = time.Now()
+			}
+
+			// Proactive background re-hydration if profile info or tracks are missing
+			if s.userLibrary.AvatarURL == "" || s.userLibrary.AccountName == "Connected User" || s.userLibrary.AccountName == "YouTube User" || len(s.userLibrary.LikedTracks) == 0 {
+				go func() {
+					bgCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+
+					if savedToken != "" && (s.userLibrary.AvatarURL == "" || s.userLibrary.AccountName == "Connected User" || s.userLibrary.AccountName == "YouTube User") {
+						if profile, err := FetchGoogleUserProfile(bgCtx, savedToken); err == nil && profile != nil {
+							s.mu.Lock()
+							if profile.Name != "" {
+								s.userLibrary.AccountName = profile.Name
+								_ = s.repo.SaveCredential(bgCtx, "yt_account_name", profile.Name)
+							}
+							if profile.Picture != "" {
+								s.userLibrary.AvatarURL = profile.Picture
+								_ = s.repo.SaveCredential(bgCtx, "yt_avatar_url", profile.Picture)
+							}
+							s.mu.Unlock()
+						}
+					}
+
+					if (s.userLibrary.AvatarURL == "" || s.userLibrary.AccountName == "Connected User" || s.userLibrary.AccountName == "YouTube User") && s.ytClient != nil {
+						if info, err := s.ytClient.FetchAccountInfo(bgCtx); err == nil && info != nil {
+							s.mu.Lock()
+							if info.Name != "" && info.Name != "YouTube User" && (s.userLibrary.AccountName == "Connected User" || s.userLibrary.AccountName == "YouTube User" || s.userLibrary.AccountName == "Local Unbound User") {
+								s.userLibrary.AccountName = info.Name
+								_ = s.repo.SaveCredential(bgCtx, "yt_account_name", info.Name)
+							}
+							if info.AvatarURL != "" && s.userLibrary.AvatarURL == "" {
+								s.userLibrary.AvatarURL = info.AvatarURL
+								_ = s.repo.SaveCredential(bgCtx, "yt_avatar_url", info.AvatarURL)
+							}
+							s.mu.Unlock()
+						}
+					}
+
+					if len(s.userLibrary.LikedTracks) == 0 {
+						_, _ = s.SyncLibrary(bgCtx)
+					}
+				}()
 			}
 		}
 	}
@@ -184,7 +226,11 @@ func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshTo
 	accountName := "Connected User"
 	avatarURL := ""
 
-	// Try fetching Google / YouTube profile details
+	if s.ytClient != nil {
+		s.ytClient.SetAccessToken(accessToken)
+	}
+
+	// 1. Try fetching Google / YouTube profile details via Data API
 	if profile, err := FetchGoogleUserProfile(ctx, accessToken); err == nil && profile != nil {
 		if profile.Name != "" {
 			accountName = profile.Name
@@ -193,10 +239,11 @@ func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshTo
 			avatarURL = profile.Picture
 		}
 	}
+
+	// 2. Try fetching InnerTube TV/Web profile details (Google display name & account photo)
 	if (avatarURL == "" || accountName == "Connected User") && s.ytClient != nil {
-		s.ytClient.SetAccessToken(accessToken)
 		if info, err := s.ytClient.FetchAccountInfo(ctx); err == nil && info != nil {
-			if info.Name != "" && accountName == "Connected User" {
+			if info.Name != "" && info.Name != "YouTube User" && (accountName == "Connected User" || accountName == "") {
 				accountName = info.Name
 			}
 			if info.AvatarURL != "" && avatarURL == "" {
@@ -239,6 +286,21 @@ func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshTo
 				if !existingIDs[nt.ID] {
 					tracks = append(tracks, nt)
 					existingIDs[nt.ID] = true
+				}
+			}
+		}
+	}
+
+	if len(tracks) < 5 {
+		if plTracks, err := FetchYouTubePlaylistsDataAPI(ctx, accessToken); err == nil && len(plTracks) > 0 {
+			existingIDs := make(map[string]bool)
+			for _, t := range tracks {
+				existingIDs[t.ID] = true
+			}
+			for _, pt := range plTracks {
+				if !existingIDs[pt.ID] {
+					tracks = append(tracks, pt)
+					existingIDs[pt.ID] = true
 				}
 			}
 		}
@@ -344,23 +406,39 @@ func (s *Syncer) SyncLibrary(ctx context.Context) (*UserLibrary, error) {
 			}
 		}
 
-		if err == nil {
-			// If YouTube Music tracks are sparse (< 5), supplement with normal YouTube liked videos
-			if len(tracks) < 5 && s.accessToken != "" {
-				if normalYTTracks, nErr := FetchYouTubeLikedVideosDataAPI(ctx, s.accessToken); nErr == nil && len(normalYTTracks) > 0 {
-					existingIDs := make(map[string]bool)
-					for _, t := range tracks {
-						existingIDs[t.ID] = true
-					}
-					for _, nt := range normalYTTracks {
-						if !existingIDs[nt.ID] {
-							tracks = append(tracks, nt)
-							existingIDs[nt.ID] = true
-						}
+		// Always supplement with normal YouTube liked videos if tracks are sparse (< 5)
+		if len(tracks) < 5 && s.accessToken != "" {
+			if normalYTTracks, nErr := FetchYouTubeLikedVideosDataAPI(ctx, s.accessToken); nErr == nil && len(normalYTTracks) > 0 {
+				existingIDs := make(map[string]bool)
+				for _, t := range tracks {
+					existingIDs[t.ID] = true
+				}
+				for _, nt := range normalYTTracks {
+					if !existingIDs[nt.ID] {
+						tracks = append(tracks, nt)
+						existingIDs[nt.ID] = true
 					}
 				}
 			}
+		}
 
+		// Also supplement with user's personal playlists if still sparse
+		if len(tracks) < 5 && s.accessToken != "" {
+			if plTracks, pErr := FetchYouTubePlaylistsDataAPI(ctx, s.accessToken); pErr == nil && len(plTracks) > 0 {
+				existingIDs := make(map[string]bool)
+				for _, t := range tracks {
+					existingIDs[t.ID] = true
+				}
+				for _, pt := range plTracks {
+					if !existingIDs[pt.ID] {
+						tracks = append(tracks, pt)
+						existingIDs[pt.ID] = true
+					}
+				}
+			}
+		}
+
+		if len(tracks) > 0 {
 			s.mu.Lock()
 			s.userLibrary.LikedTracks = tracks
 			s.userLibrary.LikedTracksCount = len(tracks)

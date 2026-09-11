@@ -1680,15 +1680,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Loads cached synced Liked Music tracks from the Go engine daemon. */
     fun loadSyncedYouTubeTracks() {
         viewModelScope.launch(Dispatchers.IO) {
+            _isSyncingAccount.value = true
             try {
                 val (code, resp) = client.getLikedTracks()
                 if (code in 200..299 && resp.isNotBlank()) {
                     val tracks = client.parseLikedTracks(resp)
                     _syncedYouTubeTracks.value = tracks
                     _youtubeCount.value = tracks.size
+                    withContext(Dispatchers.Main) {
+                        if (tracks.isNotEmpty()) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Synced ${tracks.size} tracks from YouTube!", isLong = false)
+                        } else {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "0 liked tracks found on YouTube account.", isLong = false)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Load synced tracks note: ${e.message}")
+            } finally {
+                _isSyncingAccount.value = false
             }
         }
     }

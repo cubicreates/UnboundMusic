@@ -98,6 +98,7 @@ fun MainApp(
     val deviceAuthError by viewModel.deviceAuthError.collectAsStateWithLifecycle()
 
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
+    val isSyncingAccount by viewModel.isSyncingAccount.collectAsStateWithLifecycle()
 
     LaunchedEffect(isYouTubeConnected) {
         if (isYouTubeConnected) {
@@ -294,6 +295,8 @@ fun MainApp(
                                     userAvatarUrl = userAvatarUrl,
                                     accountName = accountName,
                                     isYouTubeConnected = isYouTubeConnected,
+                                    isSyncing = isSyncingAccount,
+                                    onSyncClick = { viewModel.loadSyncedYouTubeTracks() },
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)
                                         isPlayerExpanded = true

@@ -845,8 +845,13 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     fun parseLikedTracks(jsonStr: String): List<TrackItem> {
         val list = mutableListOf<TrackItem>()
         try {
-            val root = JSONObject(jsonStr)
-            val arr = root.optJSONArray("tracks") ?: return list
+            val trimmed = jsonStr.trim()
+            val arr = if (trimmed.startsWith("[")) {
+                org.json.JSONArray(trimmed)
+            } else {
+                val root = JSONObject(trimmed)
+                root.optJSONArray("tracks") ?: return list
+            }
             for (i in 0 until arr.length()) {
                 val t = arr.optJSONObject(i) ?: continue
                 val id = t.optString("id", "")

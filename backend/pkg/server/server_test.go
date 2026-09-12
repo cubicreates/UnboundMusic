@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
+	"github.com/cubicreates/unbound-engine/pkg/models"
 )
 
 // TestServerStatusEndpoint validates that /api/v1/status returns valid JSON and health state.
@@ -465,6 +466,63 @@ func TestUnpackPayloadEndpoint(t *testing.T) {
 		t.Errorf("expected archive %s to be deleted after extraction", archivePath)
 	}
 }
+
+func TestServerLyricsEndpoint_SanitizesMetadataAndCacheHit(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45740,
+		DatabasePath:   filepath.Join(tempDir, "test_server.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Pre-seed a track in repo
+	track := models.Track{
+		ID:         "test_track_him_and_i",
+		Title:      "Him & I",
+		Artist:     "G-Eazy & Halsey",
+		DurationMs: 268000,
+	}
+	_ = srv.repo.SaveTrack(context.Background(), &track)
+
+	// Pre-seed lyrics in repo
+	lyricsPayload := &models.LyricsPayload{
+		TrackID: "test_track_him_and_i",
+		Title:   "Him & I",
+		Artist:  "G-Eazy & Halsey",
+		Lines: []models.LyricLine{
+			{Text: "Cross my heart, hope to die", StartMs: 10000, EndMs: 14000},
+		},
+		Source: "LRCLIB (Verified Synced)",
+	}
+	_ = srv.repo.SaveLyrics(context.Background(), lyricsPayload)
+
+	// Call handleLyrics with dummy artist="Song" and title with "(Official Video)"
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/lyrics?id=test_track_him_and_i&title=Him+%26+I+(Official+Video)&artist=Song", nil)
+	w := httptest.NewRecorder()
+
+	srv.handleLyrics(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from lyrics endpoint, got %d", w.Code)
+	}
+
+	var resp models.LyricsPayload
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode lyrics response: %v", err)
+	}
+
+	if resp.TrackID != "test_track_him_and_i" || len(resp.Lines) != 1 {
+		t.Errorf("unexpected lyrics response: %+v", resp)
+	}
+}
+
 
 
 

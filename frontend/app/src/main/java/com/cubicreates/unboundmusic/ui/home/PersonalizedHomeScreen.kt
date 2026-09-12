@@ -55,6 +55,7 @@ import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.SmartShelfDto
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
@@ -79,6 +80,7 @@ fun PersonalizedHomeScreen(
     userAvatarUrl: String? = null,
     syncedTracks: List<TrackItem> = emptyList(),
     userMixes: List<MixDto> = emptyList(),
+    smartShelves: List<SmartShelfDto> = emptyList(),
     daypartingState: DaypartingState? = null,
     isSyncing: Boolean = false,
     isLoadingMore: Boolean = false,
@@ -182,48 +184,57 @@ fun PersonalizedHomeScreen(
             }
         }
 
-        // 6. "Tuned To Your Taste" Header (Strictly personal music, zero Billboard Top 100)
-        item(key = "taste_header") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.ThumbUp,
-                        contentDescription = null,
-                        tint = UnboundPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Tuned To Your Taste",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OnSurface
-                    )
+        // 6. Authentic YouTube Music Personalized Shelves ("Mixed for you", "Listen again", "Quick picks", etc.)
+        if (smartShelves.isNotEmpty()) {
+            smartShelves.forEach { shelf ->
+                if (shelf.tracks.isNotEmpty()) {
+                    item(key = "smart_shelf_${shelf.id}") {
+                        PersonalizedShelfItem(
+                            shelf = shelf,
+                            onTrackSelect = onTrackSelect
+                        )
+                        Spacer(modifier = Modifier.height(28.dp))
+                    }
                 }
-                Text(
-                    text = if (syncedTracks.isNotEmpty()) {
-                        "${syncedTracks.size} Tracks"
-                    } else if (isSyncing) {
-                        "Syncing..."
-                    } else {
-                        "0 Tracks"
-                    },
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isSyncing) UnboundPrimary else OnSurfaceVariant
-                )
             }
-            Spacer(modifier = Modifier.height(14.dp))
         }
 
+        // 7. "Tuned To Your Taste" Liked Tracks Section (if syncedTracks.isNotEmpty)
         if (syncedTracks.isNotEmpty()) {
-            // 7. Infinite Music Grid in 2-column chunks
+            item(key = "taste_header") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.ThumbUp,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Tuned To Your Taste",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurface
+                        )
+                    }
+                    Text(
+                        text = "${syncedTracks.size} Tracks",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // Infinite Music Grid in 2-column chunks
             val chunked = syncedTracks.chunked(2)
             items(
                 count = chunked.size,
@@ -250,7 +261,7 @@ fun PersonalizedHomeScreen(
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // 8. Infinite Scroll Loading Indicator / Continuous Stream Footer
+            // Infinite Scroll Loading Indicator / Continuous Stream Footer
             item(key = "infinite_footer") {
                 Box(
                     modifier = Modifier
@@ -283,7 +294,7 @@ fun PersonalizedHomeScreen(
                     }
                 }
             }
-        } else {
+        } else if (smartShelves.isEmpty()) {
             // Loading / Ingestion state — strictly personal, NO Global Top 100
             item(key = "sync_placeholder") {
                 PersonalizedSyncingPlaceholder(
@@ -1074,5 +1085,131 @@ private fun PersonalizedSyncingPlaceholder(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PersonalizedShelfItem(
+    shelf: SmartShelfDto,
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Text(
+                text = shelf.title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = OnSurface
+            )
+            if (shelf.subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = shelf.subtitle,
+                    fontSize = 12.sp,
+                    color = OnSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(shelf.tracks, key = { it.id }) { track ->
+                PersonalizedShelfTrackCard(
+                    track = track,
+                    onClick = { onTrackSelect(track, shelf.tracks) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PersonalizedShelfTrackCard(
+    track: TrackItem,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(140.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(SurfaceGlassHighest)
+                .border(1.dp, BorderGlass, RoundedCornerShape(14.dp))
+        ) {
+            if (track.coverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = track.coverUrl,
+                    contentDescription = track.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(UnboundPrimary.copy(alpha = 0.4f), UnboundTertiary.copy(alpha = 0.2f))
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LibraryMusic,
+                        contentDescription = null,
+                        tint = OnSurfaceVariant,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = track.title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = track.artist,
+            fontSize = 11.sp,
+            color = OnSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

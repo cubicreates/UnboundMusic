@@ -62,6 +62,7 @@ fun HomeScreen(
                 userAvatarUrl = userAvatarUrl,
                 syncedTracks = syncedYouTubeTracks,
                 userMixes = userMixes,
+                smartShelves = smartShelves,
                 daypartingState = daypartingState,
                 isSyncing = isSyncing,
                 isLoadingMore = isLoadingMore,

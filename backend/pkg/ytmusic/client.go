@@ -300,13 +300,15 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("Referer", "https://www.youtube.com/")
 	}
 
-	// Attach authentication: OAuth Bearer token or cookies with dynamic SAPISIDHASH
+	// Attach authentication: OAuth Bearer token (only for YouTube TV/video endpoints) or cookies with dynamic SAPISIDHASH
 	c.mu.RLock()
 	rawCookie := c.cookieStr
 	token := c.accessToken
 	c.mu.RUnlock()
 
-	if token != "" {
+	// YouTube Music (music.youtube.com) rejects Google TV Bearer tokens.
+	// Bearer tokens should only be sent to standard YouTube (www.youtube.com) endpoints.
+	if token != "" && cfg.BaseURL != "https://music.youtube.com/youtubei/v1" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	} else if rawCookie != "" {
 		req.Header.Set("Cookie", rawCookie)
@@ -328,6 +330,28 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Fallback: If an authenticated search was rejected with 401/403, retry as unauthenticated guest
+		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && endpoint == "search" {
+			guestReq, gErr := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(jsonBytes))
+			if gErr == nil {
+				guestReq.Header.Set("Content-Type", "application/json")
+				guestReq.Header.Set("User-Agent", cfg.UserAgent)
+				if cfg.XClientName != "" {
+					guestReq.Header.Set("X-YouTube-Client-Name", cfg.XClientName)
+				}
+				guestReq.Header.Set("X-YouTube-Client-Version", cfg.Version)
+				guestReq.Header.Set("Origin", "https://music.youtube.com")
+				guestReq.Header.Set("Referer", "https://music.youtube.com/")
+				guestReq.Header.Set("x-origin", "https://music.youtube.com")
+				guestResp, gDoErr := c.httpClient.Do(guestReq)
+				if gDoErr == nil {
+					defer guestResp.Body.Close()
+					if guestResp.StatusCode >= 200 && guestResp.StatusCode < 300 {
+						return io.ReadAll(guestResp.Body)
+					}
+				}
+			}
+		}
 		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("API error status %d: %s", resp.StatusCode, string(respBody))
 	}

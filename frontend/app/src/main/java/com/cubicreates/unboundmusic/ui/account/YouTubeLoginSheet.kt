@@ -37,6 +37,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
 
 private const val GOOGLE_LOGIN_URL =
     "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
@@ -66,6 +68,26 @@ fun YouTubeLoginSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var isLoading by remember { mutableStateOf(true) }
     var hasExtracted by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val cookieManager = CookieManager.getInstance()
+        while (!hasExtracted) {
+            val ytmCookie = cookieManager.getCookie("https://music.youtube.com") ?: ""
+            val ytCookie = cookieManager.getCookie("https://youtube.com") ?: ""
+            val targetCookie = when {
+                ytmCookie.contains("SAPISID=") || ytmCookie.contains("__Secure-3PAPISID=") -> ytmCookie
+                ytCookie.contains("SAPISID=") || ytCookie.contains("__Secure-3PAPISID=") -> ytCookie
+                else -> null
+            }
+            if (targetCookie != null) {
+                hasExtracted = true
+                onCookieExtracted(targetCookie)
+                onDismiss()
+                break
+            }
+            delay(400)
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -126,7 +148,6 @@ fun YouTubeLoginSheet(
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
-                                databaseEnabled = true
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                                 userAgentString = MODERN_MOBILE_USER_AGENT
@@ -140,15 +161,20 @@ fun YouTubeLoginSheet(
                             fun checkAndExtractCookies(url: String?) {
                                 if (hasExtracted) return
                                 val ytmCookie = cookieManager.getCookie("https://music.youtube.com") ?: ""
+                                val ytCookie = cookieManager.getCookie("https://youtube.com") ?: ""
                                 val currentCookie = if (url != null) cookieManager.getCookie(url) ?: "" else ""
-                                val candidates = listOf(ytmCookie, currentCookie).filter { it.isNotBlank() }
-                                for (c in candidates) {
-                                    if (c.contains("SAPISID=") || c.contains("__Secure-3PAPISID=")) {
-                                        hasExtracted = true
-                                        onCookieExtracted(c)
-                                        onDismiss()
-                                        return
-                                    }
+
+                                val targetCookie = when {
+                                    ytmCookie.contains("SAPISID=") || ytmCookie.contains("__Secure-3PAPISID=") -> ytmCookie
+                                    ytCookie.contains("SAPISID=") || ytCookie.contains("__Secure-3PAPISID=") -> ytCookie
+                                    currentCookie.contains("SAPISID=") || currentCookie.contains("__Secure-3PAPISID=") -> currentCookie
+                                    else -> null
+                                }
+
+                                if (targetCookie != null) {
+                                    hasExtracted = true
+                                    onCookieExtracted(targetCookie)
+                                    onDismiss()
                                 }
                             }
 

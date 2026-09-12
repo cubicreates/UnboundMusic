@@ -109,15 +109,7 @@ fun MainApp(
     }
 
     val launchYouTubeAuth: () -> Unit = {
-        showYouTubeDeviceAuthSheet = true
-        viewModel.startYouTubeDeviceAuth { activateUrl ->
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(activateUrl)).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(intent)
-            } catch (_: Exception) {}
-        }
+        showYouTubeLoginSheet = true
     }
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
@@ -304,6 +296,7 @@ fun MainApp(
                                     isLoadingMore = isLoadingMoreTracks,
                                     onLoadMore = { viewModel.loadMorePersonalizedTracks() },
                                     onSyncClick = { viewModel.loadSyncedYouTubeTracks() },
+                                    onConnectClick = { showYouTubeLoginSheet = true },
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)
                                         isPlayerExpanded = true

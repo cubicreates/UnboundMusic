@@ -45,7 +45,8 @@ fun HomeScreen(
     onGenreSelect: (GenreItemDto) -> Unit = {},
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
-    onSyncClick: () -> Unit = {}
+    onSyncClick: () -> Unit = {},
+    onConnectClick: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -80,7 +81,7 @@ fun HomeScreen(
                 onMoodSelect = onMoodSelect,
                 onCapsuleSelect = onCapsuleSelect,
                 onGenreSelect = onGenreSelect,
-                onConnectClick = onProfileClick
+                onConnectClick = onConnectClick
             )
         }
 

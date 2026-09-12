@@ -147,3 +147,91 @@ func TestParseMusicResponsiveItemWithOverlay(t *testing.T) {
 	}
 }
 
+func TestParseHomeShelvesFromJSON(t *testing.T) {
+	mockJSON := map[string]interface{}{
+		"contents": map[string]interface{}{
+			"singleColumnBrowseResultsRenderer": map[string]interface{}{
+				"tabs": []interface{}{
+					map[string]interface{}{
+						"tabRenderer": map[string]interface{}{
+							"content": map[string]interface{}{
+								"sectionListRenderer": map[string]interface{}{
+									"contents": []interface{}{
+										map[string]interface{}{
+											"musicCarouselShelfRenderer": map[string]interface{}{
+												"header": map[string]interface{}{
+													"musicCarouselShelfBasicHeaderRenderer": map[string]interface{}{
+														"title": map[string]interface{}{
+															"runs": []interface{}{
+																map[string]interface{}{"text": "Mixed for you"},
+															},
+														},
+														"strapline": map[string]interface{}{
+															"runs": []interface{}{
+																map[string]interface{}{"text": "FOR COZY DAYS AND ENDLESS CUPS OF TEA"},
+															},
+														},
+													},
+												},
+												"contents": []interface{}{
+													map[string]interface{}{
+														"musicResponsiveListItemRenderer": map[string]interface{}{
+															"playlistItemData": map[string]interface{}{
+																"videoId": "test_video_123",
+															},
+															"flexColumns": []interface{}{
+																map[string]interface{}{
+																	"musicResponsiveListItemFlexColumnRenderer": map[string]interface{}{
+																		"text": map[string]interface{}{
+																			"runs": []interface{}{
+																				map[string]interface{}{"text": "Starboy"},
+																			},
+																		},
+																	},
+																},
+																map[string]interface{}{
+																	"musicResponsiveListItemFlexColumnRenderer": map[string]interface{}{
+																		"text": map[string]interface{}{
+																			"runs": []interface{}{
+																				map[string]interface{}{"text": "The Weeknd"},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	shelves := parseHomeShelvesFromJSON(mockJSON)
+	if len(shelves) == 0 {
+		t.Fatalf("expected at least 1 shelf parsed from mock JSON")
+	}
+
+	s0 := shelves[0]
+	if s0.Title != "Mixed for you" {
+		t.Errorf("expected Title 'Mixed for you', got %q", s0.Title)
+	}
+	if s0.Subtitle != "FOR COZY DAYS AND ENDLESS CUPS OF TEA" {
+		t.Errorf("expected Subtitle 'FOR COZY DAYS AND ENDLESS CUPS OF TEA', got %q", s0.Subtitle)
+	}
+	if len(s0.Tracks) != 1 {
+		t.Fatalf("expected 1 track in shelf, got %d", len(s0.Tracks))
+	}
+	if s0.Tracks[0].ID != "test_video_123" || s0.Tracks[0].Title != "Starboy" {
+		t.Errorf("unexpected track parsed in shelf: %+v", s0.Tracks[0])
+	}
+}
+
+

@@ -929,3 +929,148 @@ func (c *Client) UnlikeTrack(ctx context.Context, videoID string) error {
 	_, err := c.post(ctx, "like/removelike", body, ConfigWebRemix)
 	return err
 }
+
+// HomeShelf represents an authentic themed shelf/carousel extracted from YouTube Music home.
+type HomeShelf struct {
+	ID       string         `json:"id"`
+	Title    string         `json:"title"`
+	Subtitle string         `json:"subtitle"`
+	Tracks   []models.Track `json:"tracks"`
+}
+
+// FetchPersonalizedHomeShelves queries InnerTube FEmusic_home using authenticated WebRemix credentials
+// and parses the real carousel and music shelves into structured HomeShelf objects.
+func (c *Client) FetchPersonalizedHomeShelves(ctx context.Context) ([]HomeShelf, error) {
+	if !c.HasCredentials() {
+		return nil, fmt.Errorf("unauthenticated: no session credentials set")
+	}
+
+	body := map[string]interface{}{
+		"context":  c.buildContext(ConfigWebRemix),
+		"browseId": "FEmusic_home",
+	}
+
+	respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix)
+	if err != nil {
+		return nil, err
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(respBytes, &root); err != nil {
+		return nil, err
+	}
+
+	return parseHomeShelvesFromJSON(root), nil
+}
+
+// parseHomeShelvesFromJSON extracts carousel shelves and list shelves from FEmusic_home browse response.
+func parseHomeShelvesFromJSON(root map[string]interface{}) []HomeShelf {
+	var shelves []HomeShelf
+
+	var searchShelves func(val interface{})
+	searchShelves = func(val interface{}) {
+		switch v := val.(type) {
+		case map[string]interface{}:
+			// 1. musicCarouselShelfRenderer
+			if carousel, ok := v["musicCarouselShelfRenderer"].(map[string]interface{}); ok {
+				title := ""
+				subtitle := ""
+
+				if header, ok := carousel["header"].(map[string]interface{}); ok {
+					if basicHeader, ok := header["musicCarouselShelfBasicHeaderRenderer"].(map[string]interface{}); ok {
+						if titleObj, ok := basicHeader["title"].(map[string]interface{}); ok {
+							if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 {
+								if r0, ok := runs[0].(map[string]interface{}); ok {
+									title, _ = r0["text"].(string)
+								}
+							} else if s, ok := titleObj["simpleText"].(string); ok {
+								title = s
+							}
+						}
+						if strapline, ok := basicHeader["strapline"].(map[string]interface{}); ok {
+							if runs, ok := strapline["runs"].([]interface{}); ok && len(runs) > 0 {
+								if r0, ok := runs[0].(map[string]interface{}); ok {
+									subtitle, _ = r0["text"].(string)
+								}
+							} else if s, ok := strapline["simpleText"].(string); ok {
+								subtitle = s
+							}
+						}
+					}
+				}
+
+				var shelfTracks []models.Track
+				if contents, ok := carousel["contents"].([]interface{}); ok {
+					for _, itemRaw := range contents {
+						if itemMap, ok := itemRaw.(map[string]interface{}); ok {
+							if respItem, ok := itemMap["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
+								if tr, ok := parseMusicResponsiveItem(respItem); ok {
+									shelfTracks = append(shelfTracks, tr)
+								}
+							} else if twoRow, ok := itemMap["musicTwoRowItemRenderer"].(map[string]interface{}); ok {
+								if tr, ok := parseMusicTwoRowItemRenderer(twoRow); ok {
+									shelfTracks = append(shelfTracks, tr)
+								}
+							}
+						}
+					}
+				}
+
+				if len(shelfTracks) > 0 && title != "" {
+					shelves = append(shelves, HomeShelf{
+						ID:       fmt.Sprintf("ytm_carousel_%d", len(shelves)+1),
+						Title:    title,
+						Subtitle: subtitle,
+						Tracks:   shelfTracks,
+					})
+				}
+			}
+
+			// 2. musicShelfRenderer
+			if musicShelf, ok := v["musicShelfRenderer"].(map[string]interface{}); ok {
+				title := ""
+				if titleObj, ok := musicShelf["title"].(map[string]interface{}); ok {
+					if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 {
+						if r0, ok := runs[0].(map[string]interface{}); ok {
+							title, _ = r0["text"].(string)
+						}
+					} else if s, ok := titleObj["simpleText"].(string); ok {
+						title = s
+					}
+				}
+
+				var shelfTracks []models.Track
+				if contents, ok := musicShelf["contents"].([]interface{}); ok {
+					for _, itemRaw := range contents {
+						if itemMap, ok := itemRaw.(map[string]interface{}); ok {
+							if respItem, ok := itemMap["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
+								if tr, ok := parseMusicResponsiveItem(respItem); ok {
+									shelfTracks = append(shelfTracks, tr)
+								}
+							}
+						}
+					}
+				}
+
+				if len(shelfTracks) > 0 && title != "" {
+					shelves = append(shelves, HomeShelf{
+						ID:     fmt.Sprintf("ytm_shelf_%d", len(shelves)+1),
+						Title:  title,
+						Tracks: shelfTracks,
+					})
+				}
+			}
+
+			for _, child := range v {
+				searchShelves(child)
+			}
+		case []interface{}:
+			for _, child := range v {
+				searchShelves(child)
+			}
+		}
+	}
+
+	searchShelves(root)
+	return shelves
+}

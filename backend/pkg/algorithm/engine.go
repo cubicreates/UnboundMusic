@@ -105,17 +105,42 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 	}
 	e.mu.RUnlock()
 
-	if e.repo == nil || e.ytClient == nil {
-		return &SmartFeedResponse{HasPersonalization: false, Shelves: nil}, nil
+	var shelves []SmartShelf
+
+	// 1. Fetch authentic personalized shelves directly from YouTube Music if authenticated
+	if e.ytClient != nil && e.ytClient.HasCredentials() {
+		if ytmShelves, err := e.ytClient.FetchPersonalizedHomeShelves(ctx); err == nil && len(ytmShelves) > 0 {
+			for _, ys := range ytmShelves {
+				shelves = append(shelves, SmartShelf{
+					ID:       ys.ID,
+					Title:    ys.Title,
+					Subtitle: ys.Subtitle,
+					Type:     "ytm_personalized",
+					Tracks:   ys.Tracks,
+				})
+			}
+		}
 	}
 
-	// 1. Retrieve recent playback events from SQLite
-	events, err := e.repo.GetRecentPlaybackEvents(ctx, 30)
-	if err != nil || len(events) == 0 {
-		return &SmartFeedResponse{HasPersonalization: false, Shelves: nil}, nil
+	// 2. Retrieve recent local playback events from SQLite to enrich feed
+	var events []models.PlaybackEvent
+	if e.repo != nil {
+		events, _ = e.repo.GetRecentPlaybackEvents(ctx, 30)
 	}
 
-	// 2. Identify top completed track and top artist
+	if len(events) == 0 {
+		res := &SmartFeedResponse{
+			HasPersonalization: len(shelves) > 0,
+			Shelves:            shelves,
+		}
+		e.mu.Lock()
+		e.feedCache = res
+		e.cacheTime = time.Now()
+		e.mu.Unlock()
+		return res, nil
+	}
+
+	// 3. Identify top completed track and top artist from local history
 	artistCounts := make(map[string]int)
 	var lastPlayed *models.PlaybackEvent
 	var favoriteTrack *models.PlaybackEvent
@@ -168,8 +193,6 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 	if topArtist == "" && lastPlayed != nil {
 		topArtist = lastPlayed.Artist
 	}
-
-	var shelves []SmartShelf
 
 	// Shelf A: "Similar to [Favorite Track]" (Song Variations via Seed Radio)
 	if favoriteTrack != nil && favoriteTrack.TrackID != "" {

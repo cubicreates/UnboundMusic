@@ -69,6 +69,16 @@ func parseDurationMs(durStr string) int64 {
 	return 0
 }
 
+// isTypeBadge returns true if a token represents an item type badge rather than an artist name.
+func isTypeBadge(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "song", "video", "album", "ep", "single", "playlist", "podcast", "episode", "artist":
+		return true
+	default:
+		return false
+	}
+}
+
 // parseMusicResponsiveItem extracts a normalized Track model from a musicResponsiveListItemRenderer dictionary.
 func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) {
 	var track models.Track
@@ -179,31 +189,54 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 		text1, _ := flex1["text"].(map[string]interface{})
 		runs1, _ := text1["runs"].([]interface{})
 
-		var artistParts []string
-		var albumPart string
-		isAlbum := false
-
+		var segments [][]string
+		var curSegment []string
 		for _, r := range runs1 {
 			rm, _ := r.(map[string]interface{})
 			txt, _ := rm["text"].(string)
-			if txt == " • " {
-				isAlbum = true
+			tTrim := strings.TrimSpace(txt)
+			if tTrim == "•" || tTrim == "" {
+				if len(curSegment) > 0 {
+					segments = append(segments, curSegment)
+					curSegment = nil
+				}
 				continue
 			}
-			if !isAlbum {
-				artistParts = append(artistParts, txt)
-			} else if albumPart == "" {
-				albumPart = txt
+			curSegment = append(curSegment, txt)
+		}
+		if len(curSegment) > 0 {
+			segments = append(segments, curSegment)
+		}
+
+		// Discard leading segment if it's solely a type badge (e.g. "Song", "Video")
+		if len(segments) > 0 && len(segments[0]) == 1 && isTypeBadge(segments[0][0]) {
+			segments = segments[1:]
+		}
+
+		if len(segments) > 0 {
+			track.Artist = strings.TrimSpace(strings.Join(segments[0], ""))
+		}
+		if len(segments) > 1 {
+			seg1Text := strings.TrimSpace(strings.Join(segments[1], ""))
+			if strings.Contains(seg1Text, ":") && track.DurationMs == 0 {
+				track.DurationMs = parseDurationMs(seg1Text)
+			} else {
+				track.Album = seg1Text
 			}
 		}
-		track.Artist = strings.Join(artistParts, ", ")
-		track.Album = albumPart
+		if len(segments) > 2 {
+			seg2Text := strings.TrimSpace(strings.Join(segments[2], ""))
+			if strings.Contains(seg2Text, ":") && track.DurationMs == 0 {
+				track.DurationMs = parseDurationMs(seg2Text)
+			}
+		}
 	}
-	if track.Artist == "" {
-		track.Artist = "YouTube Artist"
-	}
+	track.Artist = strings.TrimSpace(track.Artist)
 	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
 	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
+	if track.Artist == "" || isTypeBadge(track.Artist) {
+		track.Artist = "YouTube Artist"
+	}
 
 	// Extract Duration from fixedColumns[0] if available
 	if fixedCols, ok := item["fixedColumns"].([]interface{}); ok && len(fixedCols) > 0 {
@@ -358,18 +391,27 @@ func parseGenericVideoRenderer(item map[string]interface{}) (models.Track, bool)
 	}
 	if bylineObj, ok := byline.(map[string]interface{}); ok {
 		if runs, ok := bylineObj["runs"].([]interface{}); ok && len(runs) > 0 {
-			if r0, ok := runs[0].(map[string]interface{}); ok {
-				track.Artist, _ = r0["text"].(string)
+			for _, r := range runs {
+				if rm, ok := r.(map[string]interface{}); ok {
+					if txt, ok := rm["text"].(string); ok {
+						tTrim := strings.TrimSpace(txt)
+						if tTrim != "" && tTrim != "•" && !isTypeBadge(tTrim) {
+							track.Artist = tTrim
+							break
+						}
+					}
+				}
 			}
 		} else if s, ok := bylineObj["simpleText"].(string); ok {
 			track.Artist = s
 		}
 	}
-	if track.Artist == "" {
-		track.Artist = "YouTube Artist"
-	}
+	track.Artist = strings.TrimSpace(track.Artist)
 	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
 	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
+	if track.Artist == "" || isTypeBadge(track.Artist) {
+		track.Artist = "YouTube Artist"
+	}
 
 	// Thumbnail
 	if thumbObj, ok := item["thumbnail"].(map[string]interface{}); ok {
@@ -434,11 +476,14 @@ func parseTileRenderer(item map[string]interface{}) (models.Track, bool) {
 										if lir, ok := itmObj["lineItemRenderer"].(map[string]interface{}); ok {
 											if tObj, ok := lir["text"].(map[string]interface{}); ok {
 												if runs, ok := tObj["runs"].([]interface{}); ok && len(runs) > 0 {
-													if r0, ok := runs[0].(map[string]interface{}); ok {
-														txt, _ := r0["text"].(string)
-														if txt != "" && !strings.Contains(txt, "views") && !strings.Contains(txt, "ago") {
-															track.Artist = txt
-															break
+													for _, r := range runs {
+														if rm, ok := r.(map[string]interface{}); ok {
+															txt, _ := rm["text"].(string)
+															tTrim := strings.TrimSpace(txt)
+															if tTrim != "" && !strings.Contains(tTrim, "views") && !strings.Contains(tTrim, "ago") && !isTypeBadge(tTrim) && tTrim != "•" {
+																track.Artist = tTrim
+																break
+															}
 														}
 													}
 												}
@@ -474,11 +519,12 @@ func parseTileRenderer(item map[string]interface{}) (models.Track, bool) {
 		track.ThumbnailURL = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", vid)
 	}
 
-	if track.Artist == "" {
-		track.Artist = "YouTube Artist"
-	}
+	track.Artist = strings.TrimSpace(track.Artist)
 	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
 	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
+	if track.Artist == "" || isTypeBadge(track.Artist) {
+		track.Artist = "YouTube Artist"
+	}
 
 	if track.Title == "" {
 		return track, false
@@ -545,16 +591,30 @@ func parseMusicTwoRowItemRenderer(item map[string]interface{}) (models.Track, bo
 	}
 	if subObj, ok := item["subtitle"].(map[string]interface{}); ok {
 		if runs, ok := subObj["runs"].([]interface{}); ok && len(runs) > 0 {
-			if r0, ok := runs[0].(map[string]interface{}); ok {
-				track.Artist, _ = r0["text"].(string)
+			for _, r := range runs {
+				if rm, ok := r.(map[string]interface{}); ok {
+					if txt, ok := rm["text"].(string); ok {
+						tTrim := strings.TrimSpace(txt)
+						if tTrim == "" || tTrim == "•" || isTypeBadge(tTrim) {
+							continue
+						}
+						if track.Artist == "" {
+							track.Artist = tTrim
+							break
+						}
+					}
+				}
 			}
+		} else if s, ok := subObj["simpleText"].(string); ok {
+			track.Artist = s
 		}
 	}
-	if track.Artist == "" {
-		track.Artist = "YouTube Artist"
-	}
+	track.Artist = strings.TrimSpace(track.Artist)
 	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
 	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
+	if track.Artist == "" || isTypeBadge(track.Artist) {
+		track.Artist = "YouTube Artist"
+	}
 
 	if thumbObj, ok := item["thumbnailRenderer"].(map[string]interface{}); ok {
 		if renderer, ok := thumbObj["musicThumbnailRenderer"].(map[string]interface{}); ok {

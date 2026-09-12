@@ -9,6 +9,7 @@
 package ytmusic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,7 +29,20 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (*AccountInfo, error) {
 		return nil, fmt.Errorf("unauthenticated: no session credentials set")
 	}
 
-	// 1. Primary attempt for YouTube Music: account/account_menu on ConfigWebRemix, ConfigWeb, and TV configs
+	// 0. Primary attempt: getAccountSwitcherEndpoint on music.youtube.com (authentic YouTube Music account identity)
+	if respBytes, err := c.get(ctx, "https://music.youtube.com/getAccountSwitcherEndpoint", ConfigWebRemix); err == nil {
+		respBytes = bytes.TrimPrefix(respBytes, []byte(")]}'\n"))
+		respBytes = bytes.TrimPrefix(respBytes, []byte(")]}'"))
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err == nil {
+			info := parseAccountInfoFromJSON(root)
+			if info != nil && (info.Name != "" || info.AvatarURL != "") {
+				return info, nil
+			}
+		}
+	}
+
+	// 1. Secondary attempt: account/account_menu on ConfigWebRemix, ConfigWeb, and TV configs
 	for _, cfg := range []ClientConfig{ConfigWebRemix, ConfigWeb, ConfigTVHTML5, ConfigTVHTML5Simply} {
 		body := map[string]interface{}{
 			"context": c.buildContext(cfg),
@@ -170,6 +184,36 @@ func findAccountDetails(data interface{}, info *AccountInfo) {
 				} else if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 && info.Name == "" {
 					if r0, ok := runs[0].(map[string]interface{}); ok {
 						info.Name, _ = r0["text"].(string)
+					}
+				}
+			}
+			if photoObj, ok := accItem["accountPhoto"].(map[string]interface{}); ok {
+				if thumbs, ok := photoObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+					lastThumb, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+					if rawURL, ok := lastThumb["url"].(string); ok && info.AvatarURL == "" {
+						info.AvatarURL = upgradeAvatarResolution(rawURL)
+					}
+				}
+			}
+		}
+
+		// 2.1 accountItem (returned by getAccountSwitcherEndpoint)
+		if accItem, ok := v["accountItem"].(map[string]interface{}); ok {
+			if titleObj, ok := accItem["accountName"].(map[string]interface{}); ok {
+				if s, ok := titleObj["simpleText"].(string); ok && s != "" && info.Name == "" {
+					info.Name = s
+				} else if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 && info.Name == "" {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						info.Name, _ = r0["text"].(string)
+					}
+				}
+			}
+			if handleObj, ok := accItem["channelHandle"].(map[string]interface{}); ok {
+				if s, ok := handleObj["simpleText"].(string); ok && s != "" && info.Handle == "" {
+					info.Handle = s
+				} else if runs, ok := handleObj["runs"].([]interface{}); ok && len(runs) > 0 && info.Handle == "" {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						info.Handle, _ = r0["text"].(string)
 					}
 				}
 			}

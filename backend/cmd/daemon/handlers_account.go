@@ -31,19 +31,24 @@ func (d *Daemon) HandleAccountSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req syncRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Cookie == "" {
-		d.writeError(w, http.StatusBadRequest, "Invalid request: missing cookie payload")
-		return
-	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	if err := d.syncer.ConnectAccount(r.Context(), req.Cookie); err != nil {
-		d.writeError(w, http.StatusUnauthorized, err.Error())
-		return
+	if req.Cookie != "" {
+		if err := d.syncer.ConnectAccount(r.Context(), req.Cookie); err != nil {
+			d.writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+	} else {
+		// Re-sync existing connected account
+		if _, err := d.syncer.SyncLibrary(r.Context()); err != nil {
+			d.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
-		"message": "Account connected successfully",
+		"message": "Account synced successfully",
 		"data":    d.syncer.GetStatus(),
 	})
 }

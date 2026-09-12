@@ -1596,6 +1596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     store.saveSession(cookie)
                     checkAccountStatus()
                     loadSyncedYouTubeTracks()
+                    loadSmartFeed()
                     withContext(Dispatchers.Main) {
                         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "YouTube synced successfully!", isLong = false)
                     }
@@ -1609,6 +1610,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.Main) {
                     com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Sync Exception: ${e.message}", isLong = true)
                 }
+            } finally {
+                _isSyncingAccount.value = false
+            }
+        }
+    }
+
+    /** Re-triggers sync of liked music, account metadata, and personalized home feed with daemon. */
+    fun resyncYouTubeAccount() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSyncingAccount.value = true
+            try {
+                val (code, _) = client.syncAccount("")
+                if (code in 200..299) {
+                    checkAccountStatus()
+                    loadSyncedYouTubeTracks()
+                    loadSmartFeed()
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Library refreshed!", isLong = false)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Refresh error [HTTP $code]", isLong = false)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Resync failed: ${e.message}")
             } finally {
                 _isSyncingAccount.value = false
             }

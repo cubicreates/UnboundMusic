@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -291,12 +292,14 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("X-YouTube-Client-Name", cfg.XClientName)
 	}
 	req.Header.Set("X-YouTube-Client-Version", cfg.Version)
+	origin := "https://www.youtube.com"
 	if cfg.BaseURL == "https://music.youtube.com/youtubei/v1" {
-		req.Header.Set("Origin", "https://music.youtube.com")
+		origin = "https://music.youtube.com"
+		req.Header.Set("Origin", origin)
 		req.Header.Set("Referer", "https://music.youtube.com/")
-		req.Header.Set("x-origin", "https://music.youtube.com")
+		req.Header.Set("x-origin", origin)
 	} else {
-		req.Header.Set("Origin", "https://www.youtube.com")
+		req.Header.Set("Origin", origin)
 		req.Header.Set("Referer", "https://www.youtube.com/")
 	}
 
@@ -320,7 +323,7 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 			sapisid = cookies["__Secure-3PAPISID"]
 		}
 		if sapisid != "" {
-			authHeader, _ := GenerateSAPISIDHash(sapisid, "https://music.youtube.com")
+			authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
 			req.Header.Set("Authorization", authHeader)
 		}
 	}
@@ -378,4 +381,65 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 	}
 
 	return bodyBytes, nil
+}
+
+// get executes an authenticated GET request against a full URL (such as https://music.youtube.com/getAccountSwitcherEndpoint).
+func (c *Client) get(ctx context.Context, targetURL string, cfg ClientConfig) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GET request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", cfg.UserAgent)
+	if cfg.XClientName != "" {
+		req.Header.Set("X-YouTube-Client-Name", cfg.XClientName)
+	}
+	req.Header.Set("X-YouTube-Client-Version", cfg.Version)
+	req.Header.Set("Accept", "*/*")
+
+	origin := "https://www.youtube.com"
+	if strings.Contains(targetURL, "music.youtube.com") {
+		origin = "https://music.youtube.com"
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Referer", "https://music.youtube.com/")
+		req.Header.Set("x-origin", origin)
+	} else {
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Referer", "https://www.youtube.com/")
+	}
+
+	c.mu.RLock()
+	rawCookie := c.cookieStr
+	token := c.accessToken
+	c.mu.RUnlock()
+
+	if token != "" && !strings.Contains(targetURL, "music.youtube.com") {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if rawCookie != "" {
+		req.Header.Set("Cookie", rawCookie)
+		req.Header.Set("X-Goog-Authuser", "0")
+		req.Header.Set("X-Goog-Api-Format-Version", "1")
+		cookies := ParseCookies(rawCookie)
+		sapisid := cookies["SAPISID"]
+		if sapisid == "" {
+			sapisid = cookies["__Secure-3PAPISID"]
+		}
+		if sapisid != "" {
+			authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
+			req.Header.Set("Authorization", authHeader)
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP GET failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return io.ReadAll(resp.Body)
 }

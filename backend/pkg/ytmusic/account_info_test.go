@@ -114,3 +114,61 @@ func TestParseAccountInfoWithRuns(t *testing.T) {
 	}
 }
 
+func TestParseAccountSwitcherEndpointJSON(t *testing.T) {
+	rawJSON := `{
+		"code": "SUCCESS",
+		"data": {
+			"contents": [
+				{
+					"accountSectionListRenderer": {
+						"contents": [
+							{
+								"accountItemSectionRenderer": {
+									"contents": [
+										{
+											"accountItem": {
+												"accountName": {
+													"simpleText": "Computer Practicals"
+												},
+												"channelHandle": {
+													"simpleText": "@computerpracticals"
+												},
+												"accountPhoto": {
+													"thumbnails": [
+														{
+															"url": "https://lh3.googleusercontent.com/a/ACg8ocL=s96-c"
+														}
+													]
+												}
+											}
+										}
+									]
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+	}`
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	info := parseAccountInfoFromJSON(root)
+	if info == nil {
+		t.Fatalf("expected non-nil AccountInfo")
+	}
+	if info.Name != "Computer Practicals" {
+		t.Errorf("expected name 'Computer Practicals', got %q", info.Name)
+	}
+	if info.Handle != "@computerpracticals" {
+		t.Errorf("expected handle '@computerpracticals', got %q", info.Handle)
+	}
+	if info.AvatarURL != "https://lh3.googleusercontent.com/a/ACg8ocL=s96-c" {
+		t.Errorf("expected avatar url, got %q", info.AvatarURL)
+	}
+}
+

@@ -211,6 +211,7 @@ func (s *Syncer) ConnectAccount(ctx context.Context, rawCookie string) error {
 			s.mu.Lock()
 			s.userLibrary.LikedTracks = tracks
 			s.userLibrary.LikedTracksCount = len(tracks)
+			s.userLibrary.Mixes = s.ytClient.GenerateUserMixes(tracks)
 			s.userLibrary.LastSynced = time.Now()
 			s.mu.Unlock()
 

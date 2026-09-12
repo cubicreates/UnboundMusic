@@ -295,7 +295,7 @@ fun MainApp(
                                     isSyncing = isSyncingAccount,
                                     isLoadingMore = isLoadingMoreTracks,
                                     onLoadMore = { viewModel.loadMorePersonalizedTracks() },
-                                    onSyncClick = { viewModel.loadSyncedYouTubeTracks() },
+                                    onSyncClick = { viewModel.resyncYouTubeAccount() },
                                     onConnectClick = { showYouTubeLoginSheet = true },
                                     onCapsuleSelect = { capsule ->
                                         viewModel.playMoodCapsule(capsule)

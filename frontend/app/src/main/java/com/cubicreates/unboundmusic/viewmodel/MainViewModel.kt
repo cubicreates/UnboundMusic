@@ -365,8 +365,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 state.currentTrack?.let { track ->
                     if (track.title != "Unknown" && track.title.isNotBlank()) {
                         val prev = _currentTrack.value
-                        val changed = (prev.id.isNotBlank() && prev.id != track.id) ||
-                                      (prev.title.isNotBlank() && !prev.title.equals(track.title, ignoreCase = true))
+                        val changed = prev.id != track.id || !prev.title.equals(track.title, ignoreCase = true)
                         if (changed) {
                             _currentTrack.value = track
                             loadLyricsForTrack(track)
@@ -1174,10 +1173,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         lyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val duration = if (track.durationMs > 0) track.durationMs else playbackState.value.durationMs
+                val cleanArtist = if (track.artist.equals("Song", ignoreCase = true) ||
+                                      track.artist.equals("Video", ignoreCase = true) ||
+                                      track.artist.equals("YouTube Artist", ignoreCase = true)) "" else track.artist
                 val (code, resp) = client.getLyrics(
                     trackId = track.id,
                     title = track.title,
-                    artist = track.artist,
+                    artist = cleanArtist,
                     durationMs = duration
                 )
 
@@ -1213,8 +1215,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _lyricsLines.value = lines
                         _lyricsSource.value = source
                     } else {
-                        _lyricsLines.value = emptyList()
-                        _lyricsSource.value = if (isInst) source else ""
+                        val plain = json.optString("plain_lyrics", "")
+                        if (plain.isNotBlank() && !isInst) {
+                            val plainLines = plain.lines().filter { it.isNotBlank() }.map { text ->
+                                LyricLine(text = text, startMs = 0, endMs = 0, romanized = "")
+                            }
+                            _lyricsLines.value = plainLines
+                            _lyricsSource.value = source
+                        } else {
+                            _lyricsLines.value = emptyList()
+                            _lyricsSource.value = if (isInst) source else ""
+                        }
                     }
                 } else {
                     _lyricsLines.value = emptyList()

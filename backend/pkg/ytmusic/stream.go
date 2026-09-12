@@ -92,6 +92,45 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 		}
 	}
 
+	// Fallback for authenticated users (e.g. age-restricted content):
+	// If all unencumbered guest configs failed and user has credentials, retry with authentication.
+	if c.HasCredentials() {
+		authCtx := WithForceAuth(ctx)
+		for _, cfg := range fallbackConfigs {
+			var pb PlaybackContext
+			pb.ContentPlaybackContext.HTML5Preference = "HTML5_PREF_WANTS"
+			pb.ContentPlaybackContext.SignatureTimestamp = sigTimestamp
+
+			var sid *ServiceIntegrityDimensions
+			if poToken := c.GetPoToken(); poToken != "" {
+				sid = &ServiceIntegrityDimensions{PoToken: poToken}
+			}
+
+			body := PlayerRequestBody{
+				Context:                    c.buildContext(cfg),
+				VideoID:                    videoID,
+				PlaybackContext:            pb,
+				ContentCheckOk:             true,
+				RacyCheckOk:                true,
+				ServiceIntegrityDimensions: sid,
+			}
+
+			respBytes, err := c.post(authCtx, "player", body, cfg)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			info, err := parsePlayerResponse(videoID, respBytes)
+			if err == nil && info != nil && info.StreamURL != "" {
+				return info, nil
+			}
+			if err != nil {
+				lastErr = err
+			}
+		}
+	}
+
 	return nil, fmt.Errorf("failed to extract audio stream: %w", lastErr)
 }
 

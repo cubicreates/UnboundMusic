@@ -193,6 +193,24 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If still 403 Forbidden and user has session credentials, retry with cookies
+	if respUpstream.StatusCode == http.StatusForbidden && s.ytClient.HasCredentials() {
+		respUpstream.Body.Close()
+		reqAuthRetry, aErr := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+		if aErr == nil {
+			reqAuthRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", clientStart, firstEnd))
+			reqAuthRetry.Header.Set("User-Agent", ua)
+			reqAuthRetry.Header.Set("Referer", "https://music.youtube.com/")
+			reqAuthRetry.Header.Set("Origin", "https://music.youtube.com")
+			if creds := s.ytClient.GetCredentials(); creds != "" {
+				reqAuthRetry.Header.Set("Cookie", creds)
+			}
+			if retryAuthResp, errAuthRetry := client.Do(reqAuthRetry); errAuthRetry == nil && retryAuthResp.StatusCode != http.StatusForbidden {
+				respUpstream = retryAuthResp
+			}
+		}
+	}
+
 	if respUpstream.StatusCode != http.StatusOK && respUpstream.StatusCode != http.StatusPartialContent {
 		writeError(w, respUpstream.StatusCode, fmt.Sprintf("upstream returned status %d", respUpstream.StatusCode))
 		respUpstream.Body.Close()
@@ -322,6 +340,22 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if respChunk.StatusCode == http.StatusForbidden && s.ytClient.HasCredentials() {
+			respChunk.Body.Close()
+			reqAuthRetry, aErr := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
+			if aErr == nil {
+				reqAuthRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+				reqAuthRetry.Header.Set("User-Agent", ua)
+				reqAuthRetry.Header.Set("Referer", "https://music.youtube.com/")
+				reqAuthRetry.Header.Set("Origin", "https://music.youtube.com")
+				if creds := s.ytClient.GetCredentials(); creds != "" {
+					reqAuthRetry.Header.Set("Cookie", creds)
+				}
+				if retryAuthResp, errAuthRetry := client.Do(reqAuthRetry); errAuthRetry == nil && retryAuthResp.StatusCode != http.StatusForbidden {
+					respChunk = retryAuthResp
+				}
+			}
+		}
 		if respChunk.StatusCode != http.StatusOK && respChunk.StatusCode != http.StatusPartialContent {
 			respChunk.Body.Close()
 			break
@@ -421,6 +455,36 @@ func (s *Server) finishSpoolingInBackground(videoID string, partFile *os.File, p
 		if doErr != nil {
 			_ = os.Remove(partPath)
 			return
+		}
+		if respChunk.StatusCode == http.StatusForbidden && ua != ytmusic.UserAgentWebRemix {
+			respChunk.Body.Close()
+			reqRetry, rErr := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+			if rErr == nil {
+				reqRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+				reqRetry.Header.Set("User-Agent", ytmusic.UserAgentWebRemix)
+				reqRetry.Header.Set("Referer", "https://music.youtube.com/")
+				reqRetry.Header.Set("Origin", "https://music.youtube.com")
+				if retryResp, errRetry := client.Do(reqRetry); errRetry == nil && retryResp.StatusCode != http.StatusForbidden {
+					respChunk = retryResp
+					ua = ytmusic.UserAgentWebRemix
+				}
+			}
+		}
+		if respChunk.StatusCode == http.StatusForbidden && s.ytClient.HasCredentials() {
+			respChunk.Body.Close()
+			reqAuthRetry, aErr := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+			if aErr == nil {
+				reqAuthRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", curStart, curEnd))
+				reqAuthRetry.Header.Set("User-Agent", ua)
+				reqAuthRetry.Header.Set("Referer", "https://music.youtube.com/")
+				reqAuthRetry.Header.Set("Origin", "https://music.youtube.com")
+				if creds := s.ytClient.GetCredentials(); creds != "" {
+					reqAuthRetry.Header.Set("Cookie", creds)
+				}
+				if retryAuthResp, errAuthRetry := client.Do(reqAuthRetry); errAuthRetry == nil && retryAuthResp.StatusCode != http.StatusForbidden {
+					respChunk = retryAuthResp
+				}
+			}
 		}
 		if respChunk.StatusCode != http.StatusOK && respChunk.StatusCode != http.StatusPartialContent {
 			respChunk.Body.Close()

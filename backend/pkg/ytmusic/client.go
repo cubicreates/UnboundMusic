@@ -265,6 +265,34 @@ func (c *Client) buildContext(cfg ClientConfig) ClientContext {
 	return ctx
 }
 
+type authOverrideKey struct{}
+
+// WithForceAuth creates a context that forces authentication cookies/tokens to be attached,
+// even for typically unauthenticated endpoints like player (e.g. for age-restricted content fallback).
+func WithForceAuth(ctx context.Context) context.Context {
+	return context.WithValue(ctx, authOverrideKey{}, true)
+}
+
+// isAccountBoundEndpoint determines whether an Innertube endpoint requires user authentication cookies.
+// Public catalog endpoints (player, search, get_transcript) MUST NOT attach user session cookies by default.
+// Attaching session cookies to player binds the stream to a browser session resulting in HTTP 403 on Google CDN.
+// Attaching session cookies to search subjects queries to account restrictions or empty/altered layouts.
+func isAccountBoundEndpoint(endpoint string) bool {
+	switch endpoint {
+	case "player", "search", "get_transcript":
+		return false
+	default:
+		return true
+	}
+}
+
+func shouldAttachAuth(ctx context.Context, endpoint string) bool {
+	if v, ok := ctx.Value(authOverrideKey{}).(bool); ok && v {
+		return true
+	}
+	return isAccountBoundEndpoint(endpoint)
+}
+
 // post executes a POST request against a specified Innertube endpoint with JSON payload.
 func (c *Client) post(ctx context.Context, endpoint string, body any, cfg ClientConfig) ([]byte, error) {
 	jsonBytes, err := json.Marshal(body)
@@ -303,28 +331,31 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("Referer", "https://www.youtube.com/")
 	}
 
-	// Attach authentication: OAuth Bearer token (only for YouTube TV/video endpoints) or cookies with dynamic SAPISIDHASH
-	c.mu.RLock()
-	rawCookie := c.cookieStr
-	token := c.accessToken
-	c.mu.RUnlock()
+	// Attach authentication only for account-bound endpoints (library, likes, account menu, history)
+	// or when explicitly forced (e.g. fallback for age-restricted content).
+	if shouldAttachAuth(ctx, endpoint) {
+		c.mu.RLock()
+		rawCookie := c.cookieStr
+		token := c.accessToken
+		c.mu.RUnlock()
 
-	// YouTube Music (music.youtube.com) rejects Google TV Bearer tokens.
-	// Bearer tokens should only be sent to standard YouTube (www.youtube.com) endpoints.
-	if token != "" && cfg.BaseURL != "https://music.youtube.com/youtubei/v1" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	} else if rawCookie != "" {
-		req.Header.Set("Cookie", rawCookie)
-		req.Header.Set("X-Goog-Authuser", "0")
-		req.Header.Set("X-Goog-Api-Format-Version", "1")
-		cookies := ParseCookies(rawCookie)
-		sapisid := cookies["SAPISID"]
-		if sapisid == "" {
-			sapisid = cookies["__Secure-3PAPISID"]
-		}
-		if sapisid != "" {
-			authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
-			req.Header.Set("Authorization", authHeader)
+		// YouTube Music (music.youtube.com) rejects Google TV Bearer tokens.
+		// Bearer tokens should only be sent to standard YouTube (www.youtube.com) endpoints.
+		if token != "" && cfg.BaseURL != "https://music.youtube.com/youtubei/v1" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		} else if rawCookie != "" {
+			req.Header.Set("Cookie", rawCookie)
+			req.Header.Set("X-Goog-Authuser", "0")
+			req.Header.Set("X-Goog-Api-Format-Version", "1")
+			cookies := ParseCookies(rawCookie)
+			sapisid := cookies["SAPISID"]
+			if sapisid == "" {
+				sapisid = cookies["__Secure-3PAPISID"]
+			}
+			if sapisid != "" {
+				authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
+				req.Header.Set("Authorization", authHeader)
+			}
 		}
 	}
 

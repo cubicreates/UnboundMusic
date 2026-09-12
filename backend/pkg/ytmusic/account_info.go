@@ -28,7 +28,24 @@ func (c *Client) FetchAccountInfo(ctx context.Context) (*AccountInfo, error) {
 		return nil, fmt.Errorf("unauthenticated: no session credentials set")
 	}
 
-	// 1. First attempt: account/account_menu across TV and Web configurations
+	// 0. Primary attempt for YouTube Music: FEmusic_home browse endpoint (proven SimpMusic pattern)
+	homeBody := map[string]interface{}{
+		"context":  c.buildContext(ConfigWebRemix),
+		"browseId": "FEmusic_home",
+	}
+	if respBytes, err := c.post(ctx, "browse", homeBody, ConfigWebRemix); err == nil {
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err == nil {
+			if info := parseAccountInfoFromMusicHome(root); info != nil && (info.Name != "" || info.AvatarURL != "") {
+				return info, nil
+			}
+			if info := parseAccountInfoFromJSON(root); info != nil && (info.Name != "" || info.AvatarURL != "") {
+				return info, nil
+			}
+		}
+	}
+
+	// 1. Second attempt: account/account_menu across TV and Web configurations
 	for _, cfg := range []ClientConfig{ConfigTVHTML5, ConfigTVHTML5Simply, ConfigWeb, ConfigWebRemix} {
 		body := map[string]interface{}{
 			"context": c.buildContext(cfg),
@@ -222,10 +239,63 @@ func upgradeAvatarResolution(rawURL string) string {
 	if strings.HasPrefix(rawURL, "//") {
 		rawURL = "https:" + rawURL
 	}
-	// Replace s88-c-k / s120-c-k with s240-c-k for crisp display on high-DPI screens
+	// Replace s88-c-k / s120-c-k with s352 or w240-h240 for crisp display
+	if strings.Contains(rawURL, "=s88") {
+		return strings.ReplaceAll(rawURL, "=s88", "=s352")
+	}
 	re := thumbRegex
 	if re.MatchString(rawURL) {
 		return re.ReplaceAllString(rawURL, "=w240-h240")
 	}
 	return rawURL
 }
+
+// parseAccountInfoFromMusicHome extracts user profile name and avatar from FEmusic_home header
+func parseAccountInfoFromMusicHome(root map[string]interface{}) *AccountInfo {
+	contents, _ := root["contents"].(map[string]interface{})
+	singleCol, _ := contents["singleColumnBrowseResultsRenderer"].(map[string]interface{})
+	tabs, _ := singleCol["tabs"].([]interface{})
+	if len(tabs) == 0 {
+		return nil
+	}
+	tab0, _ := tabs[0].(map[string]interface{})
+	tabRenderer, _ := tab0["tabRenderer"].(map[string]interface{})
+	content, _ := tabRenderer["content"].(map[string]interface{})
+	sectionList, _ := content["sectionListRenderer"].(map[string]interface{})
+	sectionContents, _ := sectionList["contents"].([]interface{})
+	if len(sectionContents) == 0 {
+		return nil
+	}
+	shelf0, _ := sectionContents[0].(map[string]interface{})
+	carousel, _ := shelf0["musicCarouselShelfRenderer"].(map[string]interface{})
+	header, _ := carousel["header"].(map[string]interface{})
+	basicHeader, _ := header["musicCarouselShelfBasicHeaderRenderer"].(map[string]interface{})
+
+	info := &AccountInfo{}
+	if strapline, ok := basicHeader["strapline"].(map[string]interface{}); ok {
+		if runs, ok := strapline["runs"].([]interface{}); ok && len(runs) > 0 {
+			if r0, ok := runs[0].(map[string]interface{}); ok {
+				info.Name, _ = r0["text"].(string)
+			}
+		}
+	}
+
+	if thumbRenderer, ok := basicHeader["thumbnail"].(map[string]interface{}); ok {
+		if musicThumb, ok := thumbRenderer["musicThumbnailRenderer"].(map[string]interface{}); ok {
+			if thumbObj, ok := musicThumb["thumbnail"].(map[string]interface{}); ok {
+				if thumbs, ok := thumbObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+					lastThumb, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+					if rawURL, ok := lastThumb["url"].(string); ok {
+						info.AvatarURL = upgradeAvatarResolution(rawURL)
+					}
+				}
+			}
+		}
+	}
+
+	if info.Name != "" || info.AvatarURL != "" {
+		return info
+	}
+	return nil
+}
+

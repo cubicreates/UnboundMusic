@@ -312,6 +312,8 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("Authorization", "Bearer "+token)
 	} else if rawCookie != "" {
 		req.Header.Set("Cookie", rawCookie)
+		req.Header.Set("X-Goog-Authuser", "0")
+		req.Header.Set("X-Goog-Api-Format-Version", "1")
 		cookies := ParseCookies(rawCookie)
 		sapisid := cookies["SAPISID"]
 		if sapisid == "" {

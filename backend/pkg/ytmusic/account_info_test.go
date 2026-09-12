@@ -58,3 +58,59 @@ func TestParseAccountInfoFromJSON(t *testing.T) {
 		t.Errorf("expected high-res avatar url, got %q", info.AvatarURL)
 	}
 }
+
+func TestParseAccountInfoWithRuns(t *testing.T) {
+	rawJSON := `{
+		"actions": [
+			{
+				"openPopupAction": {
+					"popup": {
+						"multiPageMenuRenderer": {
+							"header": {
+								"activeAccountHeaderRenderer": {
+									"accountName": {
+										"runs": [
+											{ "text": "Computer Practicals" }
+										]
+									},
+									"channelHandle": {
+										"runs": [
+											{ "text": "@computerpracticals" }
+										]
+									},
+									"accountPhoto": {
+										"thumbnails": [
+											{
+												"url": "https://lh3.googleusercontent.com/a/ACg8ocL=s96-c"
+											}
+										]
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		]
+	}`
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	info := parseAccountInfoFromJSON(root)
+	if info == nil {
+		t.Fatalf("expected non-nil AccountInfo")
+	}
+	if info.Name != "Computer Practicals" {
+		t.Errorf("expected name 'Computer Practicals', got %q", info.Name)
+	}
+	if info.Handle != "@computerpracticals" {
+		t.Errorf("expected handle '@computerpracticals', got %q", info.Handle)
+	}
+	if info.AvatarURL != "https://lh3.googleusercontent.com/a/ACg8ocL=s96-c" {
+		t.Errorf("expected avatar url, got %q", info.AvatarURL)
+	}
+}
+

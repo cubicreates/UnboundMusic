@@ -83,22 +83,93 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 	flex0, _ := col0["musicResponsiveListItemFlexColumnRenderer"].(map[string]interface{})
 	text0, _ := flex0["text"].(map[string]interface{})
 	runs0, _ := text0["runs"].([]interface{})
-	if len(runs0) == 0 {
-		return track, false
+	if len(runs0) > 0 {
+		firstRun0, _ := runs0[0].(map[string]interface{})
+		track.Title, _ = firstRun0["text"].(string)
+
+		navEndpoint, _ := firstRun0["navigationEndpoint"].(map[string]interface{})
+		watchEndpoint, _ := navEndpoint["watchEndpoint"].(map[string]interface{})
+		track.ID, _ = watchEndpoint["videoId"].(string)
+	} else if s, ok := text0["simpleText"].(string); ok && s != "" {
+		track.Title = s
 	}
 
-	firstRun0, _ := runs0[0].(map[string]interface{})
-	track.Title, _ = firstRun0["text"].(string)
+	// 1. If no watchEndpoint directly on run 0, check other runs in flexColumns[0]
+	if track.ID == "" && len(runs0) > 1 {
+		for _, r := range runs0[1:] {
+			if rMap, ok := r.(map[string]interface{}); ok {
+				if nav, ok := rMap["navigationEndpoint"].(map[string]interface{}); ok {
+					if w, ok := nav["watchEndpoint"].(map[string]interface{}); ok {
+						if vid, ok := w["videoId"].(string); ok && vid != "" {
+							track.ID = vid
+							break
+						}
+					}
+				}
+			}
+		}
+	}
 
-	navEndpoint, _ := firstRun0["navigationEndpoint"].(map[string]interface{})
-	watchEndpoint, _ := navEndpoint["watchEndpoint"].(map[string]interface{})
-	track.ID, _ = watchEndpoint["videoId"].(string)
-
-	// If no watchEndpoint directly on run, check item navigationEndpoint
+	// 2. Check playlistItemData (standard on YouTube Music FLLM / Liked Music)
 	if track.ID == "" {
-		itemNav, _ := item["navigationEndpoint"].(map[string]interface{})
-		itemWatch, _ := itemNav["watchEndpoint"].(map[string]interface{})
-		track.ID, _ = itemWatch["videoId"].(string)
+		if pid, ok := item["playlistItemData"].(map[string]interface{}); ok {
+			if vid, ok := pid["videoId"].(string); ok && vid != "" {
+				track.ID = vid
+			}
+		}
+	}
+
+	// 3. Check overlay play button watchEndpoint
+	if track.ID == "" {
+		if overlay, ok := item["overlay"].(map[string]interface{}); ok {
+			if thumbOverlay, ok := overlay["musicItemThumbnailOverlayRenderer"].(map[string]interface{}); ok {
+				if content, ok := thumbOverlay["content"].(map[string]interface{}); ok {
+					if playBtn, ok := content["musicPlayButtonRenderer"].(map[string]interface{}); ok {
+						if playNav, ok := playBtn["playNavigationEndpoint"].(map[string]interface{}); ok {
+							if watch, ok := playNav["watchEndpoint"].(map[string]interface{}); ok {
+								if vid, ok := watch["videoId"].(string); ok && vid != "" {
+									track.ID = vid
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Check item navigationEndpoint
+	if track.ID == "" {
+		if itemNav, ok := item["navigationEndpoint"].(map[string]interface{}); ok {
+			if itemWatch, ok := itemNav["watchEndpoint"].(map[string]interface{}); ok {
+				track.ID, _ = itemWatch["videoId"].(string)
+			}
+		}
+	}
+
+	// 5. Check top-level videoId
+	if track.ID == "" {
+		if vid, ok := item["videoId"].(string); ok && vid != "" {
+			track.ID = vid
+		}
+	}
+
+	// 6. Check onSelect watchEndpoint
+	if track.ID == "" {
+		if onSel, ok := item["onSelect"].(map[string]interface{}); ok {
+			if w, ok := onSel["watchEndpoint"].(map[string]interface{}); ok {
+				track.ID, _ = w["videoId"].(string)
+			}
+		}
+	}
+
+	// 7. Check doubleTapEndpoint
+	if track.ID == "" {
+		if dt, ok := item["doubleTapEndpoint"].(map[string]interface{}); ok {
+			if w, ok := dt["watchEndpoint"].(map[string]interface{}); ok {
+				track.ID, _ = w["videoId"].(string)
+			}
+		}
 	}
 
 	// Extract Artist and Album from flexColumns[1]
@@ -128,6 +199,11 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 		track.Artist = strings.Join(artistParts, ", ")
 		track.Album = albumPart
 	}
+	if track.Artist == "" {
+		track.Artist = "YouTube Artist"
+	}
+	track.Artist = strings.TrimSuffix(track.Artist, " - Topic")
+	track.Artist = strings.TrimSuffix(track.Artist, "VEVO")
 
 	// Extract Duration from fixedColumns[0] if available
 	if fixedCols, ok := item["fixedColumns"].([]interface{}); ok && len(fixedCols) > 0 {
@@ -154,6 +230,9 @@ func parseMusicResponsiveItem(item map[string]interface{}) (models.Track, bool) 
 				}
 			}
 		}
+	}
+	if track.ThumbnailURL == "" && track.ID != "" {
+		track.ThumbnailURL = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", track.ID)
 	}
 
 	if track.Title == "" || track.ID == "" {
@@ -421,6 +500,33 @@ func parseMusicTwoRowItemRenderer(item map[string]interface{}) (models.Track, bo
 	if nav, ok := item["navigationEndpoint"].(map[string]interface{}); ok {
 		if watch, ok := nav["watchEndpoint"].(map[string]interface{}); ok {
 			vid, _ = watch["videoId"].(string)
+		}
+	}
+	if vid == "" {
+		if pid, ok := item["playlistItemData"].(map[string]interface{}); ok {
+			vid, _ = pid["videoId"].(string)
+		}
+	}
+	if vid == "" {
+		if overlay, ok := item["thumbnailOverlay"].(map[string]interface{}); ok {
+			if thumbOverlay, ok := overlay["musicItemThumbnailOverlayRenderer"].(map[string]interface{}); ok {
+				if content, ok := thumbOverlay["content"].(map[string]interface{}); ok {
+					if playBtn, ok := content["musicPlayButtonRenderer"].(map[string]interface{}); ok {
+						if playNav, ok := playBtn["playNavigationEndpoint"].(map[string]interface{}); ok {
+							if watch, ok := playNav["watchEndpoint"].(map[string]interface{}); ok {
+								vid, _ = watch["videoId"].(string)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if vid == "" {
+		if onTap, ok := item["onTap"].(map[string]interface{}); ok {
+			if watch, ok := onTap["watchEndpoint"].(map[string]interface{}); ok {
+				vid, _ = watch["videoId"].(string)
+			}
 		}
 	}
 	if vid == "" {

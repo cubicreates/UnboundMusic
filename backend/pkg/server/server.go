@@ -42,6 +42,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/importer"
 	"github.com/cubicreates/unbound-engine/pkg/lastfm"
+	"github.com/cubicreates/unbound-engine/pkg/lyrics"
 	"github.com/cubicreates/unbound-engine/pkg/models"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
 	"github.com/cubicreates/unbound-engine/pkg/podcasts"
@@ -114,6 +115,7 @@ type Server struct {
 	events       *events.EventBus
 	radioGen     *ytmusic.RadioGenerator
 	algoEngine   *algorithm.Engine
+	neteaseClient *lyrics.NetEaseClient
 	udsServer    *http.Server
 	udsListener  net.Listener
 }
@@ -224,6 +226,7 @@ func NewServer(cfg Config) (*Server, error) {
 		events:       eventBus,
 		radioGen:     radioGen,
 		algoEngine:   algorithm.NewEngine(repo, ytClient),
+		neteaseClient: lyrics.NewNetEaseClient(),
 	}
 
 	mux := http.NewServeMux()
@@ -512,7 +515,7 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stream)
 }
 
-// handleLyrics handles uncensored lyrics resolution with on-device forced alignment and SQLite caching.
+// handleLyrics handles multi-tier synchronized lyrics resolution with on-device forced alignment and SQLite caching.
 func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 	trackID := r.URL.Query().Get("id")
 	title := r.URL.Query().Get("title")
@@ -531,6 +534,35 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve metadata from local repository if title or artist is missing or dummy
+	if trackID != "" && (title == "" || artist == "" || strings.EqualFold(artist, "Song") || strings.EqualFold(artist, "YouTube Artist") || strings.EqualFold(artist, "Video")) {
+		if trk, err := s.repo.GetTrack(r.Context(), trackID); err == nil && trk != nil {
+			if title == "" {
+				title = trk.Title
+			}
+			if artist == "" || strings.EqualFold(artist, "Song") || strings.EqualFold(artist, "YouTube Artist") || strings.EqualFold(artist, "Video") {
+				if trk.Artist != "" && !strings.EqualFold(trk.Artist, "Song") && !strings.EqualFold(trk.Artist, "YouTube Artist") && !strings.EqualFold(trk.Artist, "Video") {
+					artist = trk.Artist
+				}
+			}
+			if durationMs == 180000 && trk.DurationMs > 0 {
+				durationMs = trk.DurationMs
+			}
+		}
+	}
+
+	cleanTitle := lyrics.CleanTrackTitle(title)
+	if cleanTitle == "" {
+		cleanTitle = strings.TrimSpace(title)
+	}
+
+	cleanArtist := strings.TrimSpace(artist)
+	switch strings.ToLower(cleanArtist) {
+	case "song", "video", "youtube artist", "artist":
+		cleanArtist = ""
+	}
+
+	// Tier 0: SQLite Local Cache (0ms latency)
 	if trackID != "" {
 		cached, err := s.repo.GetLyrics(r.Context(), trackID)
 		if err == nil && cached != nil && len(cached.Lines) > 0 {
@@ -539,8 +571,10 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 1. Tier 1: Query LRCLIB for verified, true millisecond-synced lyrics
-	lrclibPayload, err := s.geniusClient.FetchLRCLIBSynced(r.Context(), title, artist, 0)
+	durationSec := int(durationMs / 1000)
+
+	// Tier 1: Query LRCLIB for verified, true millisecond-synced lyrics with search fallback
+	lrclibPayload, err := s.geniusClient.FetchLRCLIBSynced(r.Context(), cleanTitle, cleanArtist, durationSec)
 	if err == nil && lrclibPayload != nil && len(lrclibPayload.Lines) > 0 {
 		lrclibPayload.TrackID = trackID
 		lrclibPayload.Source = "LRCLIB (Verified Synced)"
@@ -549,8 +583,29 @@ func (s *Server) handleLyrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Tier 2: Query Genius for complete uncensored lyrics and apply on-device phonetic alignment
-	hit, err := s.geniusClient.SearchSong(r.Context(), title, artist)
+	// Tier 2: Query NetEase Cloud Music synced LRC
+	if s.neteaseClient != nil && cleanTitle != "" {
+		neteasePayload, err := s.neteaseClient.Fetch(r.Context(), cleanTitle, cleanArtist, durationSec)
+		if err == nil && neteasePayload != nil && len(neteasePayload.Lines) > 0 {
+			neteasePayload.TrackID = trackID
+			_ = s.repo.SaveLyrics(r.Context(), neteasePayload)
+			writeJSON(w, http.StatusOK, neteasePayload)
+			return
+		}
+	}
+
+	// Tier 3: Query YouTube InnerTube timed captions
+	if s.ytClient != nil && trackID != "" {
+		ytPayload, err := lyrics.FetchYouTubeCaptions(r.Context(), s.ytClient, trackID, cleanTitle, cleanArtist)
+		if err == nil && ytPayload != nil && len(ytPayload.Lines) > 0 {
+			_ = s.repo.SaveLyrics(r.Context(), ytPayload)
+			writeJSON(w, http.StatusOK, ytPayload)
+			return
+		}
+	}
+
+	// Tier 4: Query Genius for complete uncensored lyrics and apply on-device phonetic alignment
+	hit, err := s.geniusClient.SearchSong(r.Context(), cleanTitle, cleanArtist)
 	if err == nil && hit != nil {
 		plainPayload, err := s.geniusClient.FetchLyrics(r.Context(), hit)
 		if err == nil && len(plainPayload.Lines) > 0 {

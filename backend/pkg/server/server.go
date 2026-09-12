@@ -25,6 +25,7 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/account"
 	"github.com/cubicreates/unbound-engine/pkg/ai"
+	"github.com/cubicreates/unbound-engine/pkg/algorithm"
 	"github.com/cubicreates/unbound-engine/pkg/aligner"
 	"github.com/cubicreates/unbound-engine/pkg/analytics"
 	"github.com/cubicreates/unbound-engine/pkg/artist"
@@ -112,6 +113,7 @@ type Server struct {
 	downloader   *downloader.Manager
 	events       *events.EventBus
 	radioGen     *ytmusic.RadioGenerator
+	algoEngine   *algorithm.Engine
 	udsServer    *http.Server
 	udsListener  net.Listener
 }
@@ -221,6 +223,7 @@ func NewServer(cfg Config) (*Server, error) {
 		downloader:   dlManager,
 		events:       eventBus,
 		radioGen:     radioGen,
+		algoEngine:   algorithm.NewEngine(repo, ytClient),
 	}
 
 	mux := http.NewServeMux()
@@ -259,6 +262,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/account/disconnect", s.handleAccountDisconnect)
 	mux.HandleFunc("/api/v1/account/liked", s.handleAccountLiked)
 	mux.HandleFunc("/api/v1/account/feed/infinite", s.handleAccountFeedInfinite)
+	mux.HandleFunc("/api/v1/feed/smart", s.handleSmartFeed)
 	mux.HandleFunc("/api/v1/account/device/start", s.handleAccountDeviceStart)
 	mux.HandleFunc("/api/v1/account/device/poll", s.handleAccountDevicePoll)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
@@ -972,6 +976,15 @@ func (s *Server) handleAnalyticsLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.analyticsEng.LogPlayback(ev)
+	if s.algoEngine != nil {
+		track := models.Track{
+			ID:     ev.TrackID,
+			Title:  ev.Title,
+			Artist: ev.Artist,
+			Album:  ev.Album,
+		}
+		_ = s.algoEngine.IngestPlaybackEvent(r.Context(), track, int(ev.DurationSec), int(ev.ListenedSec))
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "RECORDED"})
 }
 
@@ -1214,6 +1227,25 @@ func (s *Server) handleAccountFeedInfinite(w http.ResponseWriter, r *http.Reques
 		"tracks": tracks,
 		"count":  len(tracks),
 	})
+}
+
+// handleSmartFeed generates dynamic on-device personalized shelves from playback history.
+func (s *Server) handleSmartFeed(w http.ResponseWriter, r *http.Request) {
+	if s.algoEngine == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"has_personalization": false,
+			"shelves":             []interface{}{},
+		})
+		return
+	}
+
+	feed, err := s.algoEngine.GenerateSmartFeed(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, feed)
 }
 
 // handleAccountDeviceStart initiates the zero-typing OAuth 2.0 Device Code flow.

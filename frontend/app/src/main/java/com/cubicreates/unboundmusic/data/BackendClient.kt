@@ -343,6 +343,58 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         get("/api/v1/account/feed/infinite$query")
     }
 
+    /** Fetches native algorithmic smart recommendations (variations, quick picks, artist spotlights). */
+    suspend fun getSmartFeed(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/feed/smart")
+    }
+
+    fun parseSmartFeed(json: String): SmartFeedDto? {
+        if (json.isBlank()) return null
+        return try {
+            val root = JSONObject(json)
+            val hasPersonalization = root.optBoolean("has_personalization", false)
+            val shelvesArr = root.optJSONArray("shelves")
+            val shelves = mutableListOf<SmartShelfDto>()
+            if (shelvesArr != null) {
+                for (i in 0 until shelvesArr.length()) {
+                    val sObj = shelvesArr.getJSONObject(i)
+                    val tracksArr = sObj.optJSONArray("tracks")
+                    val tracks = mutableListOf<com.cubicreates.unboundmusic.ui.components.TrackItem>()
+                    if (tracksArr != null) {
+                        for (j in 0 until tracksArr.length()) {
+                            val tObj = tracksArr.getJSONObject(j)
+                            tracks.add(
+                                com.cubicreates.unboundmusic.ui.components.TrackItem(
+                                    id = tObj.optString("id"),
+                                    title = tObj.optString("title"),
+                                    artist = tObj.optString("artist"),
+                                    album = tObj.optString("album"),
+                                    durationMs = tObj.optLong("duration_ms"),
+                                    coverUrl = tObj.optString("thumbnail_url").ifBlank {
+                                        "https://i.ytimg.com/vi/${tObj.optString("id")}/hqdefault.jpg"
+                                    },
+                                    streamUrl = ""
+                                )
+                            )
+                        }
+                    }
+                    shelves.add(
+                        SmartShelfDto(
+                            id = sObj.optString("id"),
+                            title = sObj.optString("title"),
+                            subtitle = sObj.optString("subtitle"),
+                            type = sObj.optString("type"),
+                            tracks = tracks
+                        )
+                    )
+                }
+            }
+            SmartFeedDto(hasPersonalization, shelves)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==================== SECTION 11: Explore, Artists & Podcasts ====================
 
     /** Curated moods & moments categories. */

@@ -239,6 +239,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _userMixes = MutableStateFlow<List<com.cubicreates.unboundmusic.data.MixDto>>(emptyList())
     val userMixes: StateFlow<List<com.cubicreates.unboundmusic.data.MixDto>> = _userMixes.asStateFlow()
 
+    private val _smartShelves = MutableStateFlow<List<com.cubicreates.unboundmusic.data.SmartShelfDto>>(emptyList())
+    val smartShelves: StateFlow<List<com.cubicreates.unboundmusic.data.SmartShelfDto>> = _smartShelves.asStateFlow()
+
     private val _isSyncingAccount = MutableStateFlow(false)
     val isSyncingAccount: StateFlow<Boolean> = _isSyncingAccount.asStateFlow()
 
@@ -1326,6 +1329,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.d(TAG, "Charts load note: ${e.message}")
             }
+
+            // Load native YouTube-esque algorithmic shelves
+            loadSmartFeed()
+        }
+    }
+
+    /**
+     * Loads dynamic algorithmic recommendation shelves from local listening history and song seeds.
+     */
+    fun loadSmartFeed() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getSmartFeed()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val feed = client.parseSmartFeed(resp)
+                    if (feed != null && feed.hasPersonalization) {
+                        _smartShelves.value = feed.shelves
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Smart feed load note: ${e.message}")
+            }
         }
     }
 
@@ -1811,12 +1836,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 client.logPlaybackEvent(
-                    trackId = track.title,
+                    trackId = track.id.ifBlank { track.title },
                     title = track.title,
                     artist = track.artist,
-                    album = "",
+                    album = track.album,
                     listenedSec = listenedSec
                 )
+                // Refresh smart shelves with updated listening affinity
+                loadSmartFeed()
             } catch (e: Exception) {
                 Log.d(TAG, "Analytics log note: ${e.message}")
             }

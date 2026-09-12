@@ -350,3 +350,20 @@ data class MixDto(
     val subtitle: String,
     val coverUrl: String
 )
+
+/**
+ * Represents a dynamic algorithmic recommendation shelf (Quick Picks, Similar to X, More from Artist, Listen Again).
+ */
+data class SmartShelfDto(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val type: String,
+    val tracks: List<com.cubicreates.unboundmusic.ui.components.TrackItem>
+)
+
+data class SmartFeedDto(
+    val hasPersonalization: Boolean,
+    val shelves: List<SmartShelfDto>
+)
+

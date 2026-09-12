@@ -30,6 +30,7 @@ fun HomeScreen(
     tracks: List<TrackItem> = defaultTopTracks,
     syncedYouTubeTracks: List<TrackItem> = emptyList(),
     userMixes: List<com.cubicreates.unboundmusic.data.MixDto> = emptyList(),
+    smartShelves: List<com.cubicreates.unboundmusic.data.SmartShelfDto> = emptyList(),
     daypartingState: DaypartingState? = null,
     genreSections: List<GenreSectionDto> = emptyList(),
     userAvatarUrl: String? = null,
@@ -72,6 +73,7 @@ fun HomeScreen(
         } else {
             GuestHomeScreen(
                 tracks = tracks,
+                smartShelves = smartShelves,
                 daypartingState = daypartingState,
                 genreSections = genreSections,
                 onTrackSelect = onTrackSelect,

@@ -122,6 +122,7 @@ fun MainApp(
     val accountName by viewModel.accountName.collectAsStateWithLifecycle()
     val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
     val syncedYouTubeTracks by viewModel.syncedYouTubeTracks.collectAsStateWithLifecycle()
+    val smartShelves by viewModel.smartShelves.collectAsStateWithLifecycle()
     val isLoadingMoreTracks by viewModel.isLoadingMoreTracks.collectAsStateWithLifecycle()
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
@@ -293,6 +294,7 @@ fun MainApp(
                                     tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
                                     syncedYouTubeTracks = syncedYouTubeTracks,
                                     userMixes = userMixes,
+                                    smartShelves = smartShelves,
                                     daypartingState = daypartingState,
                                     genreSections = genreSections,
                                     userAvatarUrl = userAvatarUrl,

@@ -63,11 +63,13 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
+import coil.compose.AsyncImage
 
 @Composable
 fun GuestHomeScreen(
     modifier: Modifier = Modifier,
     tracks: List<TrackItem> = defaultTopTracks,
+    smartShelves: List<com.cubicreates.unboundmusic.data.SmartShelfDto> = emptyList(),
     daypartingState: DaypartingState? = null,
     genreSections: List<GenreSectionDto> = emptyList(),
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
@@ -84,6 +86,15 @@ fun GuestHomeScreen(
     ) {
         // 1. Connect YouTube Call-To-Action Banner
         ConnectYouTubeBanner(onConnectClick = onConnectClick)
+
+        // Native YouTube-esque Algorithmic Smart Shelves (Variations, Quick Picks, Artist Spotlights)
+        if (smartShelves.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            SmartShelvesSection(
+                shelves = smartShelves,
+                onTrackSelect = onTrackSelect
+            )
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -385,5 +396,118 @@ private fun GuestCapsuleCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SmartShelvesSection(
+    shelves: List<com.cubicreates.unboundmusic.data.SmartShelfDto>,
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        shelves.forEach { shelf ->
+            if (shelf.tracks.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            text = shelf.title,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        if (shelf.subtitle.isNotBlank()) {
+                            Text(
+                                text = shelf.subtitle,
+                                fontSize = 12.sp,
+                                color = OnSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(shelf.tracks, key = { it.id }) { track ->
+                            SmartShelfTrackCard(
+                                track = track,
+                                onClick = { onTrackSelect(track, shelf.tracks) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmartShelfTrackCard(
+    track: TrackItem,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(136.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(136.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceGlassHighest)
+        ) {
+            AsyncImage(
+                model = track.coverUrl,
+                contentDescription = track.title,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color(0x66000000))
+                        )
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .size(28.dp)
+                    .align(Alignment.BottomEnd)
+                    .clip(CircleShape)
+                    .background(UnboundPrimary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.Black,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = track.title,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = track.artist,
+            color = OnSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

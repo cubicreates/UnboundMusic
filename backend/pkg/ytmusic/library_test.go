@@ -234,4 +234,88 @@ func TestParseHomeShelvesFromJSON(t *testing.T) {
 	}
 }
 
+func TestParseMusicResponsiveItemWithSignedInTypeBadge(t *testing.T) {
+	rawItem := map[string]interface{}{
+		"flexColumns": []interface{}{
+			map[string]interface{}{
+				"musicResponsiveListItemFlexColumnRenderer": map[string]interface{}{
+					"text": map[string]interface{}{
+						"runs": []interface{}{
+							map[string]interface{}{
+								"text": "Him & I",
+								"navigationEndpoint": map[string]interface{}{
+									"watchEndpoint": map[string]interface{}{
+										"videoId": "SA7AIacke-4",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			map[string]interface{}{
+				"musicResponsiveListItemFlexColumnRenderer": map[string]interface{}{
+					"text": map[string]interface{}{
+						"runs": []interface{}{
+							map[string]interface{}{"text": "Song"},
+							map[string]interface{}{"text": " • "},
+							map[string]interface{}{"text": "G-Eazy"},
+							map[string]interface{}{"text": " & "},
+							map[string]interface{}{"text": "Halsey"},
+							map[string]interface{}{"text": " • "},
+							map[string]interface{}{"text": "The Beautiful & Damned"},
+							map[string]interface{}{"text": " • "},
+							map[string]interface{}{"text": "4:28"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	track, ok := parseMusicResponsiveItem(rawItem)
+	if !ok {
+		t.Fatalf("expected successful track parsing")
+	}
+	if track.Artist != "G-Eazy & Halsey" {
+		t.Errorf("expected artist 'G-Eazy & Halsey', got '%s'", track.Artist)
+	}
+	if track.Album != "The Beautiful & Damned" {
+		t.Errorf("expected album 'The Beautiful & Damned', got '%s'", track.Album)
+	}
+	if track.DurationMs != 268000 {
+		t.Errorf("expected duration 268000, got %d", track.DurationMs)
+	}
+}
+
+func TestParseMusicTwoRowItemRendererWithSignedInTypeBadge(t *testing.T) {
+	rawItem := map[string]interface{}{
+		"navigationEndpoint": map[string]interface{}{
+			"watchEndpoint": map[string]interface{}{
+				"videoId": "SA7AIacke-4",
+			},
+		},
+		"title": map[string]interface{}{
+			"runs": []interface{}{
+				map[string]interface{}{"text": "Him & I"},
+			},
+		},
+		"subtitle": map[string]interface{}{
+			"runs": []interface{}{
+				map[string]interface{}{"text": "Song"},
+				map[string]interface{}{"text": " • "},
+				map[string]interface{}{"text": "G-Eazy"},
+			},
+		},
+	}
+
+	track, ok := parseMusicTwoRowItemRenderer(rawItem)
+	if !ok {
+		t.Fatalf("expected successful track parsing")
+	}
+	if track.Artist != "G-Eazy" {
+		t.Errorf("expected artist 'G-Eazy', got '%s'", track.Artist)
+	}
+}
+
 

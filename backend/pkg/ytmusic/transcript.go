@@ -78,11 +78,11 @@ func parseTranscriptJSON(data []byte) ([]LyricLine, error) {
 // GetTranscript fetches timed transcript text for a video from YouTube's InnerTube API.
 func (c *Client) GetTranscript(ctx context.Context, videoID string) ([]LyricLine, error) {
 	body := map[string]interface{}{
-		"context": c.buildContext(ConfigWebRemix),
+		"context": c.buildContext(ConfigWeb),
 		"params":  fmt.Sprintf("\x0a\x0b%s", videoID),
 	}
 
-	respBytes, err := c.post(ctx, "get_transcript", body, ConfigWebRemix)
+	respBytes, err := c.post(ctx, "get_transcript", body, ConfigWeb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch transcript for video %s: %w", videoID, err)
 	}

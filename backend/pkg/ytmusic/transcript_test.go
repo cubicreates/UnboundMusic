@@ -1,6 +1,7 @@
 package ytmusic
 
 import (
+	"context"
 	"testing"
 )
 
@@ -57,4 +58,14 @@ func TestParseTranscriptResponse(t *testing.T) {
 	if lines[1].StartMs != 3500 || lines[1].Text != "Second line of lyrics" {
 		t.Errorf("unexpected line 1: %+v", lines[1])
 	}
+}
+
+func TestLiveGetTranscript(t *testing.T) {
+	c := NewClient()
+	lines, err := c.GetTranscript(context.Background(), "JqFzhcWo3EU") // Adele - Hello
+	if err != nil {
+		t.Logf("GetTranscript error: %v", err)
+		return
+	}
+	t.Logf("Fetched %d transcript lines, line 0: %+v", len(lines), lines[0])
 }

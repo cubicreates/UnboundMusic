@@ -39,48 +39,100 @@ type LRCLIBResponse struct {
 
 // FetchLRCLIBSynced attempts to query the free open community LRCLIB database for pre-synced timestamps.
 func (c *Client) FetchLRCLIBSynced(ctx context.Context, title, artist string, durationSec int) (*models.LyricsPayload, error) {
-	if strings.TrimSpace(title) == "" {
+	title = strings.TrimSpace(title)
+	if title == "" {
 		return nil, fmt.Errorf("title cannot be empty")
 	}
 
-	q := url.Values{}
-	q.Set("track_name", title)
-	if artist != "" {
-		q.Set("artist_name", artist)
-	}
-	if durationSec > 0 {
-		q.Set("duration", strconv.Itoa(durationSec))
+	cleanArtist := strings.TrimSpace(artist)
+	switch strings.ToLower(cleanArtist) {
+	case "song", "video", "youtube artist", "artist":
+		cleanArtist = ""
 	}
 
-	targetURL := fmt.Sprintf("%s/get?%s", LRCLIBBaseURL, q.Encode())
-	respBytes, err := c.get(ctx, targetURL)
-	if err != nil {
-		return nil, fmt.Errorf("LRCLIB request failed: %w", err)
+	// Try exact match if cleanArtist is provided
+	if cleanArtist != "" {
+		q := url.Values{}
+		q.Set("track_name", title)
+		q.Set("artist_name", cleanArtist)
+		if durationSec > 0 {
+			q.Set("duration", strconv.Itoa(durationSec))
+		}
+
+		targetURL := fmt.Sprintf("%s/get?%s", LRCLIBBaseURL, q.Encode())
+		respBytes, err := c.get(ctx, targetURL)
+		if err == nil {
+			var lrclib LRCLIBResponse
+			if err := json.Unmarshal(respBytes, &lrclib); err == nil && lrclib.SyncedLyrics != "" {
+				lines := ParseLRCLyrics(lrclib.SyncedLyrics)
+				if len(lines) > 0 {
+					return &models.LyricsPayload{
+						TrackID:      fmt.Sprintf("lrclib:%d", lrclib.ID),
+						Title:        lrclib.TrackName,
+						Artist:       lrclib.ArtistName,
+						PlainLyrics:  lrclib.PlainLyrics,
+						Lines:        lines,
+						IsWordSynced: false,
+						Source:       "LRCLIB Community Database",
+					}, nil
+				}
+			}
+		}
 	}
 
-	var lrclib LRCLIBResponse
-	if err := json.Unmarshal(respBytes, &lrclib); err != nil {
-		return nil, fmt.Errorf("failed to parse LRCLIB response: %w", err)
+	// Fallback 1: Search LRCLIB with "title artist"
+	if cleanArtist != "" {
+		searchURL := fmt.Sprintf("%s/search?q=%s", LRCLIBBaseURL, url.QueryEscape(fmt.Sprintf("%s %s", title, cleanArtist)))
+		respBytes, err := c.get(ctx, searchURL)
+		if err == nil {
+			var results []LRCLIBResponse
+			if err := json.Unmarshal(respBytes, &results); err == nil && len(results) > 0 {
+				for _, item := range results {
+					if item.SyncedLyrics != "" {
+						lines := ParseLRCLyrics(item.SyncedLyrics)
+						if len(lines) > 0 {
+							return &models.LyricsPayload{
+								TrackID:      fmt.Sprintf("lrclib:%d", item.ID),
+								Title:        item.TrackName,
+								Artist:       item.ArtistName,
+								PlainLyrics:  item.PlainLyrics,
+								Lines:        lines,
+								IsWordSynced: false,
+								Source:       "LRCLIB Community Database",
+							}, nil
+						}
+					}
+				}
+			}
+		}
 	}
 
-	if lrclib.SyncedLyrics == "" {
-		return nil, fmt.Errorf("no synced lyrics available in LRCLIB for %s - %s", artist, title)
+	// Fallback 2: Search LRCLIB with title alone
+	searchURL := fmt.Sprintf("%s/search?q=%s", LRCLIBBaseURL, url.QueryEscape(title))
+	respBytes, err := c.get(ctx, searchURL)
+	if err == nil {
+		var results []LRCLIBResponse
+		if err := json.Unmarshal(respBytes, &results); err == nil && len(results) > 0 {
+			for _, item := range results {
+				if item.SyncedLyrics != "" {
+					lines := ParseLRCLyrics(item.SyncedLyrics)
+					if len(lines) > 0 {
+						return &models.LyricsPayload{
+							TrackID:      fmt.Sprintf("lrclib:%d", item.ID),
+							Title:        item.TrackName,
+							Artist:       item.ArtistName,
+							PlainLyrics:  item.PlainLyrics,
+							Lines:        lines,
+							IsWordSynced: false,
+							Source:       "LRCLIB Community Database",
+						}, nil
+					}
+				}
+			}
+		}
 	}
 
-	lines := ParseLRCLyrics(lrclib.SyncedLyrics)
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("failed to parse any timestamped lines from LRC payload")
-	}
-
-	return &models.LyricsPayload{
-		TrackID:      fmt.Sprintf("lrclib:%d", lrclib.ID),
-		Title:        lrclib.TrackName,
-		Artist:       lrclib.ArtistName,
-		PlainLyrics:  lrclib.PlainLyrics,
-		Lines:        lines,
-		IsWordSynced: false,
-		Source:       "LRCLIB Community Database",
-	}, nil
+	return nil, fmt.Errorf("no synced lyrics available in LRCLIB for %s - %s", artist, title)
 }
 
 // ParseLRCLyrics parses a multi-line LRC formatted string into structured LyricLine models with millisecond timestamps.

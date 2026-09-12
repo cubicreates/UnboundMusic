@@ -51,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 private const val GOOGLE_LOGIN_URL =
-    "https://accounts.google.com/ServiceLogin?service=youtube&passive=true&continue=https%3A%2F%2Fm.youtube.com%2F"
+    "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com"
 
 private const val MODERN_MOBILE_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
@@ -88,7 +88,7 @@ fun YouTubeLoginSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Sign In with YouTube",
+                        text = "Connect YouTube Music",
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -96,7 +96,7 @@ fun YouTubeLoginSheet(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Localhost on-device sync: zero cloud data relay",
+                        text = "Sign in to sync your personalized music mixes and liked songs",
                         color = Color(0xFF888888),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace
@@ -133,28 +133,47 @@ fun YouTubeLoginSheet(
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                             }
 
+                            val cookieManager = CookieManager.getInstance()
+                            cookieManager.setAcceptCookie(true)
+                            cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                            fun checkAndExtractCookies(url: String?) {
+                                if (hasExtracted) return
+                                val ytmCookie = cookieManager.getCookie("https://music.youtube.com") ?: ""
+                                val currentCookie = if (url != null) cookieManager.getCookie(url) ?: "" else ""
+                                val candidates = listOf(ytmCookie, currentCookie).filter { it.isNotBlank() }
+                                for (c in candidates) {
+                                    if (c.contains("SAPISID=") || c.contains("__Secure-3PAPISID=")) {
+                                        hasExtracted = true
+                                        onCookieExtracted(c)
+                                        onDismiss()
+                                        return
+                                    }
+                                }
+                            }
+
                             webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
                                     isLoading = true
+                                    checkAndExtractCookies(url)
+                                }
+
+                                override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
+                                    super.doUpdateVisitedHistory(view, url, isReload)
+                                    checkAndExtractCookies(url)
+                                }
+
+                                override fun onLoadResource(view: WebView?, url: String?) {
+                                    super.onLoadResource(view, url)
+                                    checkAndExtractCookies(url)
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     isLoading = false
-
-                                    val isYouTube = url != null && (
-                                        url.contains("youtube.com") || url.contains("google.com")
-                                    )
-                                    if (isYouTube && !hasExtracted) {
-                                        val cookie = CookieManager.getInstance().getCookie(url)
-                                        if (cookie != null && (cookie.contains("SAPISID") || cookie.contains("__Secure-3PAPISID"))) {
-                                            hasExtracted = true
-                                            onCookieExtracted(cookie)
-                                            onDismiss()
-                                        }
-                                    }
+                                    checkAndExtractCookies(url)
                                 }
                             }
 

@@ -377,6 +377,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Restore persistent YouTube Music session from local disk store immediately
+        val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(application)
+        if (sessionStore.hasActiveSession) {
+            _isYouTubeConnected.value = true
+            sessionStore.accountName?.let { _accountName.value = it }
+            sessionStore.avatarUrl?.let { _userAvatarUrl.value = it }
+        }
+
         // Orchestrate startup hydration with splash screen telemetry
         startStartupHydration()
 
@@ -459,6 +467,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             initializeColdStart("US", "en")
             loadHomeFeed()
             refreshLibrary()
+            val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
+            if (sessionStore.hasActiveSession && !sessionStore.cookie.isNullOrBlank()) {
+                try {
+                    client.syncAccount(sessionStore.cookie!!)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Session re-sync on startup note: ${e.message}")
+                }
+            }
             checkAccountStatus()
             loadAppSettings()
             loadCustomEqPresets()
@@ -1528,6 +1544,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _accountName.value = status.accountName
                         _userAvatarUrl.value = status.avatarUrl.takeIf { it.isNotBlank() }
                         if (status.connected) {
+                            val store = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
+                            store.accountName = status.accountName
+                            if (status.avatarUrl.isNotBlank()) {
+                                store.avatarUrl = status.avatarUrl
+                            }
                             loadSyncedYouTubeTracks()
                         }
                     }
@@ -1546,6 +1567,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val (code, resp) = client.syncAccount(cookie)
                 if (code in 200..299) {
                     _isYouTubeConnected.value = true
+                    val store = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
+                    store.saveSession(cookie)
                     checkAccountStatus()
                     loadSyncedYouTubeTracks()
                     withContext(Dispatchers.Main) {
@@ -1673,6 +1696,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _userAvatarUrl.value = null
                     _syncedYouTubeTracks.value = emptyList()
                     _youtubeCount.value = 0
+                    com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication()).clear()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Account disconnect failed: ${e.message}")

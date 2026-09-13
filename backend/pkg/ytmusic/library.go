@@ -1134,3 +1134,224 @@ func parseHomeShelvesFromJSON(root map[string]interface{}) []HomeShelf {
 	searchShelves(root)
 	return shelves
 }
+
+// FetchPlaylistOrAlbum retrieves the full tracklist and metadata for an album or playlist by its browseId or playlistId.
+func (c *Client) FetchPlaylistOrAlbum(ctx context.Context, id string) (*models.AlbumPlaylist, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("playlist or album id cannot be empty")
+	}
+
+	browseID := id
+	if !strings.HasPrefix(browseID, "VL") && !strings.HasPrefix(browseID, "MPREb_") && !strings.HasPrefix(browseID, "FE") {
+		if strings.HasPrefix(browseID, "PL") || strings.HasPrefix(browseID, "RD") || strings.HasPrefix(browseID, "OLAK") {
+			browseID = "VL" + browseID
+		}
+	}
+
+	body := map[string]interface{}{
+		"context":  c.buildContext(ConfigWebRemix),
+		"browseId": browseID,
+	}
+
+	respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch playlist/album browse data: %w", err)
+	}
+
+	return parsePlaylistOrAlbumResponse(id, respBytes)
+}
+
+func parsePlaylistOrAlbumResponse(id string, data []byte) (*models.AlbumPlaylist, error) {
+	var root map[string]interface{}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("failed to parse playlist or album response: %w", err)
+	}
+
+	result := &models.AlbumPlaylist{
+		ID:      id,
+		IsAlbum: strings.HasPrefix(id, "MPREb_"),
+	}
+
+	// 1. Extract Header metadata
+	if headerObj, ok := root["header"].(map[string]interface{}); ok {
+		var headerRenderer map[string]interface{}
+		for _, key := range []string{"musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer", "musicVisualHeaderRenderer", "musicTwoRowItemRenderer"} {
+			if r, ok := headerObj[key].(map[string]interface{}); ok {
+				headerRenderer = r
+				break
+			}
+		}
+
+		if headerRenderer != nil {
+			// Title
+			if titleObj, ok := headerRenderer["title"].(map[string]interface{}); ok {
+				if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						result.Title, _ = r0["text"].(string)
+					}
+				} else if s, ok := titleObj["simpleText"].(string); ok {
+					result.Title = s
+				}
+			}
+
+			// Subtitle / Strapline (Artist)
+			if strap, ok := headerRenderer["straplineTextOne"].(map[string]interface{}); ok {
+				if runs, ok := strap["runs"].([]interface{}); ok && len(runs) > 0 {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						result.Subtitle, _ = r0["text"].(string)
+					}
+				}
+			}
+			if result.Subtitle == "" {
+				if subObj, ok := headerRenderer["subtitle"].(map[string]interface{}); ok {
+					if runs, ok := subObj["runs"].([]interface{}); ok {
+						var parts []string
+						for _, r := range runs {
+							if rm, ok := r.(map[string]interface{}); ok {
+								txt, _ := rm["text"].(string)
+								tTrim := strings.TrimSpace(txt)
+								if tTrim != "" && tTrim != "•" {
+									if strings.EqualFold(tTrim, "album") || strings.EqualFold(tTrim, "ep") || strings.EqualFold(tTrim, "single") {
+										result.IsAlbum = true
+										continue
+									}
+									parts = append(parts, tTrim)
+								}
+							}
+						}
+						if len(parts) > 0 {
+							result.Subtitle = parts[0]
+						}
+						if len(parts) > 1 {
+							result.Year = parts[len(parts)-1]
+						}
+					}
+				}
+			}
+
+			// Description
+			if descObj, ok := headerRenderer["description"].(map[string]interface{}); ok {
+				if runs, ok := descObj["runs"].([]interface{}); ok && len(runs) > 0 {
+					if r0, ok := runs[0].(map[string]interface{}); ok {
+						result.Description, _ = r0["text"].(string)
+					}
+				} else if s, ok := descObj["simpleText"].(string); ok {
+					result.Description = s
+				}
+			}
+
+			// Thumbnail
+			extractThumb := func(tContainer map[string]interface{}) string {
+				if tObj, ok := tContainer["thumbnail"].(map[string]interface{}); ok {
+					if thumbs, ok := tObj["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+						last, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+						if u, ok := last["url"].(string); ok {
+							return thumbRegex.ReplaceAllString(u, "=w800-h800")
+						}
+					}
+				}
+				return ""
+			}
+
+			if cst, ok := headerRenderer["croppedSquareThumbnailRenderer"].(map[string]interface{}); ok {
+				result.ThumbnailURL = extractThumb(cst)
+			}
+			if result.ThumbnailURL == "" {
+				if mtr, ok := headerRenderer["thumbnail"].(map[string]interface{}); ok {
+					if rend, ok := mtr["musicThumbnailRenderer"].(map[string]interface{}); ok {
+						result.ThumbnailURL = extractThumb(rend)
+					}
+				}
+			}
+			if result.ThumbnailURL == "" {
+				if ftr, ok := headerRenderer["foregroundThumbnail"].(map[string]interface{}); ok {
+					if rend, ok := ftr["musicThumbnailRenderer"].(map[string]interface{}); ok {
+						result.ThumbnailURL = extractThumb(rend)
+					}
+				}
+			}
+
+			// Second subtitle (tracks count & duration stats)
+			if secSub, ok := headerRenderer["secondSubtitle"].(map[string]interface{}); ok {
+				if runs, ok := secSub["runs"].([]interface{}); ok {
+					for _, r := range runs {
+						if rm, ok := r.(map[string]interface{}); ok {
+							txt, _ := rm["text"].(string)
+							tTrim := strings.TrimSpace(txt)
+							if strings.Contains(strings.ToLower(tTrim), "minute") || strings.Contains(strings.ToLower(tTrim), "hour") || strings.Contains(strings.ToLower(tTrim), "min") {
+								result.TotalDuration = tTrim
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Extract Tracks from contents
+	var tracks []models.Track
+	seenIDs := make(map[string]bool)
+
+	var searchTracks func(val interface{})
+	searchTracks = func(val interface{}) {
+		switch v := val.(type) {
+		case map[string]interface{}:
+			if item, ok := v["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
+				if tr, ok := parseMusicResponsiveItem(item); ok && tr.ID != "" {
+					if !seenIDs[tr.ID] {
+						seenIDs[tr.ID] = true
+						tracks = append(tracks, tr)
+					}
+				}
+			}
+			for _, child := range v {
+				searchTracks(child)
+			}
+		case []interface{}:
+			for _, child := range v {
+				searchTracks(child)
+			}
+		}
+	}
+
+	searchTracks(root)
+	result.Tracks = tracks
+	result.TrackCount = len(tracks)
+
+	// Fallback header metadata from tracks if header was minimal
+	if len(tracks) > 0 {
+		if result.Title == "" && result.IsAlbum && tracks[0].Album != "" {
+			result.Title = tracks[0].Album
+		}
+		if result.Subtitle == "" && tracks[0].Artist != "" {
+			result.Subtitle = tracks[0].Artist
+		}
+		if result.ThumbnailURL == "" && tracks[0].ThumbnailURL != "" {
+			result.ThumbnailURL = tracks[0].ThumbnailURL
+		}
+		if result.TotalDuration == "" {
+			var totalMs int64
+			for _, tr := range tracks {
+				totalMs += tr.DurationMs
+			}
+			if totalMs > 0 {
+				mins := totalMs / 60000
+				if mins >= 60 {
+					hrs := mins / 60
+					remMins := mins % 60
+					result.TotalDuration = fmt.Sprintf("%d hr %d mins", hrs, remMins)
+				} else {
+					result.TotalDuration = fmt.Sprintf("%d mins", mins)
+				}
+			}
+		}
+	}
+
+	if result.Title == "" {
+		result.Title = "Playlist"
+	}
+
+	return result, nil
+}
+

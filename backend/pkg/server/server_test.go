@@ -523,6 +523,26 @@ func TestServerLyricsEndpoint_SanitizesMetadataAndCacheHit(t *testing.T) {
 	}
 }
 
+func TestServerPlaylistEndpoint_MissingID(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45741,
+		DatabasePath:   filepath.Join(tempDir, "test_server.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
 
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
 
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/playlist", nil)
+	w := httptest.NewRecorder()
+	srv.handlePlaylist(w, req)
 
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for missing id, got %d", w.Code)
+	}
+}

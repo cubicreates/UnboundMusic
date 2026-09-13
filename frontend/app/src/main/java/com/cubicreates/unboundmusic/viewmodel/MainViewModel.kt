@@ -27,6 +27,7 @@ import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
+import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.PlaylistItemDto
 import com.cubicreates.unboundmusic.data.PlaylistShelfDto
@@ -2336,6 +2337,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Artist load error: ${e.message}")
             } finally {
                 _isLoadingArtist.value = false
+            }
+        }
+    }
+
+    // ==================== Album & Playlist Detail ====================
+
+    fun openAlbumPlaylist(id: String, initialTitle: String = "", initialCover: String = "") {
+        if (id.isBlank()) return
+        _albumPlaylistData.value = AlbumPlaylistData(
+            title = initialTitle.ifBlank { "Loading..." },
+            subtitle = "",
+            coverUrl = initialCover,
+            tracks = emptyList(),
+            totalDuration = ""
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getPlaylist(id)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val parsed = client.parseAlbumPlaylist(resp)
+                    if (parsed != null) {
+                        _albumPlaylistData.value = parsed.toAlbumPlaylistData()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load album/playlist details: ${e.message}")
+            }
+        }
+    }
+
+    fun closeAlbumPlaylist() {
+        _albumPlaylistData.value = null
+    }
+
+    /**
+     * Plays a Curated Mix or Radio station immediately with continuous playback and queue.
+     * Does NOT open the detail screen; instead, streams the first song and queues subsequent tracks.
+     */
+    fun playCuratedMix(mix: MixDto) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (mix.id.isNotBlank()) {
+                    val (code, resp) = client.getPlaylist(mix.id)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val parsed = client.parseAlbumPlaylist(resp)
+                        if (parsed != null && parsed.tracks.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                playTrackWithQueue(parsed.tracks.first(), parsed.tracks)
+                            }
+                            return@launch
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Curated mix playlist fetch error, falling back: ${e.message}")
+            }
+
+            // Fallback: If mix browseId did not resolve directly, use shuffled personalized library or create an instant seed track
+            withContext(Dispatchers.Main) {
+                val fallbackQueue = if (_syncedYouTubeTracks.value.isNotEmpty()) {
+                    _syncedYouTubeTracks.value.shuffled()
+                } else if (_libraryTracks.value.isNotEmpty()) {
+                    _libraryTracks.value.shuffled()
+                } else {
+                    defaultTopTracks.shuffled()
+                }
+                val seedTrack = TrackItem(
+                    id = mix.id.ifBlank { "mix_" + System.currentTimeMillis() },
+                    title = mix.title,
+                    artist = mix.subtitle.ifBlank { "YouTube Music" },
+                    coverUrl = mix.coverUrl,
+                    streamUrl = "",
+                    source = "Curated Mix"
+                )
+                val fullQueue = listOf(seedTrack) + fallbackQueue
+                playTrackWithQueue(seedTrack, fullQueue)
             }
         }
     }

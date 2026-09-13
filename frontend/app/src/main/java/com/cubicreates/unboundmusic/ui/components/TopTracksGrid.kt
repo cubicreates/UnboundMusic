@@ -41,7 +41,10 @@ data class TrackItem(
     val durationMs: Long = 0,
     val source: String = "youtube",
     val isExplicit: Boolean = false,
-    val artists: List<String> = emptyList()
+    val artists: List<String> = emptyList(),
+    val itemType: String = "song",
+    val browseId: String = "",
+    val year: String = ""
 )
 
 val defaultTopTracks = listOf(

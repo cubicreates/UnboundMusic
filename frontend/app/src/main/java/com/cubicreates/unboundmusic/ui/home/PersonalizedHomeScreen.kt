@@ -87,6 +87,8 @@ fun PersonalizedHomeScreen(
     onLoadMore: () -> Unit = {},
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
+    onMixClick: (MixDto) -> Unit = {},
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
     onSyncClick: () -> Unit = {}
 ) {
@@ -163,11 +165,7 @@ fun PersonalizedHomeScreen(
             item(key = "user_mixes") {
                 PersonalizedMixesSection(
                     mixes = userMixes,
-                    onMixClick = { _ ->
-                        if (syncedTracks.isNotEmpty()) {
-                            onTrackSelect(syncedTracks.first(), syncedTracks.shuffled())
-                        }
-                    }
+                    onMixClick = onMixClick
                 )
                 Spacer(modifier = Modifier.height(28.dp))
             }
@@ -191,7 +189,8 @@ fun PersonalizedHomeScreen(
                     item(key = "smart_shelf_${shelf.id}") {
                         PersonalizedShelfItem(
                             shelf = shelf,
-                            onTrackSelect = onTrackSelect
+                            onTrackSelect = onTrackSelect,
+                            onAlbumPlaylistClick = onAlbumPlaylistClick
                         )
                         Spacer(modifier = Modifier.height(28.dp))
                     }
@@ -1091,7 +1090,8 @@ private fun PersonalizedSyncingPlaceholder(
 @Composable
 private fun PersonalizedShelfItem(
     shelf: SmartShelfDto,
-    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit,
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> }
 ) {
     Column(
         modifier = Modifier
@@ -1120,9 +1120,16 @@ private fun PersonalizedShelfItem(
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(shelf.tracks, key = { it.id }) { track ->
+                val isAlbumOrPlaylist = track.id.startsWith("MPREb_") || track.id.startsWith("VL") || track.id.startsWith("PL")
                 PersonalizedShelfTrackCard(
                     track = track,
-                    onClick = { onTrackSelect(track, shelf.tracks) }
+                    onClick = {
+                        if (isAlbumOrPlaylist) {
+                            onAlbumPlaylistClick(track.id, track.title, track.coverUrl)
+                        } else {
+                            onTrackSelect(track, shelf.tracks)
+                        }
+                    }
                 )
             }
         }

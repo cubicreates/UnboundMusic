@@ -341,6 +341,13 @@ fun MainApp(
                                     onTrackSelect = { track, queue ->
                                         viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true
+                                    },
+                                    onAlbumClick = { id, title, coverUrl ->
+                                        viewModel.openAlbumPlaylist(id, title, coverUrl)
+                                    },
+                                    onArtistClick = { artistName ->
+                                        viewingArtist = artistName
+                                        viewModel.loadArtistProfile(artistName)
                                     }
                                 )
                             }

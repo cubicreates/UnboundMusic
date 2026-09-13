@@ -271,6 +271,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
 	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
 	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
+	mux.HandleFunc("/api/v1/playlist", s.handlePlaylist)
+	mux.HandleFunc("/api/v1/album", s.handlePlaylist)
 	mux.HandleFunc("/api/v1/sleeptimer/start", s.handleSleepTimerStart)
 	mux.HandleFunc("/api/v1/sleeptimer/status", s.handleSleepTimerStatus)
 	mux.HandleFunc("/api/v1/updater/check", s.handleUpdaterCheck)
@@ -1431,6 +1433,32 @@ func (s *Server) handleArtistProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, prof)
 }
+
+// handlePlaylist returns full details, metadata, and tracks for a YouTube Music playlist or album.
+func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		id = r.URL.Query().Get("browseId")
+	}
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'id' or 'browseId' is required")
+		return
+	}
+
+	if s.ytClient == nil {
+		writeError(w, http.StatusInternalServerError, "YouTube Music client is not initialized")
+		return
+	}
+
+	res, err := s.ytClient.FetchPlaylistOrAlbum(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch playlist or album: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
 
 // handleSleepTimerStart starts the sleep countdown.
 func (s *Server) handleSleepTimerStart(w http.ResponseWriter, r *http.Request) {

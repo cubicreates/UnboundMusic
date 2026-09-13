@@ -1,6 +1,7 @@
 package ytmusic
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -423,5 +424,90 @@ func TestParsePlaylistOrAlbumResponse(t *testing.T) {
 	}
 }
 
+func TestParsePlaylistOrAlbum_PlaylistVideoRenderer(t *testing.T) {
+	mockJSON := []byte(`{
+		"header": {
+			"musicDetailHeaderRenderer": {
+				"title": { "runs": [{ "text": "Top Global Hits" }] },
+				"subtitle": { "runs": [{ "text": "YouTube Music" }] }
+			}
+		},
+		"contents": {
+			"singleColumnBrowseResultsRenderer": {
+				"tabs": [{
+					"tabRenderer": {
+						"content": {
+							"sectionListRenderer": {
+								"contents": [{
+									"playlistVideoListRenderer": {
+										"contents": [
+											{
+												"playlistVideoRenderer": {
+													"videoId": "kJQP7kiw5Fk",
+													"title": { "runs": [{ "text": "Despacito" }] },
+													"shortBylineText": { "runs": [{ "text": "Luis Fonsi" }] },
+													"lengthSeconds": "288"
+												}
+											},
+											{
+												"playlistVideoRenderer": {
+													"videoId": "JGwWNGJdvx8",
+													"title": { "runs": [{ "text": "Shape of You" }] },
+													"shortBylineText": { "runs": [{ "text": "Ed Sheeran" }] },
+													"lengthSeconds": "264"
+												}
+											}
+										]
+									}
+								}]
+							}
+						}
+					}
+				}]
+			}
+		}
+	}`)
 
+	playlist, err := parsePlaylistOrAlbumResponse("VLPL_test456", mockJSON)
+	if err != nil {
+		t.Fatalf("expected successful playlist parsing, got: %v", err)
+	}
 
+	if playlist.Title != "Top Global Hits" {
+		t.Errorf("expected title 'Top Global Hits', got %q", playlist.Title)
+	}
+	if playlist.TrackCount != 2 {
+		t.Errorf("expected 2 tracks, got %d", playlist.TrackCount)
+	}
+	if len(playlist.Tracks) != 2 {
+		t.Fatalf("expected 2 tracks parsed, got %d", len(playlist.Tracks))
+	}
+	if playlist.Tracks[0].ID != "kJQP7kiw5Fk" || playlist.Tracks[0].Title != "Despacito" {
+		t.Errorf("unexpected track 0: %+v", playlist.Tracks[0])
+	}
+	if playlist.Tracks[1].ID != "JGwWNGJdvx8" || playlist.Tracks[1].Title != "Shape of You" {
+		t.Errorf("unexpected track 1: %+v", playlist.Tracks[1])
+	}
+}
+
+func TestClient_WithDisableAuth(t *testing.T) {
+	ctx := context.Background()
+	// Standard browse endpoint is account-bound
+	if !shouldAttachAuth(ctx, "browse") {
+		t.Errorf("expected browse to be account-bound by default")
+	}
+
+	// WithDisableAuth forces it to unauthenticated guest request
+	guestCtx := WithDisableAuth(ctx)
+	if shouldAttachAuth(guestCtx, "browse") {
+		t.Errorf("expected WithDisableAuth to omit auth on browse endpoint")
+	}
+
+	// player and search are unauthenticated guest by default
+	if shouldAttachAuth(ctx, "player") {
+		t.Errorf("expected player to be unauthenticated by default")
+	}
+	if shouldAttachAuth(ctx, "search") {
+		t.Errorf("expected search to be unauthenticated by default")
+	}
+}

@@ -1136,6 +1136,8 @@ func parseHomeShelvesFromJSON(root map[string]interface{}) []HomeShelf {
 }
 
 // FetchPlaylistOrAlbum retrieves the full tracklist and metadata for an album or playlist by its browseId or playlistId.
+// Supports both Guest Mode and Signed-In Mode seamlessly. If an authenticated browse call encounters session
+// expiration, account-level locks, or returns 0 tracks, it automatically falls back to an unencumbered clean guest request.
 func (c *Client) FetchPlaylistOrAlbum(ctx context.Context, id string) (*models.AlbumPlaylist, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1155,11 +1157,30 @@ func (c *Client) FetchPlaylistOrAlbum(ctx context.Context, id string) (*models.A
 	}
 
 	respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix)
+	var result *models.AlbumPlaylist
+	if err == nil {
+		result, err = parsePlaylistOrAlbumResponse(id, respBytes)
+	}
+
+	// Dual-Mode Resilience: If authenticated fetch failed or produced 0 tracks, retry as clean guest request
+	c.mu.RLock()
+	hasCookies := c.cookieStr != ""
+	c.mu.RUnlock()
+
+	if hasCookies && (err != nil || result == nil || len(result.Tracks) == 0) {
+		guestBytes, guestErr := c.post(WithDisableAuth(ctx), "browse", body, ConfigWebRemix)
+		if guestErr == nil {
+			if guestRes, parseErr := parsePlaylistOrAlbumResponse(id, guestBytes); parseErr == nil && len(guestRes.Tracks) > 0 {
+				return guestRes, nil
+			}
+		}
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch playlist/album browse data: %w", err)
 	}
 
-	return parsePlaylistOrAlbumResponse(id, respBytes)
+	return result, nil
 }
 
 func parsePlaylistOrAlbumResponse(id string, data []byte) (*models.AlbumPlaylist, error) {
@@ -1299,6 +1320,30 @@ func parsePlaylistOrAlbumResponse(id string, data []byte) (*models.AlbumPlaylist
 		case map[string]interface{}:
 			if item, ok := v["musicResponsiveListItemRenderer"].(map[string]interface{}); ok {
 				if tr, ok := parseMusicResponsiveItem(item); ok && tr.ID != "" {
+					if !seenIDs[tr.ID] {
+						seenIDs[tr.ID] = true
+						tracks = append(tracks, tr)
+					}
+				}
+			}
+			if item, ok := v["playlistVideoRenderer"].(map[string]interface{}); ok {
+				if tr, ok := parseGenericVideoRenderer(item); ok && tr.ID != "" {
+					if !seenIDs[tr.ID] {
+						seenIDs[tr.ID] = true
+						tracks = append(tracks, tr)
+					}
+				}
+			}
+			if item, ok := v["videoRenderer"].(map[string]interface{}); ok {
+				if tr, ok := parseGenericVideoRenderer(item); ok && tr.ID != "" {
+					if !seenIDs[tr.ID] {
+						seenIDs[tr.ID] = true
+						tracks = append(tracks, tr)
+					}
+				}
+			}
+			if item, ok := v["musicTwoRowItemRenderer"].(map[string]interface{}); ok {
+				if tr, ok := parseMusicTwoRowItemRenderer(item); ok && tr.ID != "" {
 					if !seenIDs[tr.ID] {
 						seenIDs[tr.ID] = true
 						tracks = append(tracks, tr)

@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,10 +37,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,8 +96,15 @@ private const val IMG_MINIMAL_TECHNO = "https://lh3.googleusercontent.com/aida-p
 
 enum class SearchCategory(val label: String, val apiParam: String) {
     ALL("All", "all"),
-    MUSIC("Music", "music"),
-    PODCASTS("Podcasts", "podcast")
+    SONGS("Songs", "song"),
+    ALBUMS("Albums", "album"),
+    ARTISTS("Artists", "artist"),
+    PLAYLISTS("Playlists", "playlist"),
+    PODCASTS("Podcasts", "podcast");
+
+    companion object {
+        val MUSIC = SONGS
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -110,7 +122,9 @@ fun SearchScreen(
     onListenToSurroundings: () -> Unit = {},
     onVibeTagClick: (String) -> Unit = {},
     onGenreCardClick: (String) -> Unit = {},
-    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> }
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
+    onAlbumClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
+    onArtistClick: (artistName: String) -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
@@ -245,10 +259,11 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // 3. Category Filter Pills: All | Music | Podcasts
+            // 3. Category Filter Pills: All | Songs | Albums | Artists | Playlists | Podcasts
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -401,13 +416,33 @@ fun SearchScreen(
                         itemsIndexed(displayTracks, key = { index, track -> "${track.id}_${track.title}_$index" }) { _, track ->
                             SearchResultItem(
                                 track = track,
-                                onClick = { onTrackSelect(track, displayTracks) }
+                                onClick = {
+                                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+                                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                                    when {
+                                        isAlbum -> {
+                                            val albumId = track.browseId.ifBlank { track.id }
+                                            onAlbumClick(albumId, track.title, track.coverUrl)
+                                        }
+                                        isArtist -> {
+                                            onArtistClick(track.artist.ifBlank { track.title })
+                                        }
+                                        isPlaylist -> {
+                                            val playlistId = track.browseId.ifBlank { track.id }
+                                            onAlbumClick(playlistId, track.title, track.coverUrl)
+                                        }
+                                        else -> {
+                                            onTrackSelect(track, displayTracks)
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
                 }
             } else {
-                if (selectedCategory == SearchCategory.MUSIC) {
+                if (selectedCategory == SearchCategory.SONGS || selectedCategory == SearchCategory.MUSIC) {
                     // Category: Music -> Curated Top Charts & Trending Hits
                     Column(
                         modifier = Modifier
@@ -660,13 +695,25 @@ private fun SearchResultItem(
     track: TrackItem,
     onClick: () -> Unit
 ) {
+    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         color = Color(0xFF1E1E1E),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            when {
+                isAlbum -> UnboundPrimary.copy(alpha = 0.35f)
+                isArtist -> Color(0xFF81C784).copy(alpha = 0.35f)
+                isPlaylist -> Color(0xFFBA68C8).copy(alpha = 0.35f)
+                else -> Color(0xFF2E2E2E)
+            }
+        )
     ) {
         Row(
             modifier = Modifier
@@ -676,8 +723,8 @@ private fun SearchResultItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .size(48.dp)
+                    .clip(if (isArtist) CircleShape else RoundedCornerShape(8.dp))
                     .background(Color(0xFF2A2A2A)),
                 contentAlignment = Alignment.Center
             ) {
@@ -690,10 +737,19 @@ private fun SearchResultItem(
                     )
                 } else {
                     Icon(
-                        imageVector = Icons.Default.MusicNote,
+                        imageVector = when {
+                            isAlbum -> Icons.Default.Album
+                            isArtist -> Icons.Default.Person
+                            isPlaylist -> Icons.Default.QueueMusic
+                            else -> Icons.Default.MusicNote
+                        },
                         contentDescription = null,
-                        tint = UnboundPrimary,
-                        modifier = Modifier.size(20.dp)
+                        tint = when {
+                            isArtist -> Color(0xFF81C784)
+                            isPlaylist -> Color(0xFFBA68C8)
+                            else -> UnboundPrimary
+                        },
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -709,21 +765,94 @@ private fun SearchResultItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = track.artist,
-                    fontSize = 12.sp,
-                    color = OnSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isAlbum) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = UnboundPrimary.copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = "ALBUM",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = UnboundPrimary,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    } else if (isArtist) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF81C784).copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = "ARTIST",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF81C784),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    } else if (isPlaylist) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFFBA68C8).copy(alpha = 0.18f)
+                        ) {
+                            Text(
+                                text = "PLAYLIST",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFBA68C8),
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+
+                    val subtitleText = buildString {
+                        if (track.artist.isNotBlank()) {
+                            append(track.artist)
+                        }
+                        if (track.year.isNotBlank()) {
+                            if (isNotEmpty()) append(" • ")
+                            append(track.year)
+                        }
+                    }
+                    if (subtitleText.isNotBlank()) {
+                        Text(
+                            text = subtitleText,
+                            fontSize = 12.sp,
+                            color = OnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
 
-            Icon(
-                imageVector = Icons.Default.PlayArrow,
-                contentDescription = "Play",
-                tint = UnboundPrimary,
-                modifier = Modifier.size(22.dp)
-            )
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (isAlbum || isArtist || isPlaylist) {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = "View",
+                    tint = when {
+                        isArtist -> Color(0xFF81C784)
+                        isPlaylist -> Color(0xFFBA68C8)
+                        else -> UnboundPrimary
+                    },
+                    modifier = Modifier.size(20.dp)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = UnboundPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }

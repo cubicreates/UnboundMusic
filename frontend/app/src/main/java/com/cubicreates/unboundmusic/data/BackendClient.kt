@@ -122,6 +122,51 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         get("/api/v1/search?q=$encoded&type=$encodedType")
     }
 
+    /** Parses raw search JSON from /api/v1/search into polymorphic TrackItem list. */
+    fun parseSearchResults(jsonStr: String): List<TrackItem> {
+        if (jsonStr.isBlank()) return emptyList()
+        return try {
+            val json = JSONObject(jsonStr)
+            val tracksArray = json.optJSONArray("tracks")
+                ?: json.optJSONArray("results")
+                ?: json.optJSONArray("items")
+                ?: return emptyList()
+
+            val list = mutableListOf<TrackItem>()
+            for (i in 0 until tracksArray.length()) {
+                val item = tracksArray.optJSONObject(i) ?: continue
+                val id = item.optString("id", item.optString("video_id", ""))
+                val title = item.optString("title", "Unknown Track")
+                val artist = item.optString("artist",
+                    item.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "Unknown Artist")
+                        ?: "Unknown Artist")
+                val thumb = item.optString("thumbnail",
+                    item.optString("thumbnail_url", item.optString("cover_url", "")))
+                val durMs = item.optLong("duration_ms", 0L)
+                val itemType = item.optString("item_type", "song")
+                val browseId = item.optString("browse_id", "")
+                val year = item.optString("year", "")
+                list.add(
+                    TrackItem(
+                        id = id,
+                        title = title,
+                        artist = artist,
+                        coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
+                        streamUrl = "",
+                        durationMs = durMs,
+                        source = "youtube",
+                        itemType = itemType,
+                        browseId = browseId,
+                        year = year
+                    )
+                )
+            }
+            list
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     /** Resolves a direct audio stream URL for a given video ID (or title+artist for zero-data interception). */
     suspend fun getStream(
         videoId: String = "",

@@ -138,6 +138,34 @@ func (c *Client) SearchWithCategory(ctx context.Context, query, category string)
 		podcastQuery := fmt.Sprintf("%s podcast", trimmed)
 		return c.searchWithFilter(ctx, podcastQuery, "")
 
+	case "album", "albums":
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterAlbum)
+		if err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+		return c.Search(ctx, query)
+
+	case "artist", "artists":
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterArtist)
+		if err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+		return c.Search(ctx, query)
+
+	case "playlist", "playlists":
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterCommunityPlaylist)
+		if err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+		return c.Search(ctx, query)
+
+	case "song", "songs":
+		tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
+		if err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+		return c.Search(ctx, query)
+
 	default:
 		return c.Search(ctx, query)
 	}
@@ -296,9 +324,11 @@ func parseSearchResponse(data []byte) ([]models.Track, error) {
 
 // extractTrackFromCardShelf parses a musicCardShelfRenderer (Top Result card) into a Track model.
 func extractTrackFromCardShelf(card map[string]any) *models.Track {
-	track := &models.Track{}
+	track := &models.Track{
+		ItemType: "song",
+	}
 
-	// Extract Title and Video ID from title runs
+	// Extract Title and Video ID / Browse ID from title runs
 	if titleObj, ok := card["title"].(map[string]any); ok {
 		track.Title = extractRunsText(titleObj)
 		if runs, ok := titleObj["runs"].([]any); ok && len(runs) > 0 {
@@ -309,12 +339,24 @@ func extractTrackFromCardShelf(card map[string]any) *models.Track {
 							track.ID = vid
 						}
 					}
+					if browse, ok := nav["browseEndpoint"].(map[string]any); ok {
+						if bId, ok := browse["browseId"].(string); ok {
+							track.BrowseID = bId
+							if strings.HasPrefix(bId, "MPREb_") {
+								track.ItemType = "album"
+							} else if strings.HasPrefix(bId, "VL") || strings.HasPrefix(bId, "PL") {
+								track.ItemType = "playlist"
+							} else if strings.HasPrefix(bId, "UC") {
+								track.ItemType = "artist"
+							}
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// Fallback to buttons for Video ID
+	// Fallback to buttons for Video ID or Playlist ID
 	if track.ID == "" {
 		if btns, ok := card["buttons"].([]any); ok {
 			for _, btn := range btns {
@@ -327,6 +369,11 @@ func extractTrackFromCardShelf(card map[string]any) *models.Track {
 									break
 								}
 							}
+							if watchPL, ok := cmd["watchPlaylistEndpoint"].(map[string]any); ok {
+								if pId, ok := watchPL["playlistId"].(string); ok && track.BrowseID == "" {
+									track.BrowseID = pId
+								}
+							}
 						}
 					}
 				}
@@ -334,16 +381,32 @@ func extractTrackFromCardShelf(card map[string]any) *models.Track {
 		}
 	}
 
-	if track.ID == "" {
-		return nil
-	}
-
-	// Extract Artist and Album from subtitle runs
+	// Extract Artist, Album, Year, and Item Type from subtitle runs
 	if subObj, ok := card["subtitle"].(map[string]any); ok {
 		runs := extractRunsList(subObj)
 		for _, r := range runs {
 			r = strings.TrimSpace(r)
-			if r == "" || r == "•" || r == "Song" || r == "Video" || r == "Album" {
+			if r == "" || r == "•" {
+				continue
+			}
+			if strings.EqualFold(r, "Album") || strings.EqualFold(r, "EP") {
+				track.ItemType = "album"
+				continue
+			}
+			if strings.EqualFold(r, "Playlist") {
+				track.ItemType = "playlist"
+				continue
+			}
+			if strings.EqualFold(r, "Artist") {
+				track.ItemType = "artist"
+				continue
+			}
+			if strings.EqualFold(r, "Song") || strings.EqualFold(r, "Video") {
+				continue
+			}
+			// Check for 4-digit release year
+			if len(r) == 4 && r[0] >= '1' && r[0] <= '2' && r[1] >= '0' && r[1] <= '9' {
+				track.Year = r
 				continue
 			}
 			if track.Artist == "" {
@@ -354,8 +417,21 @@ func extractTrackFromCardShelf(card map[string]any) *models.Track {
 		}
 	}
 
+	if track.ItemType == "album" || track.ItemType == "playlist" || track.ItemType == "artist" {
+		if track.ID == "" && track.BrowseID != "" {
+			track.ID = track.BrowseID
+		}
+	}
+
+	if track.ID == "" {
+		return nil
+	}
+
 	// Extract Thumbnail: YouTube Music first, fallback to YouTube video thumbnail
 	track.ThumbnailURL = ExtractThumbnail(card, track.ID)
+	if track.ItemType == "album" && strings.Contains(track.ThumbnailURL, "=w") {
+		track.ThumbnailURL = strings.Split(track.ThumbnailURL, "=")[0] + "=w800-h800"
+	}
 
 	return track
 }
@@ -367,7 +443,38 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		return nil
 	}
 
-	track := &models.Track{}
+	track := &models.Track{
+		ItemType: "song",
+	}
+
+	// Check item-level navigationEndpoint (for album, playlist, or artist browse endpoints)
+	if nav, ok := responsive["navigationEndpoint"].(map[string]any); ok {
+		if browse, ok := nav["browseEndpoint"].(map[string]any); ok {
+			if bId, ok := browse["browseId"].(string); ok {
+				track.BrowseID = bId
+				if strings.HasPrefix(bId, "MPREb_") {
+					track.ItemType = "album"
+				} else if strings.HasPrefix(bId, "VL") || strings.HasPrefix(bId, "PL") {
+					track.ItemType = "playlist"
+				} else if strings.HasPrefix(bId, "UC") {
+					track.ItemType = "artist"
+				}
+			}
+			if configs, ok := browse["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+				if musicConfig, ok := configs["browseEndpointContextMusicConfig"].(map[string]any); ok {
+					if pageType, ok := musicConfig["pageType"].(string); ok {
+						if pageType == "MUSIC_PAGE_TYPE_ALBUM" || pageType == "MUSIC_PAGE_TYPE_AUDIOBOOK" {
+							track.ItemType = "album"
+						} else if pageType == "MUSIC_PAGE_TYPE_PLAYLIST" {
+							track.ItemType = "playlist"
+						} else if pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+							track.ItemType = "artist"
+						}
+					}
+				}
+			}
+		}
+	}
 
 	// Extract Playlist Item Data / Video ID
 	if plData, ok := responsive["playlistItemData"].(map[string]any); ok {
@@ -381,9 +488,16 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		if overlay, ok := responsive["overlay"].(map[string]any); ok {
 			if btn, ok := overlay["musicItemThumbnailOverlayRenderer"].(map[string]any); ok {
 				if playBtn, ok := btn["content"].(map[string]any)["musicPlayButtonRenderer"].(map[string]any); ok {
-					if nav, ok := playBtn["playNavigationEndpoint"].(map[string]any)["watchEndpoint"].(map[string]any); ok {
-						if vid, ok := nav["videoId"].(string); ok {
-							track.ID = vid
+					if nav, ok := playBtn["playNavigationEndpoint"].(map[string]any); ok {
+						if watch, ok := nav["watchEndpoint"].(map[string]any); ok {
+							if vid, ok := watch["videoId"].(string); ok {
+								track.ID = vid
+							}
+						}
+						if watchPL, ok := nav["watchPlaylistEndpoint"].(map[string]any); ok {
+							if pId, ok := watchPL["playlistId"].(string); ok && track.BrowseID == "" {
+								track.BrowseID = pId
+							}
 						}
 					}
 				}
@@ -391,22 +505,66 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		}
 	}
 
-	// Extract Flex Columns (Title, Artist, Album, Duration)
+	// Extract Flex Columns (Title, Artist, Album, Duration, Type, Year)
 	flexColumns, ok := responsive["flexColumns"].([]any)
 	if ok && len(flexColumns) > 0 {
-		// Column 0: Title
+		// Column 0: Title & possible browseId
 		if col0, ok := flexColumns[0].(map[string]any)["musicResponsiveListItemFlexColumnRenderer"].(map[string]any); ok {
 			track.Title = extractRunsText(col0["text"])
+			if col0Text, ok := col0["text"].(map[string]any); ok {
+				if runs, ok := col0Text["runs"].([]any); ok && len(runs) > 0 {
+					if r0, ok := runs[0].(map[string]any); ok {
+						if nav, ok := r0["navigationEndpoint"].(map[string]any); ok {
+							if browse, ok := nav["browseEndpoint"].(map[string]any); ok {
+								if bId, ok := browse["browseId"].(string); ok {
+									if track.BrowseID == "" {
+										track.BrowseID = bId
+									}
+									if strings.HasPrefix(bId, "MPREb_") {
+										track.ItemType = "album"
+									} else if strings.HasPrefix(bId, "VL") || strings.HasPrefix(bId, "PL") {
+										track.ItemType = "playlist"
+									} else if strings.HasPrefix(bId, "UC") {
+										track.ItemType = "artist"
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 
-		// Column 1: Artist, Album, Duration
+		// Column 1: Artist, Album, Duration, Type, Year
 		if len(flexColumns) > 1 {
 			if col1, ok := flexColumns[1].(map[string]any)["musicResponsiveListItemFlexColumnRenderer"].(map[string]any); ok {
 				rawRuns := extractRunsList(col1["text"])
 				var meaningfulRuns []string
 				for _, r := range rawRuns {
 					r = strings.TrimSpace(r)
-					if r == "" || r == "•" || r == "," || r == "Song" || r == "Video" || r == "Album" || r == "EP" || r == "Single" {
+					if r == "" || r == "•" || r == "," {
+						continue
+					}
+					if strings.EqualFold(r, "Album") || strings.EqualFold(r, "EP") || strings.EqualFold(r, "Single") {
+						if strings.EqualFold(r, "Album") || strings.EqualFold(r, "EP") {
+							track.ItemType = "album"
+						}
+						continue
+					}
+					if strings.EqualFold(r, "Playlist") {
+						track.ItemType = "playlist"
+						continue
+					}
+					if strings.EqualFold(r, "Artist") {
+						track.ItemType = "artist"
+						continue
+					}
+					if strings.EqualFold(r, "Song") || strings.EqualFold(r, "Video") {
+						continue
+					}
+					// Check for 4-digit release year
+					if len(r) == 4 && r[0] >= '1' && r[0] <= '2' && r[1] >= '0' && r[1] <= '9' {
+						track.Year = r
 						continue
 					}
 					meaningfulRuns = append(meaningfulRuns, r)
@@ -429,8 +587,22 @@ func extractTrackFromResponsiveItem(item map[string]any) *models.Track {
 		}
 	}
 
+	// For albums, playlists, and artists without videoId, use BrowseID as ID
+	if track.ItemType == "album" || track.ItemType == "playlist" || track.ItemType == "artist" {
+		if track.ID == "" && track.BrowseID != "" {
+			track.ID = track.BrowseID
+		}
+	}
+
+	if track.ID == "" {
+		return nil
+	}
+
 	// Extract Thumbnail: YouTube Music first, fallback to YouTube video thumbnail
 	track.ThumbnailURL = ExtractThumbnail(responsive, track.ID)
+	if track.ItemType == "album" && strings.Contains(track.ThumbnailURL, "=w") {
+		track.ThumbnailURL = strings.Split(track.ThumbnailURL, "=")[0] + "=w800-h800"
+	}
 
 	return track
 }

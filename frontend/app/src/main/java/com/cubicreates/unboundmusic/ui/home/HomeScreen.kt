@@ -43,6 +43,8 @@ fun HomeScreen(
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onGenreSelect: (GenreItemDto) -> Unit = {},
+    onMixClick: (com.cubicreates.unboundmusic.data.MixDto) -> Unit = {},
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSyncClick: () -> Unit = {},
@@ -69,6 +71,8 @@ fun HomeScreen(
                 onLoadMore = onLoadMore,
                 onTrackSelect = onTrackSelect,
                 onCapsuleSelect = onCapsuleSelect,
+                onMixClick = onMixClick,
+                onAlbumPlaylistClick = onAlbumPlaylistClick,
                 onProfileClick = onProfileClick,
                 onSyncClick = onSyncClick
             )

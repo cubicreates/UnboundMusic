@@ -49,7 +49,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.Color
+import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistScreen
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
@@ -160,6 +160,7 @@ fun MainApp(
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsStateWithLifecycle()
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
+    val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
 
     val currentTask = downloadTasks[currentTrack.id]
     val currentDownloadStatus = when {
@@ -304,6 +305,13 @@ fun MainApp(
                                     onGenreSelect = { genre ->
                                         viewingGenre = genre
                                         viewModel.loadGenreDetail(genre.params, genre.title)
+                                    },
+                                    onMixClick = { mix ->
+                                        viewModel.playCuratedMix(mix)
+                                        isPlayerExpanded = true
+                                    },
+                                    onAlbumPlaylistClick = { id, title, coverUrl ->
+                                        viewModel.openAlbumPlaylist(id, title, coverUrl)
                                     },
                                     onTrackSelect = { track, queue ->
                                         viewModel.playTrackWithQueue(track, queue)
@@ -501,6 +509,31 @@ fun MainApp(
                 onRetry = {
                     viewingGenre?.let {
                         viewModel.loadGenreDetail(it.params, it.title)
+                    }
+                }
+            )
+        }
+
+        // Modal 7: Album & Playlist Detail Screen
+        albumPlaylistData?.let { albumData ->
+            AlbumPlaylistScreen(
+                data = albumData,
+                onBack = { viewModel.closeAlbumPlaylist() },
+                onTrackSelect = { track ->
+                    viewModel.playTrackWithQueue(track, albumData.tracks)
+                    isPlayerExpanded = true
+                },
+                onPlayAll = {
+                    if (albumData.tracks.isNotEmpty()) {
+                        viewModel.playTrackWithQueue(albumData.tracks.first(), albumData.tracks)
+                        isPlayerExpanded = true
+                    }
+                },
+                onShuffleAll = {
+                    if (albumData.tracks.isNotEmpty()) {
+                        val shuffled = albumData.tracks.shuffled()
+                        viewModel.playTrackWithQueue(shuffled.first(), shuffled)
+                        isPlayerExpanded = true
                     }
                 }
             )

@@ -318,4 +318,110 @@ func TestParseMusicTwoRowItemRendererWithSignedInTypeBadge(t *testing.T) {
 	}
 }
 
+func TestParsePlaylistOrAlbumResponse(t *testing.T) {
+	mockJSON := []byte(`{
+		"header": {
+			"musicResponsiveHeaderRenderer": {
+				"title": {
+					"runs": [{"text": "After Hours"}]
+				},
+				"straplineTextOne": {
+					"runs": [{"text": "The Weeknd"}]
+				},
+				"subtitle": {
+					"runs": [
+						{"text": "Album"},
+						{"text": " • "},
+						{"text": "2020"}
+					]
+				},
+				"thumbnail": {
+					"musicThumbnailRenderer": {
+						"thumbnail": {
+							"thumbnails": [{"url": "https://lh3.googleusercontent.com/test=w120-h120"}]
+						}
+					}
+				},
+				"secondSubtitle": {
+					"runs": [{"text": "14 songs, 56 minutes"}]
+				}
+			}
+		},
+		"contents": {
+			"singleColumnBrowseResultsRenderer": {
+				"tabs": [{
+					"tabRenderer": {
+						"content": {
+							"sectionListRenderer": {
+								"contents": [{
+									"musicShelfRenderer": {
+										"contents": [
+											{
+												"musicResponsiveListItemRenderer": {
+													"flexColumns": [
+														{
+															"musicResponsiveListItemFlexColumnRenderer": {
+																"text": {
+																	"runs": [{
+																		"text": "Blinding Lights",
+																		"navigationEndpoint": {
+																			"watchEndpoint": {
+																				"videoId": "4NRXx6U8ABQ"
+																			}
+																		}
+																	}]
+																}
+															}
+														},
+														{
+															"musicResponsiveListItemFlexColumnRenderer": {
+																"text": {
+																	"runs": [
+																		{"text": "The Weeknd"},
+																		{"text": " • "},
+																		{"text": "After Hours"}
+																	]
+																}
+															}
+														}
+													]
+												}
+											}
+										]
+									}
+								}]
+							}
+						}
+					}
+				}]
+			}
+		}
+	}`)
+
+	album, err := parsePlaylistOrAlbumResponse("MPREb_test123", mockJSON)
+	if err != nil {
+		t.Fatalf("expected successful album parsing, got: %v", err)
+	}
+
+	if album.Title != "After Hours" {
+		t.Errorf("expected title 'After Hours', got %q", album.Title)
+	}
+	if album.Subtitle != "The Weeknd" {
+		t.Errorf("expected subtitle 'The Weeknd', got %q", album.Subtitle)
+	}
+	if !album.IsAlbum {
+		t.Errorf("expected isAlbum = true, got false")
+	}
+	if album.TrackCount != 1 {
+		t.Errorf("expected track count 1, got %d", album.TrackCount)
+	}
+	if len(album.Tracks) != 1 || album.Tracks[0].Title != "Blinding Lights" {
+		t.Errorf("unexpected tracks parsed: %+v", album.Tracks)
+	}
+	if !strings.Contains(album.ThumbnailURL, "=w800-h800") {
+		t.Errorf("expected upscaled thumbnail, got %s", album.ThumbnailURL)
+	}
+}
+
+
 

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
@@ -76,6 +77,7 @@ fun GuestHomeScreen(
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onGenreSelect: (GenreItemDto) -> Unit = {},
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
     onConnectClick: () -> Unit = {}
 ) {
     Column(
@@ -92,7 +94,8 @@ fun GuestHomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
             SmartShelvesSection(
                 shelves = smartShelves,
-                onTrackSelect = onTrackSelect
+                onTrackSelect = onTrackSelect,
+                onAlbumPlaylistClick = onAlbumPlaylistClick
             )
         }
 
@@ -402,7 +405,8 @@ private fun GuestCapsuleCard(
 @Composable
 private fun SmartShelvesSection(
     shelves: List<com.cubicreates.unboundmusic.data.SmartShelfDto>,
-    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit
+    onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit,
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         shelves.forEach { shelf ->
@@ -433,9 +437,18 @@ private fun SmartShelvesSection(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(shelf.tracks, key = { it.id }) { track ->
+                            val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                            val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
                             SmartShelfTrackCard(
                                 track = track,
-                                onClick = { onTrackSelect(track, shelf.tracks) }
+                                onClick = {
+                                    if (isAlbum || isPlaylist) {
+                                        val targetId = track.browseId.ifBlank { track.id }
+                                        onAlbumPlaylistClick(targetId, track.title, track.coverUrl)
+                                    } else {
+                                        onTrackSelect(track, shelf.tracks)
+                                    }
+                                }
                             )
                         }
                     }
@@ -485,9 +498,10 @@ private fun SmartShelfTrackCard(
                     .background(UnboundPrimary),
                 contentAlignment = Alignment.Center
             ) {
+                val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "Play",
+                    imageVector = if (isAlbum) Icons.Default.Album else Icons.Default.PlayArrow,
+                    contentDescription = if (isAlbum) "Album" else "Play",
                     tint = Color.Black,
                     modifier = Modifier.size(16.dp)
                 )

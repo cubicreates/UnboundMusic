@@ -266,11 +266,18 @@ func (c *Client) buildContext(cfg ClientConfig) ClientContext {
 }
 
 type authOverrideKey struct{}
+type authDisableKey struct{}
 
 // WithForceAuth creates a context that forces authentication cookies/tokens to be attached,
 // even for typically unauthenticated endpoints like player (e.g. for age-restricted content fallback).
 func WithForceAuth(ctx context.Context) context.Context {
 	return context.WithValue(ctx, authOverrideKey{}, true)
+}
+
+// WithDisableAuth creates a context that forces authentication cookies/tokens to be omitted,
+// ensuring an endpoint executes as a clean unauthenticated guest request.
+func WithDisableAuth(ctx context.Context) context.Context {
+	return context.WithValue(ctx, authDisableKey{}, true)
 }
 
 // isAccountBoundEndpoint determines whether an Innertube endpoint requires user authentication cookies.
@@ -287,6 +294,9 @@ func isAccountBoundEndpoint(endpoint string) bool {
 }
 
 func shouldAttachAuth(ctx context.Context, endpoint string) bool {
+	if v, ok := ctx.Value(authDisableKey{}).(bool); ok && v {
+		return false
+	}
 	if v, ok := ctx.Value(authOverrideKey{}).(bool); ok && v {
 		return true
 	}

@@ -412,6 +412,61 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         get("/api/v1/artist/profile?name=${URLEncoder.encode(name, "UTF-8")}")
     }
 
+    /** Fetches complete album or playlist details, including high-res metadata and full tracklist. */
+    suspend fun getPlaylist(id: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encoded = URLEncoder.encode(id, "UTF-8")
+        get("/api/v1/playlist?id=$encoded")
+    }
+
+    /** Alias for getPlaylist() when querying an album. */
+    suspend fun getAlbum(id: String): Pair<Int, String> = getPlaylist(id)
+
+    /** Parses raw album or playlist response JSON into domain AlbumPlaylistDto. */
+    fun parseAlbumPlaylist(json: String): AlbumPlaylistDto? {
+        if (json.isBlank()) return null
+        return try {
+            val root = JSONObject(json)
+            val tList = mutableListOf<TrackItem>()
+            val tracksArr = root.optJSONArray("tracks")
+            if (tracksArr != null) {
+                for (i in 0 until tracksArr.length()) {
+                    val tObj = tracksArr.getJSONObject(i)
+                    val tId = tObj.optString("id")
+                    val durSec = tObj.optLong("duration_seconds", 0L)
+                    val cover = tObj.optString("thumbnail_url").ifBlank {
+                        if (tId.isNotBlank()) "https://i.ytimg.com/vi/$tId/hqdefault.jpg" else ""
+                    }
+                    tList.add(
+                        TrackItem(
+                            id = tId,
+                            title = tObj.optString("title"),
+                            artist = tObj.optString("artist"),
+                            album = tObj.optString("album"),
+                            durationMs = durSec * 1000,
+                            coverUrl = cover,
+                            streamUrl = "",
+                            source = tObj.optString("source", "youtube")
+                        )
+                    )
+                }
+            }
+            AlbumPlaylistDto(
+                id = root.optString("id"),
+                title = root.optString("title"),
+                subtitle = root.optString("subtitle"),
+                description = root.optString("description"),
+                thumbnailUrl = root.optString("thumbnail_url"),
+                isAlbum = root.optBoolean("is_album", false),
+                year = root.optString("year"),
+                trackCount = root.optInt("track_count", tList.size),
+                totalDuration = root.optString("total_duration"),
+                tracks = tList
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     /** YouTube podcasts browser with resume position. */
     suspend fun getPodcasts(podcastId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
         get("/api/v1/podcasts/browse?id=${URLEncoder.encode(podcastId, "UTF-8")}")

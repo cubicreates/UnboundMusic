@@ -49,6 +49,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistScreen
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer

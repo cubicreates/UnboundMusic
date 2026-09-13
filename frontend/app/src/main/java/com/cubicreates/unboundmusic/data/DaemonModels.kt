@@ -367,3 +367,29 @@ data class SmartFeedDto(
     val shelves: List<SmartShelfDto>
 )
 
+/**
+ * Album or Playlist details with full hydrated tracklist.
+ */
+data class AlbumPlaylistDto(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val description: String = "",
+    val thumbnailUrl: String = "",
+    val isAlbum: Boolean = false,
+    val year: String = "",
+    val trackCount: Int = 0,
+    val totalDuration: String = "",
+    val tracks: List<TrackItem> = emptyList()
+) {
+    fun toAlbumPlaylistData(): com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData {
+        return com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData(
+            title = title,
+            subtitle = subtitle,
+            coverUrl = thumbnailUrl,
+            tracks = tracks,
+            totalDuration = totalDuration.ifBlank { "${tracks.size} songs" }
+        )
+    }
+}
+

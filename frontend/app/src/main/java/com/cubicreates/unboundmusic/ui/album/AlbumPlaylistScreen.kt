@@ -205,17 +205,30 @@ fun AlbumPlaylistScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Tracklist
-            Text(
-                text = "TRACKS",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = OnSurfaceVariant,
-                letterSpacing = 0.1.sp,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-            )
+            if (data.tracks.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        color = UnboundPrimary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            } else {
+                // Tracklist
+                Text(
+                    text = "TRACKS",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OnSurfaceVariant,
+                    letterSpacing = 0.1.sp,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
 
-            data.tracks.forEachIndexed { index, track ->
+                data.tracks.forEachIndexed { index, track ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -283,6 +296,7 @@ fun AlbumPlaylistScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+            }
             }
         }
     }

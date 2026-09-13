@@ -972,35 +972,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 var foundTracks = false
                 val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
                 if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val tracksArray = json.optJSONArray("tracks")
-                        ?: json.optJSONArray("results")
-                        ?: json.optJSONArray("items")
-
-                    if (tracksArray != null && tracksArray.length() > 0) {
-                        val parsed = mutableListOf<TrackItem>()
-                        for (i in 0 until tracksArray.length()) {
-                            val item = tracksArray.getJSONObject(i)
-                            val id = item.optString("id", item.optString("video_id", ""))
-                            val title = item.optString("title", "Unknown Track")
-                            val artist = item.optString("artist",
-                                item.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "Unknown Artist")
-                                    ?: "Unknown Artist")
-                            val thumb = item.optString("thumbnail",
-                                item.optString("thumbnail_url", item.optString("cover_url", "")))
-                            val durMs = item.optLong("duration_ms", 0L)
-                            parsed.add(
-                                TrackItem(
-                                    id = id,
-                                    title = title,
-                                    artist = artist,
-                                    coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
-                                    streamUrl = "",
-                                    durationMs = durMs,
-                                    source = "youtube"
-                                )
-                            )
-                        }
+                    val parsed = client.parseSearchResults(resp)
+                    if (parsed.isNotEmpty()) {
                         _searchResults.value = parsed
                         foundTracks = true
                     }
@@ -1091,22 +1064,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Chain into YouTube Music search
                     val (sCode, sResp) = client.search(searchTerm)
                     if (sCode in 200..299) {
-                        val sJson = JSONObject(sResp)
-                        val tracksArray = sJson.optJSONArray("tracks")
-                            ?: sJson.optJSONArray("results")
-                        if (tracksArray != null && tracksArray.length() > 0) {
-                            val parsed = mutableListOf<TrackItem>()
-                            for (i in 0 until tracksArray.length()) {
-                                val item = tracksArray.getJSONObject(i)
-                                val vId = item.optString("id").ifBlank { item.optString("video_id", "") }
-                                parsed.add(TrackItem(
-                                    id = vId,
-                                    title = item.optString("title", "Vibe Match"),
-                                    artist = item.optString("artist", "Unknown"),
-                                    coverUrl = item.optString("thumbnail_url", ""),
-                                    streamUrl = ""
-                                ))
-                            }
+                        val parsed = client.parseSearchResults(sResp)
+                        if (parsed.isNotEmpty()) {
                             _searchResults.value = parsed
                         }
                     }

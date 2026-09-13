@@ -256,3 +256,18 @@ type DaypartingState struct {
 	LocalHour    int           `json:"local_hour"`
 	Capsules     []MoodCapsule `json:"capsules"`
 }
+
+// AlbumPlaylist represents an album or playlist detail payload with full metadata and tracklist.
+type AlbumPlaylist struct {
+	ID            string  `json:"id"`
+	Title         string  `json:"title"`
+	Subtitle      string  `json:"subtitle"` // Artist name or Curator/Channel
+	Description   string  `json:"description,omitempty"`
+	ThumbnailURL  string  `json:"thumbnail_url"`
+	IsAlbum       bool    `json:"is_album"`
+	Year          string  `json:"year,omitempty"`
+	TrackCount    int     `json:"track_count"`
+	TotalDuration string  `json:"total_duration,omitempty"`
+	Tracks        []Track `json:"tracks"`
+}
+

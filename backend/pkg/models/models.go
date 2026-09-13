@@ -47,6 +47,15 @@ type Track struct {
 
 	// ISRC is the International Standard Recording Code if available.
 	ISRC string `json:"isrc,omitempty"`
+
+	// ItemType designates the catalog item type: "song", "album", "playlist", "artist". Defaults to "song".
+	ItemType string `json:"item_type,omitempty"`
+
+	// BrowseID holds the InnerTube browse identifier for albums (MPREb_...), playlists (VL.../PL...), or artists (UC...).
+	BrowseID string `json:"browse_id,omitempty"`
+
+	// Year is the release year if applicable (e.g. for albums).
+	Year string `json:"year,omitempty"`
 }
 
 // StreamInfo encapsulates technical metadata and direct streaming URLs for audio playback.

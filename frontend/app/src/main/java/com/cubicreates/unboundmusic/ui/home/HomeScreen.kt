@@ -86,6 +86,7 @@ fun HomeScreen(
                 onMoodSelect = onMoodSelect,
                 onCapsuleSelect = onCapsuleSelect,
                 onGenreSelect = onGenreSelect,
+                onAlbumPlaylistClick = onAlbumPlaylistClick,
                 onConnectClick = onConnectClick
             )
         }

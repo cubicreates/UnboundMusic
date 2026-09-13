@@ -2313,11 +2313,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val (code, resp) = client.getPlaylist(id)
+                var (code, resp) = client.getPlaylist(id)
+                if (code !in 200..299 || resp.isBlank()) {
+                    val (aCode, aResp) = client.getAlbum(id)
+                    if (aCode in 200..299 && aResp.isNotBlank()) {
+                        code = aCode
+                        resp = aResp
+                    }
+                }
                 if (code in 200..299 && resp.isNotBlank()) {
                     val parsed = client.parseAlbumPlaylist(resp)
-                    if (parsed != null) {
+                    if (parsed != null && parsed.tracks.isNotEmpty()) {
                         _albumPlaylistData.value = parsed.toAlbumPlaylistData()
+                        return@launch
                     }
                 }
             } catch (e: Exception) {

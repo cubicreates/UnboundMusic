@@ -80,6 +80,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val daemonManager = DaemonManager.getInstance(application)
     private val client = daemonManager.client
     private val serviceConnection = ServiceConnection.getInstance(application)
+    private val downloadNotificationHelper = com.cubicreates.unboundmusic.notification.DownloadNotificationHelper(application)
 
     val daemonState: StateFlow<DaemonLifecycleState> = daemonManager.state
 
@@ -1399,8 +1400,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Phase 5: Offline Downloader Orchestration ====================
 
-    /** Initiates a physical background chunked download for an audio track. */
+    /** Initiates a physical background chunked download for an audio track in MP3 format. */
     fun startTrackDownload(track: TrackItem) {
+        if (track.title.isBlank() && track.id.isBlank()) return
+
+        val taskId = if (track.id.isNotBlank()) track.id else "custom_${System.currentTimeMillis()}"
+
+        // 1. Optimistic UI update: immediately show DOWNLOADING on the DownloadButton
+        val optimisticTask = DownloadTaskDto(
+            videoId = taskId,
+            title = track.title,
+            artist = track.artist,
+            album = track.album,
+            artworkUrl = track.coverUrl,
+            targetFormat = "mp3",
+            status = "DOWNLOADING",
+            progress = 0.0
+        )
+        _downloadTasks.value = _downloadTasks.value + (taskId to optimisticTask)
+
+        // 2. User feedback: In-app Toast + Android System Notification
+        com.cubicreates.unboundmusic.util.UnboundToast.show(
+            getApplication(),
+            "Downloading '${track.title}' to Unbound/Downloads (MP3)...",
+            isLong = false
+        )
+        downloadNotificationHelper.notifyDownloadStarted(taskId, track.title, track.artist)
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val (code, resp) = client.startDownload(
@@ -1408,7 +1434,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     title = track.title,
                     artist = track.artist,
                     album = track.album,
-                    artworkUrl = track.coverUrl
+                    artworkUrl = track.coverUrl,
+                    streamUrl = track.streamUrl
                 )
                 if (code in 200..299 && resp.isNotBlank()) {
                     val task = client.parseDownloadTask(resp)
@@ -1419,7 +1446,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         launch {
                             try {
                                 client.getLyrics(
-                                    trackId = track.id,
+                                    trackId = task.videoId,
                                     title = track.title,
                                     artist = track.artist,
                                     durationMs = track.durationMs
@@ -1427,15 +1454,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             } catch (_: Exception) {}
                         }
                     }
+                } else {
+                    Log.e(TAG, "startTrackDownload failed HTTP $code: $resp")
+                    downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, "Download rejected ($code)")
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Download failed for '${track.title}' ($code)"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "startTrackDownload failed: ${e.message}")
+                downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, e.message ?: "Network error")
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Download failed: ${e.message}"
+                    )
+                }
             }
         }
     }
 
     /** Cancels an ongoing download and clears partial artifacts. */
     fun cancelTrackDownload(videoId: String) {
+        downloadNotificationHelper.cancelNotification(videoId)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 client.cancelDownload(videoId)
@@ -1453,6 +1497,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Removes an offline track from disk and local database. */
     fun deleteTrackDownload(videoId: String) {
+        downloadNotificationHelper.cancelNotification(videoId)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 client.deleteDownload(videoId, true)
@@ -1481,6 +1526,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val taskMap = activeTasks.associateBy { it.videoId }
                         _downloadTasks.value = taskMap
 
+                        // Update Android notifications for active/failed tasks
+                        for (task in activeTasks) {
+                            when (task.status) {
+                                "DOWNLOADING", "TAGGING" -> {
+                                    downloadNotificationHelper.notifyDownloadProgress(
+                                        task.videoId,
+                                        task.title,
+                                        task.artist,
+                                        task.progress.toInt()
+                                    )
+                                }
+                                "FAILED" -> {
+                                    downloadNotificationHelper.notifyDownloadFailed(
+                                        task.videoId,
+                                        task.title,
+                                        task.artist,
+                                        task.error
+                                    )
+                                }
+                            }
+                        }
+
                         val completedTasks = activeTasks.filter { it.status == "COMPLETED" }
                         val completedIds = completedTasks.map { it.videoId }.toSet()
                         if (completedIds.isNotEmpty()) {
@@ -1490,6 +1557,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (newlyCompleted.isNotEmpty()) {
                                 refreshLibrary()
                                 for (task in newlyCompleted) {
+                                    downloadNotificationHelper.notifyDownloadCompleted(
+                                        task.videoId,
+                                        task.title,
+                                        task.artist
+                                    )
+                                    withContext(Dispatchers.Main) {
+                                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                            getApplication(),
+                                            "Downloaded '${task.title}' as MP3 to Unbound/Downloads!",
+                                            isLong = false
+                                        )
+                                    }
                                     if (task.localPath.isNotBlank()) {
                                         try {
                                             android.media.MediaScannerConnection.scanFile(

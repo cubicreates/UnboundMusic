@@ -185,7 +185,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if tree != nil {
 		downloadDir = tree.DownloadPath
 	}
-	dlManager := downloader.NewManager(downloadDir, ytClient)
+	dlManager := downloader.NewManager(downloadDir, ytClient, repo)
 	eventBus := events.NewEventBus(128)
 	dlManager.SetEventBus(eventBus)
 
@@ -284,6 +284,12 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/scan", s.handleStorageScan)
 	mux.HandleFunc("/api/v1/storage/tracks", s.handleStorageTracks)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
+	mux.HandleFunc("/api/v1/download/status", s.handleDownloadStatus)
+	mux.HandleFunc("/api/v1/download/active", s.handleDownloadActive)
+	mux.HandleFunc("/api/v1/download/pause", s.handleDownloadPause)
+	mux.HandleFunc("/api/v1/download/resume", s.handleDownloadResume)
+	mux.HandleFunc("/api/v1/download/cancel", s.handleDownloadCancel)
+	mux.HandleFunc("/api/v1/download/delete", s.handleDownloadDelete)
 	mux.HandleFunc("/api/v1/download/list", s.handleDownloadList)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
 	mux.HandleFunc("/api/v1/proxy/stream", s.handleProxyStream)
@@ -1703,24 +1709,164 @@ func (s *Server) handleStorageTracks(w http.ResponseWriter, r *http.Request) {
 
 // handleDownloadStart downloads a track directly to Unbound/Downloads/.
 func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
-	type DownloadReq struct {
-		TrackID string `json:"track_id"`
-		Title   string `json:"title"`
-		Artist  string `json:"artist"`
-		Album   string `json:"album"`
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
 	}
-	var req DownloadReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.TrackID == "" && req.Title == "") {
-		writeError(w, http.StatusBadRequest, "track_id or title is required")
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
 		return
 	}
 
-	task, err := s.downloader.DownloadTrack(r.Context(), req.TrackID, req.Title, req.Artist, req.Album)
+	type DownloadReq struct {
+		VideoID    string `json:"video_id"`
+		TrackID    string `json:"track_id"`
+		Title      string `json:"title"`
+		Artist     string `json:"artist"`
+		Album      string `json:"album"`
+		ArtworkURL string `json:"artwork_url"`
+	}
+	var req DownloadReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	vid := req.VideoID
+	if vid == "" {
+		vid = req.TrackID
+	}
+	if vid == "" && req.Title == "" {
+		writeError(w, http.StatusBadRequest, "video_id or title is required")
+		return
+	}
+
+	task, err := s.downloader.StartDownload(r.Context(), vid, req.Title, req.Artist, req.Album, req.ArtworkURL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, task)
+}
+
+// handleDownloadStatus returns the progress and status of a download task.
+func (s *Server) handleDownloadStatus(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
+		return
+	}
+	videoID := r.URL.Query().Get("video_id")
+	if videoID == "" {
+		videoID = r.URL.Query().Get("track_id")
+	}
+	if strings.TrimSpace(videoID) == "" {
+		writeError(w, http.StatusBadRequest, "video_id is required")
+		return
+	}
+	task := s.downloader.GetTask(videoID)
+	if task == nil {
+		writeError(w, http.StatusNotFound, "download task not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, task)
+}
+
+// handleDownloadActive returns all active, queued, paused, or completed tasks.
+func (s *Server) handleDownloadActive(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeJSON(w, http.StatusOK, []*downloader.DownloadTask{})
+		return
+	}
+	tasks := s.downloader.ListActiveTasks()
+	if tasks == nil {
+		tasks = []*downloader.DownloadTask{}
+	}
+	writeJSON(w, http.StatusOK, tasks)
+}
+
+// handleDownloadPause pauses an active download.
+func (s *Server) handleDownloadPause(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
+		return
+	}
+	var req struct {
+		VideoID string `json:"video_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.VideoID) == "" {
+		writeError(w, http.StatusBadRequest, "video_id is required")
+		return
+	}
+	if err := s.downloader.PauseDownload(req.VideoID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "PAUSED", "video_id": req.VideoID})
+}
+
+// handleDownloadResume resumes a paused download.
+func (s *Server) handleDownloadResume(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
+		return
+	}
+	var req struct {
+		VideoID string `json:"video_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.VideoID) == "" {
+		writeError(w, http.StatusBadRequest, "video_id is required")
+		return
+	}
+	if err := s.downloader.ResumeDownload(r.Context(), req.VideoID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "RESUMED", "video_id": req.VideoID})
+}
+
+// handleDownloadCancel cancels an ongoing download and cleans up.
+func (s *Server) handleDownloadCancel(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
+		return
+	}
+	var req struct {
+		VideoID string `json:"video_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.VideoID) == "" {
+		writeError(w, http.StatusBadRequest, "video_id is required")
+		return
+	}
+	if err := s.downloader.CancelDownload(req.VideoID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "CANCELLED", "video_id": req.VideoID})
+}
+
+// handleDownloadDelete removes a downloaded track from disk and database.
+func (s *Server) handleDownloadDelete(w http.ResponseWriter, r *http.Request) {
+	if s.downloader == nil {
+		writeError(w, http.StatusServiceUnavailable, "downloader not initialized")
+		return
+	}
+	var req struct {
+		VideoID    string `json:"video_id"`
+		DeleteFile bool   `json:"delete_file"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if strings.TrimSpace(req.VideoID) == "" {
+		writeError(w, http.StatusBadRequest, "video_id is required")
+		return
+	}
+	if err := s.downloader.DeleteDownload(r.Context(), req.VideoID, req.DeleteFile); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "DELETED", "video_id": req.VideoID})
 }
 
 // handleDownloadList lists all physical tracks inside Unbound/Downloads/.

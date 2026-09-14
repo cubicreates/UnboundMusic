@@ -562,6 +562,16 @@ class ServiceConnection private constructor(private val context: Context) {
         AudioEffectController.setLoudness(gainMb)
     }
 
+    fun setSkipSilence(enabled: Boolean) {
+        val intent = Intent(context, UnboundPlaybackService::class.java).apply {
+            action = UnboundPlaybackService.ACTION_SET_SKIP_SILENCE
+            putExtra(UnboundPlaybackService.EXTRA_SKIP_SILENCE, enabled)
+        }
+        try {
+            context.startService(intent)
+        } catch (_: Exception) {}
+    }
+
     var onTrackEndedListener: (() -> Unit)? = null
     var onSkipToNextListener: (() -> Unit)? = null
     var onSkipToPreviousListener: (() -> Unit)? = null

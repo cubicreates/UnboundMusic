@@ -35,65 +35,85 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.TopBarGlass
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Surface
+import com.cubicreates.unboundmusic.ui.components.NavigationTab
+
 private const val DEFAULT_LOGO_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuCakI2DGdcJDf93UDif0pOaN2wJ-D8BFLf8gxIvJkzCye964IBFhswEx-awNCIJy3dzV-1LCD3nj53qsi8ax_-0BDyYsk0AkZ0Egqw9_knCCjXlKly8Ng98rokKH1ZsAMEDbn0SMS7L6eV2LsjUJvrS_E_gCLaYoB6ycOvjYm_rlgxXSJT8mPGQgf-LT2_QVLV0cZu7rd7MVl8SnoOC19M22Vv9nsSWXmnjOHPSq0ZNN5XyzeaHNqHdfrwJu3V6dEyHjOU"
 
+/**
+ * Top App Bar for Unbound Music.
+ * Engineered for 100% stable relative positioning across all mobile devices.
+ * Uses statusBarsPadding so the glassmorphism surface bleeds into the system
+ * status bar/notch while the interactive content resides stably inside a 56dp action zone.
+ */
 @Composable
 fun UnboundTopAppBar(
     modifier: Modifier = Modifier,
+    currentTab: NavigationTab = NavigationTab.HOME,
     userAvatarUrl: String? = null,
     accountName: String? = null,
     isLoggedIn: Boolean = false,
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {}
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(64.dp)
-            .background(TopBarGlass)
-            .border(width = 1.dp, color = BorderGlass)
-            .padding(horizontal = 16.dp)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = TopBarGlass,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderGlass)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .height(56.dp)
+                .padding(horizontal = 16.dp)
         ) {
-            // Menu Button
-            IconButton(
-                onClick = onMenuClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "Menu",
-                    tint = UnboundPrimary
-                )
-            }
-
-            // Center Branding: Logo + Unbound Title
             Row(
+                modifier = Modifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                AsyncImage(
-                    model = DEFAULT_LOGO_URL,
-                    contentDescription = "Unbound Logo",
-                    modifier = Modifier.size(32.dp),
-                    contentScale = ContentScale.Fit
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Unbound",
-                    color = UnboundPrimary,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.03).sp
-                )
-            }
+                // Menu Button
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = UnboundPrimary
+                    )
+                }
 
-            // Balancing spacer keeping center branding balanced (profile icon moved to bottom navbar)
-            Spacer(modifier = Modifier.size(40.dp))
+                // Center Branding: Logo + Title (Responsive and stable)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    AsyncImage(
+                        model = DEFAULT_LOGO_URL,
+                        contentDescription = "Unbound Logo",
+                        modifier = Modifier.size(28.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = when (currentTab) {
+                            NavigationTab.HOME -> "Unbound"
+                            NavigationTab.SEARCH -> "Discover"
+                            NavigationTab.LIBRARY -> "Library"
+                        },
+                        color = UnboundPrimary,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.02).sp
+                    )
+                }
+
+                // Balancing spacer keeping center branding balanced (profile icon in bottom navbar)
+                Spacer(modifier = Modifier.size(40.dp))
+            }
         }
     }
 }

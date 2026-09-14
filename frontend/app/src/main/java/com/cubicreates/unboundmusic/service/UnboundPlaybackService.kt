@@ -107,6 +107,9 @@ class UnboundPlaybackService : MediaSessionService() {
         @Volatile
         var activeSleepFadeGain: Float = 1.0f
 
+        const val ACTION_SET_SKIP_SILENCE = "com.cubicreates.unboundmusic.ACTION_SET_SKIP_SILENCE"
+        const val EXTRA_SKIP_SILENCE = "extra_skip_silence"
+
         val crossfadeProcessor = CrossfadeFilterAudioProcessor()
     }
 
@@ -204,6 +207,7 @@ class UnboundPlaybackService : MediaSessionService() {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
         exoPlayer?.volume = 1.0f
+        exoPlayer?.skipSilenceEnabled = com.cubicreates.unboundmusic.data.PlaybackStateStore.isSkipSilence(this)
 
         exoPlayer?.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -269,6 +273,17 @@ class UnboundPlaybackService : MediaSessionService() {
             .build()
 
         Log.i(TAG, "Unbound Playback Service successfully initialized.")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_SET_SKIP_SILENCE -> {
+                val enabled = intent.getBooleanExtra(EXTRA_SKIP_SILENCE, false)
+                exoPlayer?.skipSilenceEnabled = enabled
+                Log.i(TAG, "ExoPlayer skipSilenceEnabled dynamically set to: $enabled")
+            }
+        }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {

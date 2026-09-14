@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -124,7 +125,137 @@ func EncodeFLACPictureBlock(imageData []byte, mimeType string) string {
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
-// InjectMetadataAndIndex harvests 1080x1080 master artwork, generates companion art, and indexes into SQLite local_tracks.
+// BuildID3v2Tag constructs a standard ID3v2.3 tag header and frames for MP3 audio files.
+func BuildID3v2Tag(title, artist, album string, coverBytes []byte) []byte {
+	framesBuf := new(bytes.Buffer)
+
+	// Helper to write an ID3v2.3 text frame: FrameID (4 bytes) + Size (4 bytes uint32) + Flags (2 bytes) + Encoding (1 byte: 0x03 UTF-8) + Text
+	writeTextFrame := func(frameID, text string) {
+		if text == "" {
+			return
+		}
+		textBytes := []byte(text)
+		payload := append([]byte{0x03}, textBytes...) // 0x03 = UTF-8 encoding
+
+		framesBuf.WriteString(frameID)
+		_ = binary.Write(framesBuf, binary.BigEndian, uint32(len(payload)))
+		framesBuf.Write([]byte{0x00, 0x00}) // Flags
+		framesBuf.Write(payload)
+	}
+
+	writeTextFrame("TIT2", title)  // Title
+	writeTextFrame("TPE1", artist) // Lead artist / performer
+	writeTextFrame("TALB", album)  // Album
+	writeTextFrame("TCON", "Music")
+	writeTextFrame("TPUB", "Unbound Music")
+	writeTextFrame("TENC", "Unbound Music Engine")
+
+	// Comment frame: COMM
+	commPayload := new(bytes.Buffer)
+	commPayload.WriteByte(0x03)        // UTF-8
+	commPayload.WriteString("eng")     // Language
+	commPayload.WriteByte(0x00)        // Short description null terminator
+	commPayload.WriteString("Downloaded via Unbound Music")
+
+	framesBuf.WriteString("COMM")
+	_ = binary.Write(framesBuf, binary.BigEndian, uint32(commPayload.Len()))
+	framesBuf.Write([]byte{0x00, 0x00})
+	framesBuf.Write(commPayload.Bytes())
+
+	// Attached Picture frame: APIC
+	if len(coverBytes) > 0 {
+		apicPayload := new(bytes.Buffer)
+		apicPayload.WriteByte(0x00)           // ISO-8859-1 for MIME and description
+		apicPayload.WriteString("image/jpeg") // MIME type
+		apicPayload.WriteByte(0x00)           // Null terminator for MIME
+		apicPayload.WriteByte(0x03)           // Picture type: Cover Front
+		apicPayload.WriteByte(0x00)           // Null terminator for empty description
+		apicPayload.Write(coverBytes)         // Raw JPEG picture data
+
+		framesBuf.WriteString("APIC")
+		_ = binary.Write(framesBuf, binary.BigEndian, uint32(apicPayload.Len()))
+		framesBuf.Write([]byte{0x00, 0x00})
+		framesBuf.Write(apicPayload.Bytes())
+	}
+
+	framesLen := framesBuf.Len()
+	if framesLen == 0 {
+		return nil
+	}
+
+	// ID3v2.3 10-byte header
+	header := []byte{
+		'I', 'D', '3', // Identifier
+		0x03, 0x00,    // Version 2.3.0
+		0x00,          // Flags
+		byte((framesLen >> 21) & 0x7F), // Synchsafe size byte 1
+		byte((framesLen >> 14) & 0x7F), // Synchsafe size byte 2
+		byte((framesLen >> 7) & 0x7F),  // Synchsafe size byte 3
+		byte(framesLen & 0x7F),         // Synchsafe size byte 4
+	}
+
+	return append(header, framesBuf.Bytes()...)
+}
+
+// PrependID3v2TagToFile inserts or replaces the ID3v2 header and frames at the beginning of an MP3 file.
+func PrependID3v2TagToFile(filePath string, id3Tag []byte) error {
+	if len(id3Tag) == 0 {
+		return nil
+	}
+
+	srcFile, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open source audio file: %w", err)
+	}
+	defer srcFile.Close()
+
+	// Check if existing file already has an ID3v2 tag
+	headerBuf := make([]byte, 10)
+	n, _ := io.ReadFull(srcFile, headerBuf)
+
+	var audioStartOffset int64 = 0
+	if n == 10 && string(headerBuf[:3]) == "ID3" {
+		// Existing tag size is a synchsafe integer in bytes 6..9
+		tagSize := int64(headerBuf[6])<<21 | int64(headerBuf[7])<<14 | int64(headerBuf[8])<<7 | int64(headerBuf[9])
+		audioStartOffset = 10 + tagSize
+	}
+
+	if _, err := srcFile.Seek(audioStartOffset, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to seek audio payload: %w", err)
+	}
+
+	tmpFile, err := os.CreateTemp(filepath.Dir(filePath), "unbound_id3_*.tmp")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file for ID3 tag: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	// Write the new ID3 tag first
+	if _, err := tmpFile.Write(id3Tag); err != nil {
+		return fmt.Errorf("failed writing ID3 tag: %w", err)
+	}
+
+	// Copy remaining audio stream
+	if _, err := io.Copy(tmpFile, srcFile); err != nil {
+		return fmt.Errorf("failed copying audio stream: %w", err)
+	}
+
+	_ = srcFile.Close()
+	_ = tmpFile.Close()
+
+	// Atomically replace target file
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		return fmt.Errorf("failed atomic rename with ID3 tag: %w", err)
+	}
+
+	return nil
+}
+
+// InjectMetadataAndIndex harvests 1080x1080 master artwork, generates companion art, tags ID3v2/Vorbis, and indexes into SQLite local_tracks.
 func InjectMetadataAndIndex(
 	ctx context.Context,
 	targetFile string,
@@ -165,19 +296,30 @@ func InjectMetadataAndIndex(
 		}
 	}
 
-	// 2. Generate Vorbis metadata comment block with RFC 7845 METADATA_BLOCK_PICTURE
-	comments := map[string]string{
-		"TITLE":       task.Title,
-		"ARTIST":      task.Artist,
-		"ALBUM":       task.Album,
-		"SOURCE":      SourceFolderDownloads,
-		"ENCODED_BY":  "Unbound Music Engine",
-		"UNBOUND_VID": task.VideoID,
+	// 2. Tag file according to format: ID3v2.3 for MP3, Vorbis comment block for Opus/FLAC
+	isMP3 := task.TargetFormat == "mp3" || strings.HasSuffix(strings.ToLower(task.LocalPath), ".mp3") || strings.HasSuffix(strings.ToLower(targetFile), ".mp3")
+	if isMP3 {
+		id3Tag := BuildID3v2Tag(task.Title, task.Artist, task.Album, rawCoverBytes)
+		if len(id3Tag) > 0 {
+			if err := PrependID3v2TagToFile(targetFile, id3Tag); err != nil {
+				fmt.Printf("[DOWNLOADER] Warning: ID3 tagging error: %v\n", err)
+			}
+		}
+	} else {
+		// Generate Vorbis metadata comment block with RFC 7845 METADATA_BLOCK_PICTURE
+		comments := map[string]string{
+			"TITLE":       task.Title,
+			"ARTIST":      task.Artist,
+			"ALBUM":       task.Album,
+			"SOURCE":      SourceFolderDownloads,
+			"ENCODED_BY":  "Unbound Music Engine",
+			"UNBOUND_VID": task.VideoID,
+		}
+		if len(rawCoverBytes) > 0 {
+			comments["METADATA_BLOCK_PICTURE"] = EncodeFLACPictureBlock(rawCoverBytes, "image/jpeg")
+		}
+		_ = BuildVorbisCommentBlock("Unbound Engine v2.0", comments)
 	}
-	if len(rawCoverBytes) > 0 {
-		comments["METADATA_BLOCK_PICTURE"] = EncodeFLACPictureBlock(rawCoverBytes, "image/jpeg")
-	}
-	_ = BuildVorbisCommentBlock("Unbound Engine v2.0", comments)
 
 	// 3. Auto-index directly into SQLite local_tracks table
 	trackID := task.VideoID
@@ -206,7 +348,11 @@ func InjectMetadataAndIndex(
 
 	format := task.TargetFormat
 	if format == "" {
-		format = "opus"
+		if isMP3 {
+			format = "mp3"
+		} else {
+			format = "opus"
+		}
 	}
 
 	localTrack := &models.LocalTrack{
@@ -231,3 +377,4 @@ func InjectMetadataAndIndex(
 
 	return nil
 }
+

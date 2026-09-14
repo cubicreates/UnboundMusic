@@ -546,3 +546,44 @@ func TestServerPlaylistEndpoint_MissingID(t *testing.T) {
 		t.Errorf("expected 400 Bad Request for missing id, got %d", w.Code)
 	}
 }
+
+func TestServerDownloadEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45742,
+		DatabasePath:   filepath.Join(tempDir, "test_server.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. GET /api/v1/download/active (should return empty list initially)
+	reqActive := httptest.NewRequest(http.MethodGet, "/api/v1/download/active", nil)
+	wActive := httptest.NewRecorder()
+	srv.handleDownloadActive(wActive, reqActive)
+	if wActive.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from download active, got %d", wActive.Code)
+	}
+
+	// 2. GET /api/v1/download/status with missing video_id (should return 400)
+	reqMissingStatus := httptest.NewRequest(http.MethodGet, "/api/v1/download/status", nil)
+	wMissingStatus := httptest.NewRecorder()
+	srv.handleDownloadStatus(wMissingStatus, reqMissingStatus)
+	if wMissingStatus.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request from download status without video_id, got %d", wMissingStatus.Code)
+	}
+
+	// 3. GET /api/v1/download/list (should return 200 with empty count)
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/download/list", nil)
+	wList := httptest.NewRecorder()
+	srv.handleDownloadList(wList, reqList)
+	if wList.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from download list, got %d", wList.Code)
+	}
+}
+

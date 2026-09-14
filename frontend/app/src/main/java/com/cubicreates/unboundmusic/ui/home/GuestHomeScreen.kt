@@ -84,7 +84,7 @@ fun GuestHomeScreen(
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 76.dp, bottom = 24.dp)
+            .padding(top = 8.dp, bottom = 24.dp)
     ) {
         // 1. Connect YouTube Call-To-Action Banner
         ConnectYouTubeBanner(onConnectClick = onConnectClick)

@@ -20,7 +20,6 @@ import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.ui.components.UnboundTopAppBar
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 
@@ -90,15 +89,5 @@ fun HomeScreen(
                 onConnectClick = onConnectClick
             )
         }
-
-        // Fixed Top App Bar across both experiences
-        UnboundTopAppBar(
-            modifier = Modifier.align(Alignment.TopCenter),
-            userAvatarUrl = userAvatarUrl,
-            accountName = accountName,
-            isLoggedIn = isYouTubeConnected,
-            onMenuClick = onMenuClick,
-            onProfileClick = onProfileClick
-        )
     }
 }

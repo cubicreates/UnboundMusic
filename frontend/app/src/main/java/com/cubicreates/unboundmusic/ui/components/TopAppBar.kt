@@ -92,45 +92,8 @@ fun UnboundTopAppBar(
                 )
             }
 
-            // User Avatar / Profile Button
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(SurfaceGlassHighest)
-                    .border(
-                        width = 1.dp,
-                        color = if (isLoggedIn) UnboundPrimary.copy(alpha = 0.6f) else BorderGlass,
-                        shape = CircleShape
-                    )
-                    .clickable(onClick = onProfileClick),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = userAvatarUrl,
-                        contentDescription = "User Avatar",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else if (isLoggedIn && !accountName.isNullOrBlank()) {
-                    Text(
-                        text = accountName.take(1).uppercase(),
-                        color = UnboundPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.AccountCircle,
-                        contentDescription = "Sign In / Profile",
-                        tint = OnSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
+            // Balancing spacer keeping center branding balanced (profile icon moved to bottom navbar)
+            Spacer(modifier = Modifier.size(40.dp))
         }
     }
 }

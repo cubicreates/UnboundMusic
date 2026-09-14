@@ -1278,7 +1278,8 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         title: String,
         artist: String,
         album: String = "",
-        artworkUrl: String = ""
+        artworkUrl: String = "",
+        streamUrl: String = ""
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
         val payload = JSONObject().apply {
             put("video_id", videoId)
@@ -1286,6 +1287,9 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             put("artist", artist)
             put("album", album)
             put("artwork_url", artworkUrl)
+            if (streamUrl.isNotBlank()) {
+                put("stream_url", streamUrl)
+            }
         }
         post("/api/v1/download/start", payload.toString())
     }

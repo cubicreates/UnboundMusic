@@ -164,7 +164,7 @@ func (m *Manager) startDownloadInternal(ctx context.Context, videoID, title, art
 		cleanTitle = "Unknown Track"
 	}
 
-	fileName := fmt.Sprintf("%s - %s.opus", cleanArtist, cleanTitle)
+	fileName := fmt.Sprintf("%s - %s.mp3", cleanArtist, cleanTitle)
 	destPath := filepath.Join(m.downloadDir, fileName)
 
 	workerCtx, cancel := context.WithCancel(context.Background())
@@ -175,7 +175,7 @@ func (m *Manager) startDownloadInternal(ctx context.Context, videoID, title, art
 		Artist:       artist,
 		Album:        album,
 		ArtworkURL:   artworkURL,
-		TargetFormat: "opus",
+		TargetFormat: "mp3",
 		Status:       StatusQueued,
 		LocalPath:    destPath,
 		CreatedAt:    time.Now(),
@@ -346,6 +346,10 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 	// 1. Resolve stream URL if not pre-populated
 	if task.streamURL == "" {
 		streamInfo, err := m.ytClient.GetStreamInfo(ctx, task.VideoID)
+		if err != nil && m.ytClient != nil && m.ytClient.HasCredentials() {
+			// If authenticated stream resolution failed, try unencumbered guest context
+			streamInfo, err = m.ytClient.GetStreamInfo(ytmusic.WithDisableAuth(ctx), task.VideoID)
+		}
 		if err != nil {
 			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("stream resolution failed: %v", err))
 			return
@@ -354,10 +358,31 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 		task.TotalBytes = streamInfo.ContentLength
 	}
 
+	getStreamUA := func(streamURL string) string {
+		if strings.Contains(streamURL, "c=VISIONOS") {
+			return ytmusic.ConfigVisionOS.UserAgent
+		} else if strings.Contains(streamURL, "c=ANDROID") {
+			return ytmusic.ConfigAndroid.UserAgent
+		} else if strings.Contains(streamURL, "c=WEB_REMIX") {
+			return ytmusic.UserAgentWebRemix
+		} else if strings.Contains(streamURL, "c=TVHTML5") {
+			return ytmusic.UserAgentTV
+		} else if strings.Contains(streamURL, "c=IOS") {
+			return ytmusic.UserAgentIOS
+		}
+		return ytmusic.ConfigVisionOS.UserAgent
+	}
+	ua := getStreamUA(task.streamURL)
+
 	// 2. Discover total file size if not set
 	if task.TotalBytes <= 0 {
 		headReq, err := http.NewRequestWithContext(ctx, http.MethodHead, task.streamURL, nil)
 		if err == nil {
+			headReq.Header.Set("User-Agent", ua)
+			if ua == ytmusic.UserAgentWebRemix {
+				headReq.Header.Set("Referer", "https://music.youtube.com/")
+				headReq.Header.Set("Origin", "https://music.youtube.com")
+			}
 			headResp, err := m.httpClient.Do(headReq)
 			if err == nil {
 				_ = headResp.Body.Close()
@@ -436,6 +461,13 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 		if rangeEnd >= currentOffset {
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", currentOffset, rangeEnd))
 		}
+		req.Header.Set("User-Agent", ua)
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Accept-Encoding", "identity")
+		if ua == ytmusic.UserAgentWebRemix {
+			req.Header.Set("Referer", "https://music.youtube.com/")
+			req.Header.Set("Origin", "https://music.youtube.com")
+		}
 
 		resp, err := m.httpClient.Do(req)
 		if err != nil {
@@ -446,6 +478,54 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 			}
 			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("http chunk fetch failed: %v", err))
 			return
+		}
+
+		// Handle 403 Forbidden failover
+		if resp.StatusCode == http.StatusForbidden {
+			_ = resp.Body.Close()
+			if ua != ytmusic.UserAgentWebRemix {
+				reqRetry, rErr := http.NewRequestWithContext(ctx, http.MethodGet, task.streamURL, nil)
+				if rErr == nil {
+					if rangeEnd >= currentOffset {
+						reqRetry.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", currentOffset, rangeEnd))
+					}
+					reqRetry.Header.Set("User-Agent", ytmusic.UserAgentWebRemix)
+					reqRetry.Header.Set("Referer", "https://music.youtube.com/")
+					reqRetry.Header.Set("Origin", "https://music.youtube.com")
+					if m.ytClient != nil && m.ytClient.HasCredentials() {
+						if creds := m.ytClient.GetCredentials(); creds != "" {
+							reqRetry.Header.Set("Cookie", creds)
+						}
+					}
+					if retryResp, errRetry := m.httpClient.Do(reqRetry); errRetry == nil && (retryResp.StatusCode == http.StatusOK || retryResp.StatusCode == http.StatusPartialContent) {
+						resp = retryResp
+						ua = ytmusic.UserAgentWebRemix
+					}
+				}
+			}
+
+			// If still 403 Forbidden, attempt re-resolving fresh stream URL
+			if resp.StatusCode == http.StatusForbidden && m.ytClient != nil {
+				freshStream, freshErr := m.ytClient.GetStreamInfo(ctx, task.VideoID)
+				if freshErr == nil && freshStream != nil && freshStream.StreamURL != "" && freshStream.StreamURL != task.streamURL {
+					task.streamURL = freshStream.StreamURL
+					ua = getStreamUA(task.streamURL)
+					reqFresh, fErr := http.NewRequestWithContext(ctx, http.MethodGet, task.streamURL, nil)
+					if fErr == nil {
+						if rangeEnd >= currentOffset {
+							reqFresh.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", currentOffset, rangeEnd))
+						}
+						reqFresh.Header.Set("User-Agent", ua)
+						if ua == ytmusic.UserAgentWebRemix {
+							reqFresh.Header.Set("Referer", "https://music.youtube.com/")
+							reqFresh.Header.Set("Origin", "https://music.youtube.com")
+						}
+						if freshResp, errFresh := m.httpClient.Do(reqFresh); errFresh == nil && (freshResp.StatusCode == http.StatusOK || freshResp.StatusCode == http.StatusPartialContent) {
+							resp = freshResp
+						}
+					}
+				}
+			}
 		}
 
 		// Handle response status (206 Partial Content or 200 OK)

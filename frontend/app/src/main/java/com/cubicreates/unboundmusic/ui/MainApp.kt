@@ -264,6 +264,9 @@ fun MainApp(
                                         viewModel.playMoodCapsule(capsule)
                                         isPlayerExpanded = true
                                     },
+                                    onMoodSelect = { mood ->
+                                        viewModel.openCuratedCollection(mood.title, mood.imageUrl)
+                                    },
                                     onGenreSelect = { genre ->
                                         viewingGenre = genre
                                         viewModel.loadGenreDetail(genre.params, genre.title)
@@ -298,7 +301,7 @@ fun MainApp(
                                     onVibeSubmit = { viewModel.submitVibeQuery(it) },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
                                     onVibeTagClick = { tag -> viewModel.submitVibeQuery(tag.removePrefix("#")) },
-                                    onGenreCardClick = { genre -> viewModel.submitVibeQuery(genre) },
+                                    onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },
                                     onTrackSelect = { track, queue ->
                                         viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true

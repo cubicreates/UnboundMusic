@@ -69,23 +69,27 @@ fun UnboundBottomNavBar(
     onTabSelected: (NavigationTab) -> Unit = {},
     onProfileClick: () -> Unit = {}
 ) {
-    Surface(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(24.dp),
-        color = Color(0xFF1E1E1E),
-        shadowElevation = 16.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333333))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp, horizontal = 6.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF1E1E1E),
+            shadowElevation = 16.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF333333))
         ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp, horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             NavigationTab.values().forEach { tab ->
                 val isSelected = tab == currentTab && !isProfileActive
                 val contentColor = if (isSelected) UnboundPrimary else Color(0xFFB0B0B0)
@@ -166,4 +170,5 @@ fun UnboundBottomNavBar(
             }
         }
     }
+}
 }

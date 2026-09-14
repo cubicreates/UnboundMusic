@@ -30,6 +30,7 @@ import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.PlaybackStateStore
 import com.cubicreates.unboundmusic.data.PlaylistItemDto
 import com.cubicreates.unboundmusic.data.PlaylistShelfDto
 import com.cubicreates.unboundmusic.data.SkipSegmentDto
@@ -95,6 +96,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isFavorite = MutableStateFlow(false)
     val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
+
+    // ==================== Playback Quality & Automation (Batch 1) ====================
+
+    private val _autoDownloadLikedSongs = MutableStateFlow(false)
+    val autoDownloadLikedSongs: StateFlow<Boolean> = _autoDownloadLikedSongs.asStateFlow()
+
+    private val _skipSilenceEnabled = MutableStateFlow(false)
+    val skipSilenceEnabled: StateFlow<Boolean> = _skipSilenceEnabled.asStateFlow()
+
+    private val _normalizeVolumeEnabled = MutableStateFlow(false)
+    val normalizeVolumeEnabled: StateFlow<Boolean> = _normalizeVolumeEnabled.asStateFlow()
 
     // ==================== Equalizer & DSP State ====================
 
@@ -376,6 +388,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 fetchCanvas(track)
                                 fetchSkipSegments(track)
                             }
+                            saveCurrentPlaybackState(0L)
                         }
                     }
                 }
@@ -389,6 +402,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sessionStore.accountName?.let { _accountName.value = it }
             sessionStore.avatarUrl?.let { _userAvatarUrl.value = it }
         }
+
+        // Load Playback Quality & Automation Preferences
+        _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(application)
+        _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(application)
+        _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(application)
+        if (_normalizeVolumeEnabled.value) {
+            serviceConnection.setLoudness(1000)
+        }
+        if (_skipSilenceEnabled.value) {
+            serviceConnection.setSkipSilence(true)
+        }
+
+        // Restore persistent queue and active track across app restarts
+        restoreLastPlaybackState()
 
         // Orchestrate startup hydration with splash screen telemetry
         startStartupHydration()
@@ -412,6 +439,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 prevTrack()
             }
         }
+    }
+
+    private fun restoreLastPlaybackState() {
+        val saved = PlaybackStateStore.loadPlaybackState(getApplication()) ?: return
+        if (saved.track.id.isNotBlank() || saved.track.title.isNotBlank()) {
+            _currentTrack.value = saved.track
+            if (saved.queue.isNotEmpty()) {
+                _currentQueue.value = saved.queue
+                serviceConnection.setQueue(saved.queue)
+            }
+        }
+    }
+
+    private var lastSavedStateTick = 0L
+
+    private fun saveCurrentPlaybackState(positionMs: Long? = null) {
+        val track = _currentTrack.value
+        if (track.id.isBlank() && track.title.isBlank()) return
+        val queue = getEffectiveQueue()
+        val pos = positionMs ?: playbackState.value.currentPositionMs
+        PlaybackStateStore.savePlaybackState(getApplication(), track, queue, pos)
     }
 
     private fun startStartupHydration() {
@@ -673,6 +721,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun playTrack(track: TrackItem) {
         _currentTrack.value = track
+        saveCurrentPlaybackState(0L)
         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
 
         // If track is not part of an existing multi-track queue, seed with this track and auto-hydrate YouTube automix
@@ -880,6 +929,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             playTrack(track)
             fetchAutomixQueue(track)
         }
+        saveCurrentPlaybackState(0L)
     }
 
     private var automixJob: Job? = null
@@ -938,7 +988,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleFavorite() {
-        _isFavorite.value = !_isFavorite.value
+        val willBeFav = !_isFavorite.value
+        _isFavorite.value = willBeFav
+        val current = _currentTrack.value
+        if (willBeFav && _autoDownloadLikedSongs.value) {
+            startTrackDownload(current)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.toggleTrackLike(current.id, willBeFav)
+                loadSyncedYouTubeTracks()
+            } catch (e: Exception) {
+                Log.w(TAG, "Track like toggle error: ${e.message}")
+            }
+        }
     }
 
     fun seekTo(progress: Float) {
@@ -1973,6 +2036,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val willBeLiked = !_isFavorite.value
             _isFavorite.value = willBeLiked
+            if (willBeLiked && _autoDownloadLikedSongs.value) {
+                withContext(Dispatchers.Main) {
+                    startTrackDownload(track)
+                }
+            }
             try {
                 client.toggleTrackLike(track.id, willBeLiked)
                 loadSyncedYouTubeTracks()
@@ -2042,6 +2110,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playbackState.value.isPlaying) {
                     serviceConnection.updatePosition()
                     checkSponsorBlockSkip()
+                    val now = System.currentTimeMillis()
+                    if (now - lastSavedStateTick >= 4000L) {
+                        lastSavedStateTick = now
+                        saveCurrentPlaybackState()
+                    }
                 }
                 delay(300)
             }
@@ -2288,6 +2361,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             client.setAppSetting("eq_loudness", gainMb.toString())
         }
+    }
+
+    fun setAutoDownloadLikedSongs(enabled: Boolean) {
+        _autoDownloadLikedSongs.value = enabled
+        PlaybackStateStore.setAutoDownloadLiked(getApplication(), enabled)
+    }
+
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        _skipSilenceEnabled.value = enabled
+        PlaybackStateStore.setSkipSilence(getApplication(), enabled)
+        serviceConnection.setSkipSilence(enabled)
+    }
+
+    fun setNormalizeVolumeEnabled(enabled: Boolean) {
+        _normalizeVolumeEnabled.value = enabled
+        PlaybackStateStore.setNormalizeVolume(getApplication(), enabled)
+        val targetGain = if (enabled) 1000 else 0
+        serviceConnection.setLoudness(targetGain)
     }
 
     fun saveCustomEqPreset(name: String, curve: EqualizerCurve, bassBoost: Int, virtualizer: Int, loudness: Int) {

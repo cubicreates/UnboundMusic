@@ -117,13 +117,25 @@ func TestChunkedWorker_FullDownload(t *testing.T) {
 		t.Fatalf("expected .part file to be removed after completion, but it exists: %s", partPath)
 	}
 
-	// Verify file size matches original
+	// Verify file size contains audio data plus ID3 tag
 	fi, err := os.Stat(finalTask.LocalPath)
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
-	if fi.Size() != int64(totalSize) {
-		t.Fatalf("expected file size %d, got %d", totalSize, fi.Size())
+	if fi.Size() < int64(totalSize) {
+		t.Fatalf("expected file size at least %d, got %d", totalSize, fi.Size())
+	}
+	if !strings.HasSuffix(finalTask.LocalPath, ".mp3") {
+		t.Fatalf("expected .mp3 extension, got %s", finalTask.LocalPath)
+	}
+
+	// Verify ID3v2 header exists
+	content, rErr := os.ReadFile(finalTask.LocalPath)
+	if rErr != nil {
+		t.Fatalf("failed reading final file: %v", rErr)
+	}
+	if len(content) < 10 || string(content[:3]) != "ID3" {
+		t.Fatalf("expected ID3 header at start of file, got %q", string(content[:min(3, len(content))]))
 	}
 }
 
@@ -209,8 +221,8 @@ func TestChunkedWorker_PauseAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat failed: %v", err)
 	}
-	if finalFi.Size() != int64(totalSize) {
-		t.Fatalf("expected resumed total size %d, got %d (paused at %d)", totalSize, finalFi.Size(), bytesWhilePaused)
+	if finalFi.Size() < int64(totalSize) {
+		t.Fatalf("expected resumed total size at least %d, got %d (paused at %d)", totalSize, finalFi.Size(), bytesWhilePaused)
 	}
 }
 

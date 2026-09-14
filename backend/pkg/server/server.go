@@ -1725,6 +1725,7 @@ func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 		Artist     string `json:"artist"`
 		Album      string `json:"album"`
 		ArtworkURL string `json:"artwork_url"`
+		StreamURL  string `json:"stream_url"`
 	}
 	var req DownloadReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1741,7 +1742,13 @@ func (s *Server) handleDownloadStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := s.downloader.StartDownload(r.Context(), vid, req.Title, req.Artist, req.Album, req.ArtworkURL)
+	var task *downloader.DownloadTask
+	var err error
+	if req.StreamURL != "" && strings.HasPrefix(req.StreamURL, "http") && !strings.Contains(req.StreamURL, "127.0.0.1") {
+		task, err = s.downloader.StartDownloadWithURL(r.Context(), vid, req.Title, req.Artist, req.Album, req.ArtworkURL, req.StreamURL)
+	} else {
+		task, err = s.downloader.StartDownload(r.Context(), vid, req.Title, req.Artist, req.Album, req.ArtworkURL)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

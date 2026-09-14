@@ -56,6 +56,9 @@ import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.SmartShelfDto
+import com.cubicreates.unboundmusic.ui.components.MoodItem
+import com.cubicreates.unboundmusic.ui.components.MoodsSection
+import com.cubicreates.unboundmusic.ui.components.defaultMoods
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
@@ -86,6 +89,7 @@ fun PersonalizedHomeScreen(
     isLoadingMore: Boolean = false,
     onLoadMore: () -> Unit = {},
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
+    onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onMixClick: (MixDto) -> Unit = {},
     onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
@@ -171,12 +175,20 @@ fun PersonalizedHomeScreen(
             }
         }
 
-        // 5. Time-Aware Situational Mood Mixes
+        // 5. Time-Aware Situational Mood Mixes or Curated Moods
         if (daypartingState != null && daypartingState.capsules.isNotEmpty()) {
             item(key = "mood_capsules") {
                 PersonalizedCapsulesSection(
                     state = daypartingState,
                     onCapsuleClick = onCapsuleSelect
+                )
+                Spacer(modifier = Modifier.height(28.dp))
+            }
+        } else {
+            item(key = "curated_moods") {
+                MoodsSection(
+                    moods = defaultMoods,
+                    onMoodClick = onMoodSelect
                 )
                 Spacer(modifier = Modifier.height(28.dp))
             }

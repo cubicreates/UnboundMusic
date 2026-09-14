@@ -788,25 +788,55 @@ func (c *Client) FetchUserTasteAndHistory(ctx context.Context) ([]models.Track, 
 	return unique, nil
 }
 
-// FetchRadioForTrack queries YouTube Music /next to generate pure music songs related to a track.
+// FetchRadioForTrack queries YouTube Music /next with RDAMVM to generate YouTube's true algorithmic radio queue.
 func (c *Client) FetchRadioForTrack(ctx context.Context, videoID string) ([]models.Track, error) {
+	videoID = strings.TrimSpace(videoID)
+	if videoID == "" {
+		return nil, fmt.Errorf("videoId cannot be empty")
+	}
+
 	body := map[string]interface{}{
-		"context": c.buildContext(ConfigWebRemix),
-		"videoId": videoID,
+		"context":     c.buildContext(ConfigWebRemix),
+		"videoId":     videoID,
+		"playlistId":  "RDAMVM" + videoID,
+		"isAudioOnly": true,
 	}
 
 	respBytes, err := c.post(ctx, "next", body, ConfigWebRemix)
-	if err != nil {
-		return nil, err
+	var items []models.TrackItem
+	if err == nil {
+		items, err = ParseNextTracks(respBytes)
 	}
 
-	items, err := ParseNextTracks(respBytes)
-	if err != nil {
+	// Dual-Mode Resilience: If authenticated call failed or produced 0 tracks, retry as clean guest request
+	c.mu.RLock()
+	hasCookies := c.cookieStr != ""
+	c.mu.RUnlock()
+
+	if hasCookies && (err != nil || len(items) == 0) {
+		guestBytes, guestErr := c.post(WithDisableAuth(ctx), "next", body, ConfigWebRemix)
+		if guestErr == nil {
+			if gItems, parseErr := ParseNextTracks(guestBytes); parseErr == nil && len(gItems) > 0 {
+				items = gItems
+				err = nil
+			}
+		}
+	}
+
+	if err != nil && len(items) == 0 {
 		return nil, err
 	}
 
 	var tracks []models.Track
+	seen := make(map[string]bool)
+	seen[videoID] = true // Do not duplicate the seed track itself
+
 	for _, item := range items {
+		if seen[item.ID] {
+			continue
+		}
+		seen[item.ID] = true
+
 		t := models.Track{
 			ID:           item.ID,
 			Title:        item.Title,

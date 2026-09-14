@@ -36,7 +36,9 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Switch
@@ -93,7 +96,13 @@ fun SettingsScreen(
     onDisconnectYouTubeClick: () -> Unit = {},
     onCheckUpdateClick: () -> Unit = {},
     onPurgeCacheClick: () -> Unit = {},
-    onCleanStorageForUninstallClick: () -> Unit = {}
+    onCleanStorageForUninstallClick: () -> Unit = {},
+    autoDownloadLikedSongs: Boolean = false,
+    skipSilenceEnabled: Boolean = false,
+    normalizeVolumeEnabled: Boolean = false,
+    onAutoDownloadLikedSongsChange: (Boolean) -> Unit = {},
+    onSkipSilenceChange: (Boolean) -> Unit = {},
+    onNormalizeVolumeChange: (Boolean) -> Unit = {}
 ) {
     var discordRpcEnabled by remember { mutableStateOf(true) }
     var sponsorBlockEnabled by remember { mutableStateOf(true) }
@@ -333,6 +342,39 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Playback & Automation Section
+            SettingsSectionHeader(title = "PLAYBACK & AUTOMATION")
+
+            SettingsToggleTile(
+                icon = Icons.Default.Favorite,
+                title = "Auto-Download Liked Songs",
+                subtitle = "Automatically download favorites as MP3 to Unbound/Downloads",
+                checked = autoDownloadLikedSongs,
+                onCheckedChange = onAutoDownloadLikedSongsChange
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsToggleTile(
+                icon = Icons.Default.GraphicEq,
+                title = "Skip Silence",
+                subtitle = "Automatically skip silent intros and outros in audio streams",
+                checked = skipSilenceEnabled,
+                onCheckedChange = onSkipSilenceChange
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsToggleTile(
+                icon = Icons.Default.VolumeUp,
+                title = "Loudness Normalization",
+                subtitle = "Equalize perceived volume across acoustic and modern tracks",
+                checked = normalizeVolumeEnabled,
+                onCheckedChange = onNormalizeVolumeChange
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
 

@@ -1841,17 +1841,28 @@ func (s *Server) handleDownloadCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		VideoID string `json:"video_id"`
+		TrackID string `json:"track_id"`
+		Title   string `json:"title"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if strings.TrimSpace(req.VideoID) == "" {
-		writeError(w, http.StatusBadRequest, "video_id is required")
-		return
+	id := req.VideoID
+	if id == "" {
+		id = req.TrackID
 	}
-	if err := s.downloader.CancelDownload(req.VideoID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+	if id == "" {
+		id = req.Title
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "CANCELLED", "video_id": req.VideoID})
+	if id == "" {
+		id = r.URL.Query().Get("video_id")
+	}
+	if id == "" {
+		id = r.URL.Query().Get("id")
+	}
+
+	if strings.TrimSpace(id) != "" {
+		_ = s.downloader.CancelDownload(id)
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "CANCELLED", "video_id": id})
 }
 
 // handleDownloadDelete removes a downloaded track from disk and database.

@@ -272,6 +272,13 @@ func ParseNextTracks(jsonData []byte) ([]models.TrackItem, error) {
 				}
 			}
 
+			// 1b. playlistPanelVideoWrapperRenderer (Used by YouTube when authenticated)
+			if wrapper, ok := node["playlistPanelVideoWrapperRenderer"].(map[string]any); ok {
+				if primary, ok := wrapper["primaryRenderer"].(map[string]any); ok {
+					extract(primary)
+				}
+			}
+
 			// Continue traversal
 			for _, v := range node {
 				extract(v)

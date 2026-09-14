@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Shuffle
@@ -71,7 +73,10 @@ fun AlbumPlaylistScreen(
     onBack: () -> Unit = {},
     onTrackSelect: (TrackItem) -> Unit = {},
     onPlayAll: () -> Unit = {},
-    onShuffleAll: () -> Unit = {}
+    onShuffleAll: () -> Unit = {},
+    onStartDownload: (TrackItem) -> Unit = {},
+    onDownloadAll: () -> Unit = {},
+    downloadedTrackIds: Set<String> = emptySet()
 ) {
     Box(
         modifier = Modifier
@@ -201,6 +206,23 @@ fun AlbumPlaylistScreen(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(SurfaceGlassHighest)
+                        .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                        .clickable(onClick = onDownloadAll),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = "Download All",
+                        tint = UnboundPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -286,6 +308,23 @@ fun AlbumPlaylistScreen(
                             text = track.artist,
                             fontSize = 12.sp,
                             color = OnSurfaceVariant
+                        )
+                    }
+
+                    val isDownloaded = track.id in downloadedTrackIds
+                    IconButton(
+                        onClick = {
+                            if (!isDownloaded) {
+                                onStartDownload(track)
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDownloaded) Icons.Default.CheckCircle else Icons.Default.Download,
+                            contentDescription = if (isDownloaded) "Downloaded" else "Download Track",
+                            tint = if (isDownloaded) UnboundPrimary else OnSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 

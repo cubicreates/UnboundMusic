@@ -69,6 +69,7 @@ fun HomeScreen(
                 isLoadingMore = isLoadingMore,
                 onLoadMore = onLoadMore,
                 onTrackSelect = onTrackSelect,
+                onMoodSelect = onMoodSelect,
                 onCapsuleSelect = onCapsuleSelect,
                 onMixClick = onMixClick,
                 onAlbumPlaylistClick = onAlbumPlaylistClick,

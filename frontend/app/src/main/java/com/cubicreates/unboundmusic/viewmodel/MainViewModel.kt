@@ -1400,11 +1400,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Phase 5: Offline Downloader Orchestration ====================
 
+    private val recentlyCancelledIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** Initiates a physical background chunked download for an audio track in MP3 format. */
     fun startTrackDownload(track: TrackItem) {
         if (track.title.isBlank() && track.id.isBlank()) return
 
         val taskId = if (track.id.isNotBlank()) track.id else "custom_${System.currentTimeMillis()}"
+        recentlyCancelledIds.remove(taskId)
+        recentlyCancelledIds.remove(track.id)
+        if (track.title.isNotBlank()) recentlyCancelledIds.remove(track.title.lowercase())
 
         // 1. Optimistic UI update: immediately show DOWNLOADING on the DownloadButton
         val optimisticTask = DownloadTaskDto(
@@ -1477,18 +1482,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Cancels an ongoing download and clears partial artifacts. */
-    fun cancelTrackDownload(videoId: String) {
-        downloadNotificationHelper.cancelNotification(videoId)
+    /** Cancels an ongoing download and clears partial artifacts immediately. */
+    fun cancelTrackDownload(videoId: String, title: String = "") {
+        downloadNotificationHelper.cancelNotification()
+        
+        if (videoId.isNotBlank()) recentlyCancelledIds.add(videoId)
+        val effectiveTitle = title.ifBlank { _currentTrack.value.title }
+        if (effectiveTitle.isNotBlank()) recentlyCancelledIds.add(effectiveTitle.lowercase())
+
+        // Optimistically remove from _downloadTasks immediately so UI resets to NOT_DOWNLOADED instantly
+        val current = _downloadTasks.value.toMutableMap()
+        val matchKey = current.keys.firstOrNull { key ->
+            key == videoId ||
+            current[key]?.videoId == videoId ||
+            (effectiveTitle.isNotBlank() && current[key]?.title.equals(effectiveTitle, ignoreCase = true)) ||
+            (videoId.isNotBlank() && current[key]?.title.equals(videoId, ignoreCase = true))
+        }
+        if (matchKey != null) {
+            val task = current.remove(matchKey)
+            _downloadTasks.value = current
+            if (task != null && task.videoId.isNotBlank()) {
+                recentlyCancelledIds.add(task.videoId)
+                downloadNotificationHelper.cancelNotification(task.videoId)
+            }
+        } else if (effectiveTitle.isNotBlank()) {
+            val toRemove = current.filterValues { it.title.equals(effectiveTitle, ignoreCase = true) }.keys
+            for (k in toRemove) {
+                current.remove(k)
+            }
+            _downloadTasks.value = current
+        }
+
+        com.cubicreates.unboundmusic.util.UnboundToast.show(
+            getApplication(),
+            "Download cancelled",
+            isLong = false
+        )
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                client.cancelDownload(videoId)
-                val current = _downloadTasks.value.toMutableMap()
-                val task = current[videoId]
-                if (task != null) {
-                    current[videoId] = task.copy(status = "CANCELLED")
-                    _downloadTasks.value = current
-                }
+                client.cancelDownload(videoId, effectiveTitle)
             } catch (e: Exception) {
                 Log.e(TAG, "cancelTrackDownload failed: ${e.message}")
             }
@@ -1496,15 +1529,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Removes an offline track from disk and local database. */
-    fun deleteTrackDownload(videoId: String) {
+    fun deleteTrackDownload(videoId: String, title: String = "") {
         downloadNotificationHelper.cancelNotification(videoId)
+        val current = _downloadTasks.value.toMutableMap()
+        val effectiveTitle = title.ifBlank { _currentTrack.value.title }
+        val matchKey = current.keys.firstOrNull { key ->
+            key == videoId ||
+            current[key]?.videoId == videoId ||
+            (effectiveTitle.isNotBlank() && current[key]?.title.equals(effectiveTitle, ignoreCase = true)) ||
+            (videoId.isNotBlank() && current[key]?.title.equals(videoId, ignoreCase = true))
+        }
+        if (matchKey != null) {
+            current.remove(matchKey)
+            _downloadTasks.value = current
+        }
+        _downloadedTrackIds.value = _downloadedTrackIds.value - videoId
+        
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                client.deleteDownload(videoId, true)
-                val current = _downloadTasks.value.toMutableMap()
-                current.remove(videoId)
-                _downloadTasks.value = current
-                _downloadedTrackIds.value = _downloadedTrackIds.value - videoId
+                client.deleteDownload(videoId, true, effectiveTitle)
                 refreshLibrary()
             } catch (e: Exception) {
                 Log.e(TAG, "deleteTrackDownload failed: ${e.message}")
@@ -1523,29 +1566,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val (code, resp) = client.getActiveDownloads()
                     if (code in 200..299 && resp.isNotBlank()) {
                         val activeTasks = client.parseActiveDownloads(resp)
-                        val taskMap = activeTasks.associateBy { it.videoId }
+                        // Filter out cancelled tasks to avoid UI flicker
+                        val validTasks = activeTasks.filter { task ->
+                            task.status != "CANCELLED" &&
+                            !recentlyCancelledIds.contains(task.videoId) &&
+                            !recentlyCancelledIds.contains(task.title.lowercase())
+                        }
+                        val taskMap = validTasks.associateBy { it.videoId }
                         _downloadTasks.value = taskMap
 
                         // Update Android notifications for active/failed tasks
-                        for (task in activeTasks) {
-                            when (task.status) {
-                                "DOWNLOADING", "TAGGING" -> {
-                                    downloadNotificationHelper.notifyDownloadProgress(
-                                        task.videoId,
-                                        task.title,
-                                        task.artist,
-                                        task.progress.toInt()
-                                    )
-                                }
-                                "FAILED" -> {
-                                    downloadNotificationHelper.notifyDownloadFailed(
-                                        task.videoId,
-                                        task.title,
-                                        task.artist,
-                                        task.error
-                                    )
-                                }
-                            }
+                        val downloadingTask = validTasks.firstOrNull { it.status == "DOWNLOADING" || it.status == "TAGGING" }
+                        if (downloadingTask != null) {
+                            downloadNotificationHelper.notifyDownloadProgress(
+                                downloadingTask.videoId,
+                                downloadingTask.title,
+                                downloadingTask.artist,
+                                downloadingTask.progress.toInt()
+                            )
+                        }
+
+                        val failedTask = validTasks.firstOrNull { it.status == "FAILED" }
+                        if (failedTask != null) {
+                            downloadNotificationHelper.notifyDownloadFailed(
+                                failedTask.videoId,
+                                failedTask.title,
+                                failedTask.artist,
+                                failedTask.error
+                            )
                         }
 
                         val completedTasks = activeTasks.filter { it.status == "COMPLETED" }

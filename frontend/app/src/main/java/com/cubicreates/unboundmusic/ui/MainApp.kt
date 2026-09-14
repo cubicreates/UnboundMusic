@@ -203,8 +203,15 @@ fun MainApp(
 
                         UnboundBottomNavBar(
                             currentTab = selectedTab,
+                            userAvatarUrl = userAvatarUrl,
+                            accountName = accountName,
+                            isLoggedIn = isYouTubeConnected,
+                            isProfileActive = showSettings,
                             onTabSelected = { tab ->
                                 selectedTab = tab
+                            },
+                            onProfileClick = {
+                                showSettings = true
                             }
                         )
                     }

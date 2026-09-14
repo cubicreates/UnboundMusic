@@ -164,8 +164,13 @@ fun MainApp(
     val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
 
     val currentTask = downloadTasks[currentTrack.id]
+        ?: downloadTasks.values.find { it.title.isNotBlank() && it.title.equals(currentTrack.title, ignoreCase = true) }
+    val isTrackDownloaded = currentTrack.id in downloadedTrackIds
+        || currentTrack.source.contains("Downloads", ignoreCase = true)
+        || currentTask?.status == "COMPLETED"
+        || downloadedTrackIds.any { id -> downloadTasks[id]?.title?.equals(currentTrack.title, ignoreCase = true) == true }
     val currentDownloadStatus = when {
-        currentTrack.id in downloadedTrackIds || currentTrack.source.contains("Downloads", ignoreCase = true) || currentTask?.status == "COMPLETED" -> DownloadUiStatus.DOWNLOADED
+        isTrackDownloaded -> DownloadUiStatus.DOWNLOADED
         currentTask?.status == "DOWNLOADING" || currentTask?.status == "TAGGING" || currentTask?.status == "QUEUED" -> DownloadUiStatus.DOWNLOADING
         else -> DownloadUiStatus.NOT_DOWNLOADED
     }

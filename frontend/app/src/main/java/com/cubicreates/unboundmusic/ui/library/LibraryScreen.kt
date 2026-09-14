@@ -62,7 +62,6 @@ import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.ui.components.DownloadButton
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.ui.components.UnboundTopAppBar
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
@@ -139,7 +138,7 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
-                .padding(top = 80.dp, bottom = 24.dp),
+                .padding(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             // 1. Header Section
@@ -286,13 +285,6 @@ fun LibraryScreen(
                 }
             }
         }
-
-        // Fixed Top App Bar
-        UnboundTopAppBar(
-            modifier = Modifier.align(Alignment.TopCenter),
-            onMenuClick = onMenuClick,
-            onProfileClick = onProfileClick
-        )
     }
 }
 

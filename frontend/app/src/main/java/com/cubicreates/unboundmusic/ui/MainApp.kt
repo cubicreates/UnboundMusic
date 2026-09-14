@@ -458,7 +458,11 @@ fun MainApp(
                         viewModel.startTrackDownload(track)
                     }
                 },
-                downloadedTrackIds = downloadedTrackIds
+                downloadedTrackIds = downloadedTrackIds,
+                currentTrackId = currentTrack.id,
+                isPlaying = playbackState.isPlaying,
+                onPlayNext = { track -> viewModel.playNext(track) },
+                onAddToQueue = { track -> viewModel.addToQueue(track) }
             )
         }
 

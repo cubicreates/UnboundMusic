@@ -113,7 +113,7 @@ fun PersonalizedHomeScreen(
         state = listState,
         modifier = modifier
             .fillMaxSize()
-            .padding(top = 76.dp, bottom = 24.dp)
+            .padding(top = 8.dp, bottom = 24.dp)
     ) {
         // 1. Personalized Google Welcome Card
         item(key = "welcome_card") {

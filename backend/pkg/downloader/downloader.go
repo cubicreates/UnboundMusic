@@ -143,18 +143,6 @@ func (m *Manager) startDownloadInternal(ctx context.Context, videoID, title, art
 		return nil, fmt.Errorf("video_id or title is required")
 	}
 
-	taskID := videoID
-	if taskID == "" {
-		taskID = fmt.Sprintf("custom_%d", time.Now().UnixNano())
-	}
-
-	m.mu.Lock()
-	existing, exists := m.tasks[taskID]
-	if exists && (existing.Status == StatusDownloading || existing.Status == StatusTagging) {
-		m.mu.Unlock()
-		return existing, nil
-	}
-
 	cleanArtist := sanitizeFilename(artist)
 	if cleanArtist == "" {
 		cleanArtist = "Unknown Artist"
@@ -162,6 +150,17 @@ func (m *Manager) startDownloadInternal(ctx context.Context, videoID, title, art
 	cleanTitle := sanitizeFilename(title)
 	if cleanTitle == "" {
 		cleanTitle = "Unknown Track"
+	}
+
+	taskID := videoID
+	if taskID == "" || strings.HasPrefix(taskID, "local:") {
+		taskID = fmt.Sprintf("%s_%s", cleanArtist, cleanTitle)
+	}
+
+	m.mu.Lock()
+	if _, existing := m.findTaskLocked(taskID); existing != nil && (existing.Status == StatusDownloading || existing.Status == StatusTagging) {
+		m.mu.Unlock()
+		return existing, nil
 	}
 
 	fileName := fmt.Sprintf("%s - %s.mp3", cleanArtist, cleanTitle)
@@ -204,13 +203,26 @@ func (m *Manager) startDownloadInternal(ctx context.Context, videoID, title, art
 	return task, nil
 }
 
+// findTaskLocked finds a task by direct map key, VideoID, TrackID, or Title. Must be called with m.mu held.
+func (m *Manager) findTaskLocked(identifier string) (string, *DownloadTask) {
+	if task, exists := m.tasks[identifier]; exists {
+		return identifier, task
+	}
+	for k, task := range m.tasks {
+		if task.VideoID == identifier || task.TrackID == identifier || strings.EqualFold(task.Title, identifier) {
+			return k, task
+		}
+	}
+	return "", nil
+}
+
 // PauseDownload suspends an active download, preserving the .part file on disk.
-func (m *Manager) PauseDownload(videoID string) error {
+func (m *Manager) PauseDownload(identifier string) error {
 	m.mu.Lock()
-	task, exists := m.tasks[videoID]
-	if !exists {
+	_, task := m.findTaskLocked(identifier)
+	if task == nil {
 		m.mu.Unlock()
-		return fmt.Errorf("task not found: %s", videoID)
+		return fmt.Errorf("task not found: %s", identifier)
 	}
 
 	if task.Status != StatusDownloading && task.Status != StatusQueued {
@@ -229,12 +241,12 @@ func (m *Manager) PauseDownload(videoID string) error {
 }
 
 // ResumeDownload unpauses a paused download, continuing from the existing .part byte offset.
-func (m *Manager) ResumeDownload(ctx context.Context, videoID string) error {
+func (m *Manager) ResumeDownload(ctx context.Context, identifier string) error {
 	m.mu.Lock()
-	task, exists := m.tasks[videoID]
-	if !exists {
+	_, task := m.findTaskLocked(identifier)
+	if task == nil {
 		m.mu.Unlock()
-		return fmt.Errorf("task not found: %s", videoID)
+		return fmt.Errorf("task not found: %s", identifier)
 	}
 
 	if task.Status != StatusPaused && task.Status != StatusFailed {
@@ -254,12 +266,12 @@ func (m *Manager) ResumeDownload(ctx context.Context, videoID string) error {
 }
 
 // CancelDownload terminates an active download and deletes partial .part artifacts.
-func (m *Manager) CancelDownload(videoID string) error {
+func (m *Manager) CancelDownload(identifier string) error {
 	m.mu.Lock()
-	task, exists := m.tasks[videoID]
-	if !exists {
+	_, task := m.findTaskLocked(identifier)
+	if task == nil {
 		m.mu.Unlock()
-		return fmt.Errorf("task not found: %s", videoID)
+		return fmt.Errorf("task not found: %s", identifier)
 	}
 
 	task.Status = StatusCancelled
@@ -277,12 +289,12 @@ func (m *Manager) CancelDownload(videoID string) error {
 }
 
 // GetTask returns the current status and progress of a download task.
-func (m *Manager) GetTask(videoID string) *DownloadTask {
+func (m *Manager) GetTask(identifier string) *DownloadTask {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	task, exists := m.tasks[videoID]
-	if !exists {
+	_, task := m.findTaskLocked(identifier)
+	if task == nil {
 		return nil
 	}
 
@@ -291,13 +303,25 @@ func (m *Manager) GetTask(videoID string) *DownloadTask {
 	return &copy
 }
 
-// ListActiveTasks returns all ongoing, queued, or paused download tasks.
+// ListActiveTasks returns all ongoing, queued, or paused download tasks without duplicates or cancelled tasks.
 func (m *Manager) ListActiveTasks() []*DownloadTask {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	seen := make(map[string]bool)
 	var result []*DownloadTask
 	for _, task := range m.tasks {
+		if task.Status == StatusCancelled {
+			continue
+		}
+		id := task.VideoID
+		if id == "" {
+			id = task.Title
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		copy := *task
 		result = append(result, &copy)
 	}
@@ -305,11 +329,11 @@ func (m *Manager) ListActiveTasks() []*DownloadTask {
 }
 
 // DeleteDownload removes a downloaded track from disk and unregisters it from the SQLite database.
-func (m *Manager) DeleteDownload(ctx context.Context, videoID string, deletePhysicalFile bool) error {
+func (m *Manager) DeleteDownload(ctx context.Context, identifier string, deletePhysicalFile bool) error {
 	m.mu.Lock()
-	task, exists := m.tasks[videoID]
-	if exists {
-		delete(m.tasks, videoID)
+	key, task := m.findTaskLocked(identifier)
+	if key != "" {
+		delete(m.tasks, key)
 	}
 	m.mu.Unlock()
 
@@ -331,6 +355,7 @@ func (m *Manager) DeleteDownload(ctx context.Context, videoID string, deletePhys
 
 	return nil
 }
+
 
 // runDownloadWorker coordinates 1 MB HTTP Range chunking, resume offsets, tagging, and atomic rename.
 func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
@@ -401,7 +426,13 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("stream resolution failed: %v", err))
 			return
 		}
-		task.VideoID = videoID
+		m.mu.Lock()
+		if task.VideoID != videoID {
+			delete(m.tasks, task.VideoID)
+			task.VideoID = videoID
+			m.tasks[videoID] = task
+		}
+		m.mu.Unlock()
 		task.streamURL = streamInfo.StreamURL
 		task.TotalBytes = streamInfo.ContentLength
 	}

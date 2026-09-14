@@ -2,7 +2,8 @@
  * Package: com.cubicreates.unboundmusic.notification
  * File: DownloadNotificationHelper.kt
  * Purpose: Android System Notification Manager for Unbound Offline MP3 Downloads.
- *          Displays real-time progress bars, completion alerts, and failure notifications.
+ *          Guarantees exactly ONE notification is displayed at any time by using
+ *          a dedicated progress ID and auto-dismissing prior progress alerts.
  * Subsystem: Offline Physical Downloader & Notifications
  * Concurrency: Thread-safe Android NotificationManagerCompat helper.
  */
@@ -19,7 +20,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.cubicreates.unboundmusic.MainActivity
-import com.cubicreates.unboundmusic.R
 
 class DownloadNotificationHelper(private val context: Context) {
 
@@ -27,7 +27,10 @@ class DownloadNotificationHelper(private val context: Context) {
         private const val TAG = "DownloadNotificationHelper"
         const val CHANNEL_ID = "unbound_downloads_channel"
         const val CHANNEL_NAME = "Unbound Downloads"
-        private const val BASE_NOTIFICATION_ID = 50000
+        
+        // Single unified notification IDs to ensure exactly ONE notification is shown
+        const val PROGRESS_NOTIF_ID = 54321
+        const val RESULT_NOTIF_ID = 54322
     }
 
     private val notificationManager = NotificationManagerCompat.from(context)
@@ -65,15 +68,12 @@ class DownloadNotificationHelper(private val context: Context) {
         return PendingIntent.getActivity(context, 0, intent, flags)
     }
 
-    private fun getNotificationId(videoId: String): Int {
-        val hash = (videoId.hashCode() and 0x7FFFFFFF) % 40000
-        return BASE_NOTIFICATION_ID + hash
-    }
-
     /** Posts an ongoing notification indicating that a download has queued or started. */
     fun notifyDownloadStarted(videoId: String, title: String, artist: String) {
         try {
-            val notifId = getNotificationId(videoId)
+            // Dismiss any old result notification first
+            notificationManager.cancel(RESULT_NOTIF_ID)
+
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(if (title.isNotBlank()) "Downloading: $title" else "Downloading music...")
@@ -84,7 +84,7 @@ class DownloadNotificationHelper(private val context: Context) {
                 .setContentIntent(getPendingIntent())
                 .setPriority(NotificationCompat.PRIORITY_LOW)
 
-            notificationManager.notify(notifId, builder.build())
+            notificationManager.notify(PROGRESS_NOTIF_ID, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted: ${e.message}")
         } catch (e: Exception) {
@@ -92,10 +92,9 @@ class DownloadNotificationHelper(private val context: Context) {
         }
     }
 
-    /** Updates the ongoing notification with numeric progress percentage (0 - 100). */
+    /** Updates the single ongoing notification with numeric progress percentage (0 - 100). */
     fun notifyDownloadProgress(videoId: String, title: String, artist: String, progressPercent: Int) {
         try {
-            val notifId = getNotificationId(videoId)
             val clamped = progressPercent.coerceIn(0, 100)
             val text = if (artist.isNotBlank()) "$clamped% • $artist • MP3" else "$clamped% • Unbound/Downloads"
 
@@ -109,7 +108,7 @@ class DownloadNotificationHelper(private val context: Context) {
                 .setContentIntent(getPendingIntent())
                 .setPriority(NotificationCompat.PRIORITY_LOW)
 
-            notificationManager.notify(notifId, builder.build())
+            notificationManager.notify(PROGRESS_NOTIF_ID, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted: ${e.message}")
         } catch (e: Exception) {
@@ -117,10 +116,12 @@ class DownloadNotificationHelper(private val context: Context) {
         }
     }
 
-    /** Posts a completion notification when the MP3 track is fully written and tagged. */
+    /** Replaces the progress notification with a dismissible completion notification. */
     fun notifyDownloadCompleted(videoId: String, title: String, artist: String) {
         try {
-            val notifId = getNotificationId(videoId)
+            // Dismiss ongoing progress bar notification
+            notificationManager.cancel(PROGRESS_NOTIF_ID)
+
             val text = if (artist.isNotBlank()) "$artist • Saved as MP3 to Unbound/Downloads" else "Saved as MP3 to Unbound/Downloads"
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -133,7 +134,7 @@ class DownloadNotificationHelper(private val context: Context) {
                 .setContentIntent(getPendingIntent())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
-            notificationManager.notify(notifId, builder.build())
+            notificationManager.notify(RESULT_NOTIF_ID, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted: ${e.message}")
         } catch (e: Exception) {
@@ -141,10 +142,12 @@ class DownloadNotificationHelper(private val context: Context) {
         }
     }
 
-    /** Posts a failure notification when stream download or tagging terminates with an error. */
+    /** Replaces the progress notification with a dismissible failure notification. */
     fun notifyDownloadFailed(videoId: String, title: String, artist: String, errorReason: String) {
         try {
-            val notifId = getNotificationId(videoId)
+            // Dismiss ongoing progress bar notification
+            notificationManager.cancel(PROGRESS_NOTIF_ID)
+
             val text = if (errorReason.isNotBlank()) errorReason else "Download failed"
 
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -157,7 +160,7 @@ class DownloadNotificationHelper(private val context: Context) {
                 .setContentIntent(getPendingIntent())
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
 
-            notificationManager.notify(notifId, builder.build())
+            notificationManager.notify(RESULT_NOTIF_ID, builder.build())
         } catch (e: SecurityException) {
             Log.w(TAG, "POST_NOTIFICATIONS permission not granted: ${e.message}")
         } catch (e: Exception) {
@@ -165,11 +168,11 @@ class DownloadNotificationHelper(private val context: Context) {
         }
     }
 
-    /** Cancels any active notification for this videoId. */
-    fun cancelNotification(videoId: String) {
+    /** Cancels all download notifications immediately. */
+    fun cancelNotification(videoId: String? = null) {
         try {
-            val notifId = getNotificationId(videoId)
-            notificationManager.cancel(notifId)
+            notificationManager.cancel(PROGRESS_NOTIF_ID)
+            notificationManager.cancel(RESULT_NOTIF_ID)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cancel download notification: ${e.message}")
         }

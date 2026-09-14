@@ -142,6 +142,8 @@ fun MainApp(
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
     val searchCategory by viewModel.searchCategory.collectAsStateWithLifecycle()
+    val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
+    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
     val vibeSearchResult by viewModel.vibeSearchResult.collectAsStateWithLifecycle()
     val equalizerCurve by viewModel.equalizerCurve.collectAsStateWithLifecycle()
@@ -299,8 +301,15 @@ fun MainApp(
                                     vibeState = vibeSearchResult,
                                     selectedCategory = searchCategory,
                                     chartTracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                    searchSuggestions = searchSuggestions,
+                                    searchHistory = searchHistory,
+                                    currentTrackId = currentTrack.id,
+                                    isPlaying = playbackState.isPlaying,
                                     onCategorySelected = { viewModel.setSearchCategory(it) },
                                     onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
+                                    onSearchSubmit = { viewModel.submitSearch(it) },
+                                    onSearchHistoryItemRemoved = { viewModel.removeSearchHistoryItem(it) },
+                                    onSearchHistoryCleared = { viewModel.clearSearchHistory() },
                                     onVibeSubmit = { viewModel.submitVibeQuery(it) },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
                                     onVibeTagClick = { tag -> viewModel.submitVibeQuery(tag.removePrefix("#")) },
@@ -315,7 +324,13 @@ fun MainApp(
                                     onArtistClick = { artistName ->
                                         viewingArtist = artistName
                                         viewModel.loadArtistProfile(artistName)
-                                    }
+                                    },
+                                    onPlayNextBatch = { tracks -> viewModel.playNextBatch(tracks) },
+                                    onAddToQueueBatch = { tracks -> viewModel.addToQueueBatch(tracks) },
+                                    onDownloadBatch = { tracks -> viewModel.downloadBatch(tracks) },
+                                    onPlayNextSingle = { track -> viewModel.playNextBatch(listOf(track)) },
+                                    onAddToQueueSingle = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                                    onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) }
                                 )
                             }
                             NavigationTab.LIBRARY -> {

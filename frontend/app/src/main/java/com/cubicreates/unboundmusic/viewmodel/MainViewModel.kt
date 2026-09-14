@@ -198,6 +198,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _searchResults = MutableStateFlow<List<TrackItem>>(emptyList())
     val searchResults: StateFlow<List<TrackItem>> = _searchResults.asStateFlow()
 
+    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
+
+    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
@@ -416,6 +422,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Restore persistent queue and active track across app restarts
         restoreLastPlaybackState()
+
+        // Load persistent search history
+        loadSearchHistory()
 
         // Orchestrate startup hydration with splash screen telemetry
         startStartupHydration()
@@ -1069,15 +1078,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         serviceConnection.previous()
     }
 
-    // ==================== YouTube Music Search ====================
+    // ==================== YouTube Music Search & Autocomplete ====================
 
     private var searchJob: kotlinx.coroutines.Job? = null
+    private var suggestionJob: kotlinx.coroutines.Job? = null
 
     /**
-     * Performs a live YouTube Music catalog search via the Go daemon with debouncing & fallback.
+     * Updates search query, fetches live autocomplete suggestions, and debounces catalog search.
      */
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
+        fetchSearchSuggestions(query)
         searchJob?.cancel()
         if (query.isBlank()) {
             _searchResults.value = emptyList()
@@ -1086,34 +1097,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         searchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(300) // 300ms debounce
-            _isSearching.value = true
-            try {
-                var foundTracks = false
-                val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val parsed = client.parseSearchResults(resp)
-                    if (parsed.isNotEmpty()) {
-                        _searchResults.value = parsed
-                        foundTracks = true
-                    }
-                }
+            delay(350) // 350ms debounce for full search
+            executeFullSearch(query)
+        }
+    }
 
-                // If daemon is starting up or returned empty, query YouTube Music public search
-                if (!foundTracks) {
-                    val fallbackResults = executeDirectYouTubeSearch(query)
-                    if (fallbackResults.isNotEmpty()) {
-                        _searchResults.value = fallbackResults
-                    }
+    /**
+     * Explicitly submits a search query (e.g. user taps enter, history, or a suggestion),
+     * records it into search history, and immediately executes catalog search.
+     */
+    fun submitSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        _searchQuery.value = trimmed
+        addSearchHistory(trimmed)
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
+            executeFullSearch(trimmed)
+        }
+    }
+
+    private suspend fun executeFullSearch(query: String) {
+        _isSearching.value = true
+        try {
+            var foundTracks = false
+            val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
+            if (code in 200..299 && resp.isNotBlank()) {
+                val parsed = client.parseSearchResults(resp)
+                if (parsed.isNotEmpty()) {
+                    _searchResults.value = parsed
+                    foundTracks = true
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "YouTube search error: ${e.message}")
+            }
+
+            // If daemon returned empty, query YouTube Music public search fallback
+            if (!foundTracks) {
                 val fallbackResults = executeDirectYouTubeSearch(query)
                 if (fallbackResults.isNotEmpty()) {
                     _searchResults.value = fallbackResults
                 }
-            } finally {
-                _isSearching.value = false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "YouTube search error: ${e.message}")
+            val fallbackResults = executeDirectYouTubeSearch(query)
+            if (fallbackResults.isNotEmpty()) {
+                _searchResults.value = fallbackResults
+            }
+        } finally {
+            _isSearching.value = false
+        }
+    }
+
+    /**
+     * Real-time autocomplete suggestions from YouTube Music suggest client.
+     */
+    fun fetchSearchSuggestions(query: String) {
+        suggestionJob?.cancel()
+        if (query.isBlank()) {
+            _searchSuggestions.value = emptyList()
+            return
+        }
+        suggestionJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+                val url = java.net.URL("https://suggestqueries-clients6.youtube.com/complete/search?client=youtube-music&hl=en&gl=US&q=$encoded")
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+                if (conn.responseCode in 200..299) {
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    val regex = Regex("""\["([^"]+)",0,""")
+                    val list = regex.findAll(text).map { it.groupValues[1] }.distinct().take(12).toList()
+                    _searchSuggestions.value = list
+                }
+            } catch (_: Exception) {
+                // Ignore transient network failures for suggestions
             }
         }
     }
@@ -1149,6 +1208,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    // ==================== Search History (Persistence) ====================
+
+    private fun loadSearchHistory() {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("unbound_search_history", android.content.Context.MODE_PRIVATE)
+            val raw = prefs.getString("queries", null)
+            if (!raw.isNullOrBlank()) {
+                val list = raw.split("||||").filter { it.isNotBlank() }
+                _searchHistory.value = list
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed loading search history: ${e.message}")
+        }
+    }
+
+    fun addSearchHistory(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        val current = _searchHistory.value.toMutableList()
+        current.remove(trimmed)
+        current.add(0, trimmed)
+        val capped = current.take(30)
+        _searchHistory.value = capped
+        saveSearchHistory(capped)
+    }
+
+    fun removeSearchHistoryItem(query: String) {
+        val current = _searchHistory.value.toMutableList()
+        current.remove(query)
+        _searchHistory.value = current
+        saveSearchHistory(current)
+    }
+
+    fun clearSearchHistory() {
+        _searchHistory.value = emptyList()
+        saveSearchHistory(emptyList())
+    }
+
+    private fun saveSearchHistory(list: List<String>) {
+        try {
+            val prefs = getApplication<Application>().getSharedPreferences("unbound_search_history", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putString("queries", list.joinToString("||||")).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed saving search history: ${e.message}")
+        }
+    }
+
+    // ==================== Multi-Select Batch Actions ====================
+
+    fun playNextBatch(tracks: List<TrackItem>) {
+        if (tracks.isEmpty()) return
+        val currentQueueList = _currentQueue.value.toMutableList()
+        val current = _currentTrack.value
+        val currentIndex = currentQueueList.indexOfFirst { it.id == current.id }
+        val insertIndex = if (currentIndex >= 0) currentIndex + 1 else 0
+        currentQueueList.addAll(insertIndex, tracks)
+        _currentQueue.value = currentQueueList
+        serviceConnection.setQueue(currentQueueList)
+    }
+
+    fun addToQueueBatch(tracks: List<TrackItem>) {
+        if (tracks.isEmpty()) return
+        val currentQueueList = _currentQueue.value.toMutableList()
+        currentQueueList.addAll(tracks)
+        _currentQueue.value = currentQueueList
+        serviceConnection.setQueue(currentQueueList)
+    }
+
+    fun downloadBatch(tracks: List<TrackItem>) {
+        tracks.forEach { track ->
+            if (track.id.isNotBlank()) {
+                startTrackDownload(track)
+            }
         }
     }
 

@@ -121,6 +121,9 @@ fun MainApp(
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
+    val autoDownloadLikedSongs by viewModel.autoDownloadLikedSongs.collectAsStateWithLifecycle()
+    val skipSilenceEnabled by viewModel.skipSilenceEnabled.collectAsStateWithLifecycle()
+    val normalizeVolumeEnabled by viewModel.normalizeVolumeEnabled.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
@@ -363,7 +366,13 @@ fun MainApp(
                 onYouTubeSyncClick = { launchYouTubeAuth() },
                 onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
                 onPurgeCacheClick = { viewModel.purgeCache() },
-                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() }
+                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
+                autoDownloadLikedSongs = autoDownloadLikedSongs,
+                skipSilenceEnabled = skipSilenceEnabled,
+                normalizeVolumeEnabled = normalizeVolumeEnabled,
+                onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
+                onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
+                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) }
             )
         }
 

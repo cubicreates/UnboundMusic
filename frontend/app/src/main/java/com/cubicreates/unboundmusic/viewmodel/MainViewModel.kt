@@ -675,22 +675,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _currentTrack.value = track
         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
 
-        // Ensure queue is populated with meaningful surrounding list context
+        // If track is not part of an existing multi-track queue, seed with this track and auto-hydrate YouTube automix
         val currentQ = _currentQueue.value
         val trackInQueue = currentQ.any {
             (it.id.isNotBlank() && it.id == track.id) ||
             (it.title.isNotBlank() && it.title.equals(track.title, ignoreCase = true))
         }
         if (currentQ.size <= 1 || !trackInQueue) {
-            val resolvedQueue = when {
-                _chartTracks.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _chartTracks.value
-                _searchResults.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _searchResults.value
-                _libraryTracks.value.any { it.id == track.id || it.title.equals(track.title, true) } -> _libraryTracks.value
-                defaultTopTracks.any { it.id == track.id || it.title.equals(track.title, true) } -> defaultTopTracks
-                else -> listOf(track) + defaultTopTracks.filter { it.id != track.id }
-            }
-            _currentQueue.value = resolvedQueue
-            serviceConnection.setQueue(resolvedQueue)
+            val initialQ = listOf(track)
+            _currentQueue.value = initialQ
+            serviceConnection.setQueue(initialQ)
+            fetchAutomixQueue(track)
         }
 
         // Immediately reset lyrics state and fetch for this specific track
@@ -874,9 +869,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Plays a selected track within a playlist context, populating the queue so Next/Previous work.
      */
     fun playTrackWithQueue(track: TrackItem, queue: List<TrackItem>) {
-        _currentQueue.value = queue
-        serviceConnection.setQueue(queue)
-        playTrack(track)
+        if (queue.size > 1) {
+            _currentQueue.value = queue
+            serviceConnection.setQueue(queue)
+            playTrack(track)
+        } else {
+            val initialQ = listOf(track)
+            _currentQueue.value = initialQ
+            serviceConnection.setQueue(initialQ)
+            playTrack(track)
+            fetchAutomixQueue(track)
+        }
+    }
+
+    private var automixJob: Job? = null
+
+    /**
+     * Queries YouTube Music's official /next automix algorithm (RDAMVM + videoId) to populate
+     * 25-50 algorithmically matched songs into the active player queue.
+     * Works for both signed-in (personalized) and guest users (acoustic/collaborative filtering).
+     */
+    fun fetchAutomixQueue(seedTrack: TrackItem, append: Boolean = false) {
+        if (seedTrack.id.isBlank() || seedTrack.id.startsWith("local:")) return
+        automixJob?.cancel()
+        automixJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getRadioNext(seedTrack.id)
+                var nextTracks: List<TrackItem> = emptyList()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    nextTracks = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
+                }
+
+                // Zero-fail fallback: If /next was empty or failed, use YouTube search radio query
+                if (nextTracks.isEmpty()) {
+                    val query = "${seedTrack.artist} ${seedTrack.title} radio"
+                    val (sCode, sResp) = client.search(query, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        nextTracks = client.parseSearchResults(sResp).filter { it.id != seedTrack.id }
+                    }
+                }
+
+                if (nextTracks.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        val updatedQueue = if (append) {
+                            val existingIds = _currentQueue.value.map { it.id }.toSet()
+                            _currentQueue.value + nextTracks.filter { !existingIds.contains(it.id) }
+                        } else {
+                            listOf(seedTrack) + nextTracks
+                        }
+                        _currentQueue.value = updatedQueue
+                        serviceConnection.setQueue(updatedQueue)
+                        Log.i(TAG, "Automix queue hydrated with ${nextTracks.size} algorithmic tracks for '${seedTrack.title}'")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch automix queue for ${seedTrack.id}: ${e.message}")
+            }
+        }
     }
 
     fun togglePlayPause() {
@@ -898,12 +947,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun getEffectiveQueue(): List<TrackItem> {
         val q = _currentQueue.value
-        if (q.size > 1) return q
+        if (q.isNotEmpty()) return q
         val sQueue = serviceConnection.playbackState.value.queue
-        if (sQueue.size > 1) return sQueue
-        if (_chartTracks.value.size > 1) return _chartTracks.value
+        if (sQueue.isNotEmpty()) return sQueue
         if (_searchResults.value.size > 1) return _searchResults.value
         if (_libraryTracks.value.size > 1) return _libraryTracks.value
+        if (_chartTracks.value.size > 1) return _chartTracks.value
         return defaultTopTracks
     }
 
@@ -915,6 +964,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 (it.id.isNotBlank() && it.id == current.id) ||
                 (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
             }
+
+            // Proactive infinite auto-play: When within 3 tracks of the end of the queue, fetch next batch
+            if (currentIndex >= q.size - 3 && q.isNotEmpty()) {
+                fetchAutomixQueue(q.last(), append = true)
+            }
+
             val nextIndex = if (currentIndex in 0 until q.size - 1) {
                 currentIndex + 1
             } else {

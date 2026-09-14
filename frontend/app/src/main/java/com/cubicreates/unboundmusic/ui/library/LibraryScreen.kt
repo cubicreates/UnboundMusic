@@ -240,13 +240,15 @@ fun LibraryScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     displayTracks.take(40).forEach { track ->
+                        val task = downloadTasks[track.id]
+                            ?: downloadTasks.values.find { it.title.isNotBlank() && it.title.equals(track.title, ignoreCase = true) }
                         LibraryTrackRow(
                             track = track,
-                            task = downloadTasks[track.id],
+                            task = task,
                             onClick = { onTrackSelect(track) },
                             onStartDownload = { onStartDownload(track) },
-                            onCancelDownload = { onCancelDownload(track.id) },
-                            onDeleteDownload = { onDeleteDownload(track.id) }
+                            onCancelDownload = { onCancelDownload(task?.videoId ?: track.id) },
+                            onDeleteDownload = { onDeleteDownload(task?.videoId ?: track.id) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }

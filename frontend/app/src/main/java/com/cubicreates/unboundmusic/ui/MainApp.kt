@@ -176,69 +176,17 @@ fun MainApp(
             .fillMaxSize()
             .background(UnboundBackground)
     ) {
-        if (isPlayerExpanded || selectedTab == NavigationTab.PLAYING) {
-            // Full Screen Immersive Now Playing
-            NowPlayingScreen(
-                track = currentTrack,
-                isPlaying = playbackState.isPlaying,
-                isFavorite = isFavorite,
-                progress = playbackState.progress,
-                currentPositionMs = playbackState.currentPositionMs,
-                formattedPosition = playbackState.formattedPosition,
-                formattedRemaining = playbackState.formattedRemaining,
-                lyricsLines = lyricsLines,
-                lyricsSource = lyricsSource,
-                romanizationMode = romanizationMode,
-                timingOffsetMs = lyricsTimingOffsetMs,
-                isInstrumental = isInstrumental,
-                onRomanizationModeChange = { viewModel.setRomanizationMode(it) },
-                onTimingOffsetChange = { viewModel.setLyricsTimingOffsetMs(it) },
-                canvasArtUrl = canvasArtUrl,
-                queue = playbackState.queue,
-                playbackMode = playbackState.playbackMode,
-                onCollapse = {
-                    isPlayerExpanded = false
-                    if (selectedTab == NavigationTab.PLAYING) {
-                        selectedTab = NavigationTab.HOME
-                    }
-                },
-                onPlayPauseToggle = { viewModel.togglePlayPause() },
-                onFavoriteToggle = { viewModel.toggleFavorite() },
-                onPreviousTrack = { viewModel.prevTrack() },
-                onNextTrack = { viewModel.nextTrack() },
-                onSeek = { viewModel.seekTo(it) },
-                onSeekPositionMs = { viewModel.seekToPositionMs(it) },
-                onCyclePlaybackMode = { viewModel.cyclePlaybackMode() },
-                onToggleShuffle = { viewModel.toggleShuffle() },
-                onCycleRepeatMode = { viewModel.cycleRepeatMode() },
-                onEqualizerClick = { showEqualizer = true },
-                onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) },
-                downloadStatus = currentDownloadStatus,
-                downloadProgress = currentDownloadProgress,
-                onStartDownload = { viewModel.startTrackDownload(currentTrack) },
-                onCancelDownload = { viewModel.cancelTrackDownload(currentTrack.id) },
-                onDeleteDownload = { viewModel.deleteTrackDownload(currentTrack.id) },
-                onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
-                onRemoveQueueItem = { index -> viewModel.removeQueueItem(index) },
-                sleepTimerState = sleepTimerState,
-                onStartSleepTimer = { minutes, endOfSong -> viewModel.startSleepTimer(minutes, endOfSong) },
-                onCancelSleepTimer = { viewModel.cancelSleepTimer() },
-                skippedSkitNotice = skippedSkitNotice,
-                onUndoSkip = { viewModel.undoSkitSkip() },
-                onDismissSkipNotice = { viewModel.dismissSkitNotice() }
-            )
-        } else {
-            // Standard Tab Navigation Content inside Responsive Scaffold
-            androidx.compose.material3.Scaffold(
-                modifier = Modifier.fillMaxSize(),
-                containerColor = UnboundBackground,
-                bottomBar = {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(UnboundBackground)
-                    ) {
-                        if (currentTrack.title.isNotBlank() && (playbackState.isPlaying || playbackState.currentPositionMs > 0)) {
+        // Standard Tab Navigation Content inside Responsive Scaffold
+        androidx.compose.material3.Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = UnboundBackground,
+            bottomBar = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(UnboundBackground)
+                ) {
+                    if (currentTrack.title.isNotBlank() && (playbackState.isPlaying || playbackState.currentPositionMs > 0) && !isPlayerExpanded) {
                             FloatingMiniPlayer(
                                 title = currentTrack.title,
                                 artist = currentTrack.artist,
@@ -380,13 +328,12 @@ fun MainApp(
                                 )
                             }
                             NavigationTab.PLAYING -> {
-                                // Handled by isPlayerExpanded above
+                                // Handled by isPlayerExpanded overlay
                             }
                         }
                     }
                 }
             }
-        }
 
         // Modal 1: Settings Screen
         if (showSettings) {
@@ -404,69 +351,6 @@ fun MainApp(
                 onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
                 onPurgeCacheClick = { viewModel.purgeCache() },
                 onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() }
-            )
-        }
-
-        // Modal 1.0: Zero-Typing YouTube Device Activation Sheet (Method 1)
-        if (showYouTubeDeviceAuthSheet) {
-            YouTubeDeviceAuthSheet(
-                deviceData = deviceAuthData,
-                isStarting = isStartingDeviceAuth,
-                isPolling = isPollingDeviceAuth,
-                errorMessage = deviceAuthError,
-                onDismiss = {
-                    showYouTubeDeviceAuthSheet = false
-                    viewModel.cancelDeviceAuth()
-                },
-                onRetry = {
-                    launchYouTubeAuth()
-                },
-                onSwitchToWebView = {
-                    showYouTubeDeviceAuthSheet = false
-                    viewModel.cancelDeviceAuth()
-                    showYouTubeLoginSheet = true
-                }
-            )
-        }
-
-        // Modal 1.1: YouTube In-App WebView Login Sheet (Manual Fallback)
-        if (showYouTubeLoginSheet) {
-            YouTubeLoginSheet(
-                onDismiss = { showYouTubeLoginSheet = false },
-                onCookieExtracted = { cookie ->
-                    viewModel.syncYouTubeAccount(cookie)
-                }
-            )
-        }
-
-        // Modal 2: 10-Band Equalizer Screen
-        if (showEqualizer) {
-            EqualizerScreen(
-                initialCurve = equalizerCurve,
-                initialBassBoost = bassBoostStrength,
-                initialVirtualizer = virtualizerStrength,
-                initialLoudness = loudnessGainMb,
-                customPresets = customEqPresets,
-                onCurveChanged = { viewModel.setEqualizerCurve(it) },
-                onBassBoostChanged = { viewModel.setBassBoost(it) },
-                onVirtualizerChanged = { viewModel.setVirtualizer(it) },
-                onLoudnessChanged = { viewModel.setLoudness(it) },
-                onSaveCustomPreset = { name, curve, bb, v, l ->
-                    viewModel.saveCustomEqPreset(name, curve, bb, v, l)
-                },
-                onAutoEqClick = { showAutoEqPicker = true },
-                onClose = { showEqualizer = false }
-            )
-        }
-
-        // Modal 3: AutoEq Headphone Picker Dialog
-        if (showAutoEqPicker) {
-            AutoEqPickerDialog(
-                searchResults = autoEqResults,
-                isSearching = isSearchingAutoEq,
-                onSearchQueryChanged = { viewModel.searchAutoEqPresets(it) },
-                onPresetSelected = { viewModel.applyAutoEqPreset(it) },
-                onDismiss = { showAutoEqPicker = false }
             )
         }
 
@@ -544,6 +428,122 @@ fun MainApp(
                         isPlayerExpanded = true
                     }
                 }
+            )
+        }
+
+        // Full Screen Immersive Now Playing Overlay (Pops in front of tabs, albums, artists, genres)
+        if (isPlayerExpanded || selectedTab == NavigationTab.PLAYING) {
+            NowPlayingScreen(
+                track = currentTrack,
+                isPlaying = playbackState.isPlaying,
+                isFavorite = isFavorite,
+                progress = playbackState.progress,
+                currentPositionMs = playbackState.currentPositionMs,
+                formattedPosition = playbackState.formattedPosition,
+                formattedRemaining = playbackState.formattedRemaining,
+                lyricsLines = lyricsLines,
+                lyricsSource = lyricsSource,
+                romanizationMode = romanizationMode,
+                timingOffsetMs = lyricsTimingOffsetMs,
+                isInstrumental = isInstrumental,
+                onRomanizationModeChange = { viewModel.setRomanizationMode(it) },
+                onTimingOffsetChange = { viewModel.setLyricsTimingOffsetMs(it) },
+                canvasArtUrl = canvasArtUrl,
+                queue = playbackState.queue,
+                playbackMode = playbackState.playbackMode,
+                onCollapse = {
+                    isPlayerExpanded = false
+                    if (selectedTab == NavigationTab.PLAYING) {
+                        selectedTab = NavigationTab.HOME
+                    }
+                },
+                onPlayPauseToggle = { viewModel.togglePlayPause() },
+                onFavoriteToggle = { viewModel.toggleFavorite() },
+                onPreviousTrack = { viewModel.prevTrack() },
+                onNextTrack = { viewModel.nextTrack() },
+                onSeek = { viewModel.seekTo(it) },
+                onSeekPositionMs = { viewModel.seekToPositionMs(it) },
+                onCyclePlaybackMode = { viewModel.cyclePlaybackMode() },
+                onToggleShuffle = { viewModel.toggleShuffle() },
+                onCycleRepeatMode = { viewModel.cycleRepeatMode() },
+                onEqualizerClick = { showEqualizer = true },
+                onQueueTrackSelect = { index -> viewModel.playQueueTrack(index) },
+                downloadStatus = currentDownloadStatus,
+                downloadProgress = currentDownloadProgress,
+                onStartDownload = { viewModel.startTrackDownload(currentTrack) },
+                onCancelDownload = { viewModel.cancelTrackDownload(currentTrack.id) },
+                onDeleteDownload = { viewModel.deleteTrackDownload(currentTrack.id) },
+                onMoveQueueItem = { from, to -> viewModel.moveQueueItem(from, to) },
+                onRemoveQueueItem = { index -> viewModel.removeQueueItem(index) },
+                sleepTimerState = sleepTimerState,
+                onStartSleepTimer = { minutes, endOfSong -> viewModel.startSleepTimer(minutes, endOfSong) },
+                onCancelSleepTimer = { viewModel.cancelSleepTimer() },
+                skippedSkitNotice = skippedSkitNotice,
+                onUndoSkip = { viewModel.undoSkitSkip() },
+                onDismissSkipNotice = { viewModel.dismissSkitNotice() }
+            )
+        }
+
+        // Modal 1.0: Zero-Typing YouTube Device Activation Sheet (Method 1)
+        if (showYouTubeDeviceAuthSheet) {
+            YouTubeDeviceAuthSheet(
+                deviceData = deviceAuthData,
+                isStarting = isStartingDeviceAuth,
+                isPolling = isPollingDeviceAuth,
+                errorMessage = deviceAuthError,
+                onDismiss = {
+                    showYouTubeDeviceAuthSheet = false
+                    viewModel.cancelDeviceAuth()
+                },
+                onRetry = {
+                    launchYouTubeAuth()
+                },
+                onSwitchToWebView = {
+                    showYouTubeDeviceAuthSheet = false
+                    viewModel.cancelDeviceAuth()
+                    showYouTubeLoginSheet = true
+                }
+            )
+        }
+
+        // Modal 1.1: YouTube In-App WebView Login Sheet (Manual Fallback)
+        if (showYouTubeLoginSheet) {
+            YouTubeLoginSheet(
+                onDismiss = { showYouTubeLoginSheet = false },
+                onCookieExtracted = { cookie ->
+                    viewModel.syncYouTubeAccount(cookie)
+                }
+            )
+        }
+
+        // Modal 2: 10-Band Equalizer Screen (Can open from Settings or NowPlayingScreen)
+        if (showEqualizer) {
+            EqualizerScreen(
+                initialCurve = equalizerCurve,
+                initialBassBoost = bassBoostStrength,
+                initialVirtualizer = virtualizerStrength,
+                initialLoudness = loudnessGainMb,
+                customPresets = customEqPresets,
+                onCurveChanged = { viewModel.setEqualizerCurve(it) },
+                onBassBoostChanged = { viewModel.setBassBoost(it) },
+                onVirtualizerChanged = { viewModel.setVirtualizer(it) },
+                onLoudnessChanged = { viewModel.setLoudness(it) },
+                onSaveCustomPreset = { name, curve, bb, v, l ->
+                    viewModel.saveCustomEqPreset(name, curve, bb, v, l)
+                },
+                onAutoEqClick = { showAutoEqPicker = true },
+                onClose = { showEqualizer = false }
+            )
+        }
+
+        // Modal 3: AutoEq Headphone Picker Dialog (Opens from Equalizer)
+        if (showAutoEqPicker) {
+            AutoEqPickerDialog(
+                searchResults = autoEqResults,
+                isSearching = isSearchingAutoEq,
+                onSearchQueryChanged = { viewModel.searchAutoEqPresets(it) },
+                onPresetSelected = { viewModel.applyAutoEqPreset(it) },
+                onDismiss = { showAutoEqPicker = false }
             )
         }
 

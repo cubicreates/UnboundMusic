@@ -43,6 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+
 enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     SEARCH("Search", Icons.Default.Search),
@@ -53,7 +58,12 @@ enum class NavigationTab(val label: String, val icon: ImageVector) {
 fun UnboundBottomNavBar(
     modifier: Modifier = Modifier,
     currentTab: NavigationTab = NavigationTab.HOME,
-    onTabSelected: (NavigationTab) -> Unit = {}
+    userAvatarUrl: String? = null,
+    accountName: String? = null,
+    isLoggedIn: Boolean = false,
+    isProfileActive: Boolean = false,
+    onTabSelected: (NavigationTab) -> Unit = {},
+    onProfileClick: () -> Unit = {}
 ) {
     Surface(
         modifier = modifier
@@ -73,7 +83,7 @@ fun UnboundBottomNavBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavigationTab.values().forEach { tab ->
-                val isSelected = tab == currentTab
+                val isSelected = tab == currentTab && !isProfileActive
                 val contentColor = if (isSelected) UnboundPrimary else Color(0xFFB0B0B0)
 
                 Column(
@@ -103,6 +113,74 @@ fun UnboundBottomNavBar(
                         color = contentColor
                     )
                 }
+            }
+
+            // User Profile Tab / Icon
+            val isProfileSelected = isProfileActive
+            val profileContentColor = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0)
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isProfileSelected) UnboundPrimary.copy(alpha = 0.12f) else Color.Transparent)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onProfileClick
+                    )
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = userAvatarUrl,
+                        contentDescription = "Profile",
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = 1.dp,
+                                color = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0),
+                                shape = CircleShape
+                            ),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (isLoggedIn && !accountName.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(UnboundPrimary.copy(alpha = 0.2f))
+                            .border(
+                                width = 1.dp,
+                                color = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0),
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = accountName.take(1).uppercase(),
+                            color = UnboundPrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Profile",
+                        tint = profileContentColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Profile",
+                    fontSize = 11.sp,
+                    fontWeight = if (isProfileSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = profileContentColor
+                )
             }
         }
     }

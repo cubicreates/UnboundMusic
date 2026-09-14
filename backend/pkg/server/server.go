@@ -294,6 +294,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
 	mux.HandleFunc("/api/v1/proxy/stream", s.handleProxyStream)
 	mux.HandleFunc("/api/v1/radio/magic", s.handleRadioMagic)
+	mux.HandleFunc("/api/v1/radio/next", s.handleRadioNext)
 	mux.HandleFunc("/api/v1/system/unpack-payload", s.handleUnpackPayload)
 
 	s.httpServer = &http.Server{
@@ -683,6 +684,38 @@ func (s *Server) handleRadioMagic(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleRadioNext generates YouTube's true algorithmic automix queue for a seed video.
+func (s *Server) handleRadioNext(w http.ResponseWriter, r *http.Request) {
+	videoID := strings.TrimSpace(r.URL.Query().Get("videoId"))
+	if videoID == "" {
+		videoID = strings.TrimSpace(r.URL.Query().Get("video_id"))
+	}
+	if videoID == "" {
+		videoID = strings.TrimSpace(r.URL.Query().Get("id"))
+	}
+	if videoID == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'videoId' is required")
+		return
+	}
+
+	if s.ytClient == nil {
+		writeError(w, http.StatusInternalServerError, "YouTube client not initialized")
+		return
+	}
+
+	tracks, err := s.ytClient.FetchRadioForTrack(r.Context(), videoID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch radio: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"seed_id": videoID,
+		"tracks":  tracks,
+		"count":   len(tracks),
+	})
 }
 
 // handlePeers returns active P2P nodes on local Wi-Fi.

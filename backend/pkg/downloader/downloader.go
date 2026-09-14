@@ -345,15 +345,63 @@ func (m *Manager) runDownloadWorker(ctx context.Context, task *DownloadTask) {
 
 	// 1. Resolve stream URL if not pre-populated
 	if task.streamURL == "" {
-		streamInfo, err := m.ytClient.GetStreamInfo(ctx, task.VideoID)
-		if err != nil && m.ytClient != nil && m.ytClient.HasCredentials() {
-			// If authenticated stream resolution failed, try unencumbered guest context
-			streamInfo, err = m.ytClient.GetStreamInfo(ytmusic.WithDisableAuth(ctx), task.VideoID)
+		videoID := task.VideoID
+		if videoID == "" || strings.HasPrefix(videoID, "local:") || len(videoID) != 11 {
+			// Video ID is not a standard 11-char YouTube ID, search YouTube Music first
+			searchQuery := task.Title
+			if task.Artist != "" {
+				searchQuery = fmt.Sprintf("%s %s", task.Artist, task.Title)
+			}
+			if m.ytClient != nil && searchQuery != "" {
+				tracks, err := m.ytClient.Search(ctx, searchQuery)
+				if err == nil && len(tracks) > 0 {
+					videoID = tracks[0].ID
+					if task.Title == "" {
+						task.Title = tracks[0].Title
+					}
+					if task.Artist == "" {
+						task.Artist = tracks[0].Artist
+					}
+				}
+			}
 		}
-		if err != nil {
+
+		var streamInfo *models.StreamInfo
+		var err error
+		if videoID != "" && len(videoID) == 11 && m.ytClient != nil {
+			streamInfo, err = m.ytClient.GetStreamInfo(ctx, videoID)
+			if err != nil && m.ytClient.HasCredentials() {
+				// If authenticated stream resolution failed, try unencumbered guest context
+				streamInfo, err = m.ytClient.GetStreamInfo(ytmusic.WithDisableAuth(ctx), videoID)
+			}
+		}
+
+		// Fallback search if stream resolution failed or video was unavailable
+		if (err != nil || streamInfo == nil || streamInfo.StreamURL == "") && m.ytClient != nil && task.Title != "" {
+			searchQuery := task.Title
+			if task.Artist != "" {
+				searchQuery = fmt.Sprintf("%s %s", task.Title, task.Artist)
+			}
+			altTracks, sErr := m.ytClient.Search(ctx, searchQuery)
+			if sErr == nil && len(altTracks) > 0 {
+				for _, alt := range altTracks {
+					if alt.ID != "" && alt.ID != videoID {
+						if altInfo, aErr := m.ytClient.GetStreamInfo(ctx, alt.ID); aErr == nil && altInfo != nil && altInfo.StreamURL != "" {
+							videoID = alt.ID
+							streamInfo = altInfo
+							err = nil
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if err != nil || streamInfo == nil || streamInfo.StreamURL == "" {
 			m.updateTaskStatus(task, StatusFailed, fmt.Sprintf("stream resolution failed: %v", err))
 			return
 		}
+		task.VideoID = videoID
 		task.streamURL = streamInfo.StreamURL
 		task.TotalBytes = streamInfo.ContentLength
 	}

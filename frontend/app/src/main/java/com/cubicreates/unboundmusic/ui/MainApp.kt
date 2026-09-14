@@ -55,6 +55,7 @@ import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
 import com.cubicreates.unboundmusic.ui.components.UnboundBottomNavBar
+import com.cubicreates.unboundmusic.ui.components.UnboundTopAppBar
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqPickerDialog
 import com.cubicreates.unboundmusic.ui.equalizer.EqualizerScreen
 import com.cubicreates.unboundmusic.ui.home.HomeScreen
@@ -185,6 +186,16 @@ fun MainApp(
         androidx.compose.material3.Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = UnboundBackground,
+            topBar = {
+                UnboundTopAppBar(
+                    currentTab = selectedTab,
+                    userAvatarUrl = userAvatarUrl,
+                    accountName = accountName,
+                    isLoggedIn = isYouTubeConnected,
+                    onMenuClick = { showSettings = true },
+                    onProfileClick = { showSettings = true }
+                )
+            },
             bottomBar = {
                 Column(
                     modifier = Modifier

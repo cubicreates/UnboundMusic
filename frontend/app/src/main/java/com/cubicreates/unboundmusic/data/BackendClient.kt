@@ -517,6 +517,47 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         get("/api/v1/podcasts/browse?id=${URLEncoder.encode(podcastId, "UTF-8")}")
     }
 
+    /** Fetches YouTube Music algorithmic automix radio queue for a seed videoId. */
+    suspend fun getRadioNext(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encoded = URLEncoder.encode(videoId, "UTF-8")
+        get("/api/v1/radio/next?videoId=$encoded")
+    }
+
+    /** Parses raw radio/next response JSON into TrackItem list. */
+    fun parseRadioNext(jsonStr: String): List<TrackItem> {
+        if (jsonStr.isBlank()) return emptyList()
+        return try {
+            val root = JSONObject(jsonStr)
+            val tracksArr = root.optJSONArray("tracks") ?: return emptyList()
+            val list = mutableListOf<TrackItem>()
+            for (i in 0 until tracksArr.length()) {
+                val tObj = tracksArr.getJSONObject(i)
+                val tId = tObj.optString("id")
+                if (tId.isBlank()) continue
+                val durSec = tObj.optLong("duration_seconds", 0L)
+                val durMs = if (durSec > 0) durSec * 1000 else tObj.optLong("duration_ms", 0L)
+                val cover = tObj.optString("thumbnail_url").ifBlank {
+                    "https://i.ytimg.com/vi/$tId/hqdefault.jpg"
+                }
+                list.add(
+                    TrackItem(
+                        id = tId,
+                        title = tObj.optString("title"),
+                        artist = tObj.optString("artist"),
+                        album = tObj.optString("album"),
+                        durationMs = durMs,
+                        coverUrl = cover,
+                        streamUrl = "",
+                        source = tObj.optString("source", "youtube")
+                    )
+                )
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     // ==================== SECTION 12: Social & Utilities ====================
 
     /** Create a shared listening room. */

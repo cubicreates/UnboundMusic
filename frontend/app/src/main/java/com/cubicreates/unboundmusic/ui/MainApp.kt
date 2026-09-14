@@ -291,7 +291,12 @@ fun MainApp(
                                     onMenuClick = {
                                         viewModel.loadRecap()
                                         showRecap = true
-                                    }
+                                    },
+                                    currentTrackId = currentTrack.id,
+                                    isPlaying = playbackState.isPlaying,
+                                    onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
+                                    onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                                    onDownload = { track -> viewModel.downloadBatch(listOf(track)) }
                                 )
                             }
                             NavigationTab.SEARCH -> {

@@ -74,7 +74,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 
 @Composable
 fun PersonalizedHomeScreen(
@@ -87,6 +90,8 @@ fun PersonalizedHomeScreen(
     daypartingState: DaypartingState? = null,
     isSyncing: Boolean = false,
     isLoadingMore: Boolean = false,
+    currentTrackId: String = "",
+    isPlaying: Boolean = false,
     onLoadMore: () -> Unit = {},
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onMoodSelect: (MoodItem) -> Unit = {},
@@ -94,9 +99,27 @@ fun PersonalizedHomeScreen(
     onMixClick: (MixDto) -> Unit = {},
     onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
-    onSyncClick: () -> Unit = {}
+    onSyncClick: () -> Unit = {},
+    onPlayNext: (TrackItem) -> Unit = {},
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onDownload: (TrackItem) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
+    var selectedMood by remember { mutableStateOf("All") }
+
+    // Quick picks tracks: smart shelf named "Quick picks" or "Quick" or first 16 synced tracks
+    val quickPicksShelf = smartShelves.find { it.title.contains("quick", ignoreCase = true) }
+    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood) {
+        val base = quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
+        if (selectedMood.equals("All", ignoreCase = true)) {
+            base
+        } else {
+            val filtered = base.filter { 
+                it.title.contains(selectedMood, ignoreCase = true) || it.artist.contains(selectedMood, ignoreCase = true) 
+            }
+            if (filtered.isNotEmpty()) filtered else base
+        }
+    }
 
     // Detect when user has scrolled near bottom (within 3 items of the end)
     val shouldLoadMore by remember {
@@ -113,24 +136,72 @@ fun PersonalizedHomeScreen(
         }
     }
 
-    LazyColumn(
-        state = listState,
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .padding(top = 8.dp, bottom = 24.dp)
+            .background(UnboundBackground)
     ) {
-        // 1. Personalized Google Welcome Card
-        item(key = "welcome_card") {
-            PersonalizedWelcomeCard(
-                accountName = accountName,
-                userAvatarUrl = userAvatarUrl,
-                syncedCount = syncedTracks.size,
-                isSyncing = isSyncing,
-                onProfileClick = onProfileClick,
-                onSyncClick = onSyncClick
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+        // Ambient dominant aura mesh at top of Home
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(340.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            UnboundPrimary.copy(alpha = 0.18f),
+                            UnboundTertiary.copy(alpha = 0.05f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 8.dp, bottom = 24.dp)
+        ) {
+            // 0. Mood/Moment Filter Pills
+            item(key = "mood_filter_pills") {
+                MoodFilterChipsRow(
+                    selectedMood = selectedMood,
+                    onMoodSelected = { selectedMood = it }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // 1. Personalized Google Welcome Card
+            item(key = "welcome_card") {
+                PersonalizedWelcomeCard(
+                    accountName = accountName,
+                    userAvatarUrl = userAvatarUrl,
+                    syncedCount = syncedTracks.size,
+                    isSyncing = isSyncing,
+                    onProfileClick = onProfileClick,
+                    onSyncClick = onSyncClick
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            // 2. 4-Row Snapping Quick Picks Grid (if tracks exist)
+            if (quickPicksTracks.isNotEmpty()) {
+                item(key = "quick_picks_grid") {
+                    QuickPicksSection(
+                        title = "Quick Picks",
+                        subtitle = "Start a radio or continuous mix",
+                        tracks = quickPicksTracks,
+                        currentTrackId = currentTrackId,
+                        isPlaying = isPlaying,
+                        onTrackSelect = onTrackSelect,
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onDownload = onDownload
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
 
         // 2. "Jump Back In" Liked Songs Carousel (if tracks synced)
         if (syncedTracks.isNotEmpty()) {
@@ -316,6 +387,7 @@ fun PersonalizedHomeScreen(
         }
     }
 }
+}
 
 @Composable
 private fun PersonalizedGridTrackCard(
@@ -440,11 +512,21 @@ private fun PersonalizedWelcomeCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            val hour = remember {
+                java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            }
+            val greeting = remember(hour) {
+                when (hour) {
+                    in 5..11 -> "Good morning"
+                    in 12..16 -> "Good afternoon"
+                    in 17..22 -> "Good evening"
+                    else -> "Good night"
+                }
+            }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "WELCOME BACK",
+                    text = greeting.uppercase(),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = UnboundPrimary,

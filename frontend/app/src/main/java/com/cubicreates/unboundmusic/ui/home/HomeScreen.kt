@@ -37,6 +37,8 @@ fun HomeScreen(
     isYouTubeConnected: Boolean = false,
     isSyncing: Boolean = false,
     isLoadingMore: Boolean = false,
+    currentTrackId: String = "",
+    isPlaying: Boolean = false,
     onLoadMore: () -> Unit = {},
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onMoodSelect: (MoodItem) -> Unit = {},
@@ -47,7 +49,10 @@ fun HomeScreen(
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSyncClick: () -> Unit = {},
-    onConnectClick: () -> Unit = {}
+    onConnectClick: () -> Unit = {},
+    onPlayNext: (TrackItem) -> Unit = {},
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onDownload: (TrackItem) -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -67,6 +72,8 @@ fun HomeScreen(
                 daypartingState = daypartingState,
                 isSyncing = isSyncing,
                 isLoadingMore = isLoadingMore,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
                 onLoadMore = onLoadMore,
                 onTrackSelect = onTrackSelect,
                 onMoodSelect = onMoodSelect,
@@ -74,7 +81,10 @@ fun HomeScreen(
                 onMixClick = onMixClick,
                 onAlbumPlaylistClick = onAlbumPlaylistClick,
                 onProfileClick = onProfileClick,
-                onSyncClick = onSyncClick
+                onSyncClick = onSyncClick,
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+                onDownload = onDownload
             )
         } else {
             GuestHomeScreen(
@@ -82,12 +92,17 @@ fun HomeScreen(
                 smartShelves = smartShelves,
                 daypartingState = daypartingState,
                 genreSections = genreSections,
+                currentTrackId = currentTrackId,
+                isPlaying = isPlaying,
                 onTrackSelect = onTrackSelect,
                 onMoodSelect = onMoodSelect,
                 onCapsuleSelect = onCapsuleSelect,
                 onGenreSelect = onGenreSelect,
                 onAlbumPlaylistClick = onAlbumPlaylistClick,
-                onConnectClick = onConnectClick
+                onConnectClick = onConnectClick,
+                onPlayNext = onPlayNext,
+                onAddToQueue = onAddToQueue,
+                onDownload = onDownload
             )
         }
     }

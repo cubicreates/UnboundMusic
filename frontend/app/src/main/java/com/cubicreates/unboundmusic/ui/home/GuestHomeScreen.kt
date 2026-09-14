@@ -29,8 +29,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Sync
@@ -39,6 +39,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +66,7 @@ import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
+import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 import coil.compose.AsyncImage
@@ -73,21 +78,114 @@ fun GuestHomeScreen(
     smartShelves: List<com.cubicreates.unboundmusic.data.SmartShelfDto> = emptyList(),
     daypartingState: DaypartingState? = null,
     genreSections: List<GenreSectionDto> = emptyList(),
+    currentTrackId: String = "",
+    isPlaying: Boolean = false,
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onGenreSelect: (GenreItemDto) -> Unit = {},
     onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
-    onConnectClick: () -> Unit = {}
+    onConnectClick: () -> Unit = {},
+    onPlayNext: (TrackItem) -> Unit = {},
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onDownload: (TrackItem) -> Unit = {}
 ) {
-    Column(
+    var selectedMood by remember { mutableStateOf("All") }
+
+    val hour = remember {
+        java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    }
+    val greeting = remember(hour) {
+        when (hour) {
+            in 5..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            in 17..22 -> "Good evening"
+            else -> "Good night"
+        }
+    }
+
+    val quickPicksTracks = remember(tracks, selectedMood) {
+        if (selectedMood.equals("All", ignoreCase = true)) {
+            tracks.take(16)
+        } else {
+            val filtered = tracks.filter { 
+                it.title.contains(selectedMood, ignoreCase = true) || it.artist.contains(selectedMood, ignoreCase = true) 
+            }
+            if (filtered.isNotEmpty()) filtered.take(16) else tracks.take(16)
+        }
+    }
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(top = 8.dp, bottom = 24.dp)
+            .background(UnboundBackground)
     ) {
-        // 1. Connect YouTube Call-To-Action Banner
-        ConnectYouTubeBanner(onConnectClick = onConnectClick)
+        // Ambient dominant aura mesh at top of Home
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(340.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            UnboundPrimary.copy(alpha = 0.18f),
+                            UnboundTertiary.copy(alpha = 0.05f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(top = 8.dp, bottom = 24.dp)
+        ) {
+            // 0. Mood/Moment Filter Pills
+            MoodFilterChipsRow(
+                selectedMood = selectedMood,
+                onMoodSelected = { selectedMood = it }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Time-Aware Salutation Pill
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$greeting, Explorer".uppercase(),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = UnboundPrimary,
+                    letterSpacing = 1.2.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 1. Connect YouTube Call-To-Action Banner
+            ConnectYouTubeBanner(onConnectClick = onConnectClick)
+
+            // 2. 4-Row Snapping Quick Picks Grid (from Billboard/Top tracks)
+            if (quickPicksTracks.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(20.dp))
+                QuickPicksSection(
+                    title = "Trending Quick Picks",
+                    subtitle = "Start a radio or continuous mix",
+                    tracks = quickPicksTracks,
+                    currentTrackId = currentTrackId,
+                    isPlaying = isPlaying,
+                    onTrackSelect = onTrackSelect,
+                    onPlayNext = onPlayNext,
+                    onAddToQueue = onAddToQueue,
+                    onDownload = onDownload
+                )
+            }
 
         // Native YouTube-esque Algorithmic Smart Shelves (Variations, Quick Picks, Artist Spotlights)
         if (smartShelves.isNotEmpty()) {
@@ -166,6 +264,8 @@ fun GuestHomeScreen(
         )
     }
 }
+}
+
 
 @Composable
 private fun ConnectYouTubeBanner(onConnectClick: () -> Unit) {
@@ -253,7 +353,7 @@ private fun ConnectYouTubeBanner(onConnectClick: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Icon(
-                    imageVector = Icons.Default.ArrowForward,
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp)
                 )

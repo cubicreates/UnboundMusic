@@ -1318,15 +1318,21 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     }
 
     /** Cancels an active download and deletes partial .part artifacts. */
-    suspend fun cancelDownload(videoId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
-        val payload = JSONObject().apply { put("video_id", videoId) }
+    suspend fun cancelDownload(videoId: String, title: String = ""): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("video_id", videoId)
+            put("track_id", videoId)
+            if (title.isNotBlank()) put("title", title)
+        }
         post("/api/v1/download/cancel", payload.toString())
     }
 
     /** Purges a downloaded track from physical disk and SQLite database. */
-    suspend fun deleteDownload(videoId: String, deleteFile: Boolean = true): Pair<Int, String> = withContext(Dispatchers.IO) {
+    suspend fun deleteDownload(videoId: String, deleteFile: Boolean = true, title: String = ""): Pair<Int, String> = withContext(Dispatchers.IO) {
         val payload = JSONObject().apply {
             put("video_id", videoId)
+            put("track_id", videoId)
+            if (title.isNotBlank()) put("title", title)
             put("delete_file", deleteFile)
         }
         post("/api/v1/download/delete", payload.toString())

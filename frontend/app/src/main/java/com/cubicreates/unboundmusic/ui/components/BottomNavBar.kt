@@ -46,8 +46,7 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     SEARCH("Search", Icons.Default.Search),
-    LIBRARY("Library", Icons.Default.Favorite),
-    PLAYING("Playing", Icons.Default.PlayArrow)
+    LIBRARY("Library", Icons.Default.Favorite)
 }
 
 @Composable

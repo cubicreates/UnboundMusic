@@ -44,9 +44,12 @@ import androidx.compose.ui.unit.sp
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.ui.theme.BorderGlass
+import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
+import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 
 enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
@@ -115,72 +118,50 @@ fun UnboundBottomNavBar(
                 }
             }
 
-            // User Profile Tab / Icon
-            val isProfileSelected = isProfileActive
-            val profileContentColor = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0)
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+            // User Avatar / Profile Button (moved directly from top navbar)
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (isProfileSelected) UnboundPrimary.copy(alpha = 0.12f) else Color.Transparent)
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceGlassHighest)
+                    .border(
+                        width = 1.dp,
+                        color = if (isProfileActive) UnboundPrimary
+                                else if (isLoggedIn) UnboundPrimary.copy(alpha = 0.6f)
+                                else BorderGlass,
+                        shape = CircleShape
+                    )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onProfileClick
-                    )
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = userAvatarUrl,
-                        contentDescription = "Profile",
+                        contentDescription = "User Avatar",
                         modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .border(
-                                width = 1.dp,
-                                color = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0),
-                                shape = CircleShape
-                            ),
+                            .fillMaxSize()
+                            .clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
                 } else if (isLoggedIn && !accountName.isNullOrBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(UnboundPrimary.copy(alpha = 0.2f))
-                            .border(
-                                width = 1.dp,
-                                color = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0),
-                                shape = CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = accountName.take(1).uppercase(),
-                            color = UnboundPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        text = accountName.take(1).uppercase(),
+                        color = UnboundPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 } else {
                     Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Profile",
-                        tint = profileContentColor,
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = "Sign In / Profile",
+                        tint = OnSurfaceVariant,
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Profile",
-                    fontSize = 11.sp,
-                    fontWeight = if (isProfileSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = profileContentColor
-                )
             }
         }
     }

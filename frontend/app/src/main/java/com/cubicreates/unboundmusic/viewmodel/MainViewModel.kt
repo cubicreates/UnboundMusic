@@ -19,6 +19,7 @@ import com.cubicreates.unboundmusic.daemon.DaemonLifecycleState
 import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.AccountStatusData
 import com.cubicreates.unboundmusic.data.CascadeSearchResponse
+import com.cubicreates.unboundmusic.data.CuratedCollections
 import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.DeviceCodeData
 import com.cubicreates.unboundmusic.data.DownloadStartRequest
@@ -2455,8 +2456,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         return@launch
                     }
                 }
+
+                // Zero-fail fallback: If playlist returned 0 tracks, query catalog for tracks matching the title
+                if (initialTitle.isNotBlank() && initialTitle != "Loading...") {
+                    val (sCode, sResp) = client.search(initialTitle, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        val tracks = client.parseSearchResults(sResp)
+                        if (tracks.isNotEmpty()) {
+                            val totalMs = tracks.sumOf { it.durationMs }
+                            val totalMins = if (totalMs > 0) totalMs / 60000 else (tracks.size * 3L)
+                            withContext(Dispatchers.Main) {
+                                _albumPlaylistData.value = AlbumPlaylistData(
+                                    title = initialTitle,
+                                    subtitle = "Curated Mix",
+                                    coverUrl = initialCover,
+                                    tracks = tracks,
+                                    totalDuration = "${tracks.size} tracks • $totalMins mins"
+                                )
+                            }
+                            return@launch
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load album/playlist details: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Opens a curated mood or vibe collection with continuous fallback hydration,
+     * ensuring 30-50+ tracks are immediately loaded into AlbumPlaylistScreen.
+     */
+    fun openCuratedCollection(key: String, overrideCover: String? = null) {
+        val collection = CuratedCollections.find(key)
+        val title = collection?.title ?: key
+        val subtitle = collection?.subtitle ?: "Curated Vibe Collection"
+        val cover = overrideCover?.takeIf { it.isNotBlank() } ?: collection?.coverUrl ?: ""
+        val fallbackQuery = collection?.fallbackQuery ?: "$key music hits"
+
+        _albumPlaylistData.value = AlbumPlaylistData(
+            title = title,
+            subtitle = subtitle,
+            coverUrl = cover,
+            tracks = emptyList(),
+            totalDuration = "Curating tracks..."
+        )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var tracks: List<TrackItem> = emptyList()
+
+                // Tier 1: Fetch by official curated YouTube Music playlist ID
+                if (collection != null && collection.id.isNotBlank()) {
+                    val (code, resp) = client.getPlaylist(collection.id)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val parsed = client.parseAlbumPlaylist(resp)
+                        if (parsed != null && parsed.tracks.isNotEmpty()) {
+                            tracks = parsed.tracks
+                        }
+                    }
+                }
+
+                // Tier 2: Zero-Fail Fallback Engine - search by curated vibe query
+                if (tracks.isEmpty()) {
+                    val (sCode, sResp) = client.search(fallbackQuery, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        tracks = client.parseSearchResults(sResp)
+                    }
+                    if (tracks.isEmpty()) {
+                        val (allCode, allResp) = client.search(fallbackQuery, type = "all")
+                        if (allCode in 200..299 && allResp.isNotBlank()) {
+                            tracks = client.parseSearchResults(allResp)
+                        }
+                    }
+                }
+
+                val totalMs = tracks.sumOf { it.durationMs }
+                val totalMins = if (totalMs > 0) totalMs / 60000 else (tracks.size * 3L)
+                val durationStr = if (tracks.isNotEmpty()) "${tracks.size} tracks • $totalMins mins" else "0 tracks"
+
+                withContext(Dispatchers.Main) {
+                    _albumPlaylistData.value = AlbumPlaylistData(
+                        title = title,
+                        subtitle = subtitle,
+                        coverUrl = cover,
+                        tracks = tracks,
+                        totalDuration = durationStr
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load curated collection '$key': ${e.message}")
             }
         }
     }

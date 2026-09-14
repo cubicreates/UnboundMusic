@@ -204,17 +204,7 @@ fun MainApp(
                         UnboundBottomNavBar(
                             currentTab = selectedTab,
                             onTabSelected = { tab ->
-                                if (tab == NavigationTab.PLAYING) {
-                                    if (playbackState.isPlaying || playbackState.currentPositionMs > 0) {
-                                        isPlayerExpanded = true
-                                    } else {
-                                        viewModel.triggerMagicRadio {
-                                            isPlayerExpanded = true
-                                        }
-                                    }
-                                } else {
-                                    selectedTab = tab
-                                }
+                                selectedTab = tab
                             }
                         )
                     }
@@ -327,9 +317,6 @@ fun MainApp(
                                     onProfileClick = { showSettings = true }
                                 )
                             }
-                            NavigationTab.PLAYING -> {
-                                // Handled by isPlayerExpanded overlay
-                            }
                         }
                     }
                 }
@@ -432,7 +419,7 @@ fun MainApp(
         }
 
         // Full Screen Immersive Now Playing Overlay (Pops in front of tabs, albums, artists, genres)
-        if (isPlayerExpanded || selectedTab == NavigationTab.PLAYING) {
+        if (isPlayerExpanded) {
             NowPlayingScreen(
                 track = currentTrack,
                 isPlaying = playbackState.isPlaying,
@@ -453,9 +440,6 @@ fun MainApp(
                 playbackMode = playbackState.playbackMode,
                 onCollapse = {
                     isPlayerExpanded = false
-                    if (selectedTab == NavigationTab.PLAYING) {
-                        selectedTab = NavigationTab.HOME
-                    }
                 },
                 onPlayPauseToggle = { viewModel.togglePlayPause() },
                 onFavoriteToggle = { viewModel.toggleFavorite() },

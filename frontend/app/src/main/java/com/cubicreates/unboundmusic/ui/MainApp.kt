@@ -421,7 +421,16 @@ fun MainApp(
                         viewModel.playTrackWithQueue(shuffled.first(), shuffled)
                         isPlayerExpanded = true
                     }
-                }
+                },
+                onStartDownload = { track ->
+                    viewModel.startTrackDownload(track)
+                },
+                onDownloadAll = {
+                    albumData.tracks.forEach { track ->
+                        viewModel.startTrackDownload(track)
+                    }
+                },
+                downloadedTrackIds = downloadedTrackIds
             )
         }
 

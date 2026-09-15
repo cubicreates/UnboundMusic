@@ -247,6 +247,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
 
+    private val _downloadSpeedBps = MutableStateFlow(0L)
+    val downloadSpeedBps: StateFlow<Long> = _downloadSpeedBps.asStateFlow()
+
+    private val _downloadedMusicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val downloadedMusicTracks: StateFlow<List<TrackItem>> = _downloadedMusicTracks.asStateFlow()
+
+    private val _cacheSizeMB = MutableStateFlow(0.0)
+    val cacheSizeMB: StateFlow<Double> = _cacheSizeMB.asStateFlow()
+
+    private val _downloadsSizeMB = MutableStateFlow(0.0)
+    val downloadsSizeMB: StateFlow<Double> = _downloadsSizeMB.asStateFlow()
+
+    private val _freeStorageGB = MutableStateFlow(0.0)
+    val freeStorageGB: StateFlow<Double> = _freeStorageGB.asStateFlow()
+
     private var isPollingDownloads = false
 
     // ==================== YouTube Account & Synced Library State ====================
@@ -438,6 +453,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Resume download polling if previous active tasks exist
         startDownloadPollingLoop()
+        loadDownloadedMusicFiles()
+        updateStorageMetrics()
 
         // Auto-advance to next track when playback of current song ends
         serviceConnection.onTrackEndedListener = {
@@ -1703,6 +1720,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshLibrary() {
         rescanLocalStorage()
+        loadDownloadedMusicFiles()
+        updateStorageMetrics()
     }
 
     // ==================== Phase 5: Offline Downloader Orchestration ====================
@@ -1868,6 +1887,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         isPollingDownloads = true
 
         viewModelScope.launch(Dispatchers.IO) {
+            var prevBytes = 0L
+            var prevTime = System.currentTimeMillis()
+
             try {
                 while (isActive) {
                     val (code, resp) = client.getActiveDownloads()
@@ -1881,6 +1903,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         val taskMap = validTasks.associateBy { it.videoId }
                         _downloadTasks.value = taskMap
+
+                        // Calculate live download speed across all downloading tasks
+                        val currentBytes = validTasks.filter { it.status == "DOWNLOADING" || it.status == "TAGGING" }
+                            .sumOf { it.downloadedBytes }
+                        val now = System.currentTimeMillis()
+                        val elapsedSec = (now - prevTime) / 1000.0
+                        if (elapsedSec >= 0.8 && prevBytes > 0) {
+                            val delta = (currentBytes - prevBytes).coerceAtLeast(0)
+                            _downloadSpeedBps.value = (delta / elapsedSec).toLong()
+                        }
+                        prevBytes = currentBytes
+                        prevTime = now
 
                         // Update Android notifications for active/failed tasks
                         val downloadingTask = validTasks.firstOrNull { it.status == "DOWNLOADING" || it.status == "TAGGING" }
@@ -1911,6 +1945,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _downloadedTrackIds.value = prevCompleted + completedIds
                             if (newlyCompleted.isNotEmpty()) {
                                 refreshLibrary()
+                                loadDownloadedMusicFiles()
                                 for (task in newlyCompleted) {
                                     downloadNotificationHelper.notifyDownloadCompleted(
                                         task.videoId,
@@ -1945,9 +1980,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             it.status == "QUEUED" || it.status == "DOWNLOADING" || it.status == "TAGGING"
                         }
                         if (!hasActive) {
+                            _downloadSpeedBps.value = 0L
                             break
                         }
                     } else {
+                        _downloadSpeedBps.value = 0L
                         break
                     }
                     delay(1000)
@@ -1956,6 +1993,196 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Download polling loop finished: ${e.message}")
             } finally {
                 isPollingDownloads = false
+                _downloadSpeedBps.value = 0L
+            }
+        }
+    }
+
+    /** Pauses an active download. */
+    fun pauseDownload(videoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val current = _downloadTasks.value.toMutableMap()
+                current[videoId]?.let {
+                    current[videoId] = it.copy(status = "PAUSED")
+                    _downloadTasks.value = current
+                }
+                client.pauseDownload(videoId)
+            } catch (e: Exception) {
+                Log.e(TAG, "pauseDownload failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Resumes a paused download. */
+    fun resumeDownload(videoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val current = _downloadTasks.value.toMutableMap()
+                current[videoId]?.let {
+                    current[videoId] = it.copy(status = "DOWNLOADING")
+                    _downloadTasks.value = current
+                }
+                client.resumeDownload(videoId)
+                startDownloadPollingLoop()
+            } catch (e: Exception) {
+                Log.e(TAG, "resumeDownload failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Retries a failed or paused download. */
+    fun retryDownload(task: DownloadTaskDto) {
+        startTrackDownload(
+            TrackItem(
+                id = task.videoId,
+                title = task.title,
+                artist = task.artist,
+                album = task.album,
+                coverUrl = task.artworkUrl
+            )
+        )
+    }
+
+    /** Loads physical downloaded music files and updates storage metrics. */
+    fun loadDownloadedMusicFiles() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.getDownloadedFiles()
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val tracks = client.parseDownloadedFiles(resp)
+                    _downloadedMusicTracks.value = tracks
+                    var totalBytes = 0L
+                    for (t in tracks) {
+                        if (t.streamUrl.startsWith("file://")) {
+                            val f = java.io.File(t.streamUrl.removePrefix("file://"))
+                            if (f.exists()) {
+                                totalBytes += f.length()
+                            }
+                        }
+                    }
+                    _downloadsSizeMB.value = (totalBytes / (1024.0 * 1024.0))
+                } else {
+                    val local = client.getLocalTracks("Unbound Downloads")
+                    _downloadedMusicTracks.value = local.map { it.toTrackItem() }
+                    _downloadsSizeMB.value = local.sumOf { it.fileSize } / (1024.0 * 1024.0)
+                }
+                updateStorageMetrics()
+            } catch (e: Exception) {
+                Log.w(TAG, "loadDownloadedMusicFiles failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Recalculates storage usage and free space on device. */
+    fun updateStorageMetrics() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                var cacheBytes = 0L
+                context.cacheDir?.let { cacheBytes += calculateDirectorySize(it) }
+                context.externalCacheDir?.let { cacheBytes += calculateDirectorySize(it) }
+                _cacheSizeMB.value = (cacheBytes / (1024.0 * 1024.0))
+
+                val stat = android.os.StatFs(context.filesDir.absolutePath)
+                val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
+                _freeStorageGB.value = (freeBytes / (1024.0 * 1024.0 * 1024.0))
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun calculateDirectorySize(dir: java.io.File): Long {
+        if (!dir.exists()) return 0L
+        if (dir.isFile) return dir.length()
+        var size = 0L
+        dir.listFiles()?.forEach { child ->
+            size += if (child.isDirectory) calculateDirectorySize(child) else child.length()
+        }
+        return size
+    }
+
+    /** Clears temporary image and stream caches without deleting user downloaded audio files. */
+    fun clearCacheAndStorage(onResult: (String) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                var freedAppCache = 0L
+                context.cacheDir?.let {
+                    freedAppCache += calculateDirectorySize(it)
+                    it.deleteRecursively()
+                    it.mkdirs()
+                }
+                context.externalCacheDir?.let {
+                    freedAppCache += calculateDirectorySize(it)
+                    it.deleteRecursively()
+                    it.mkdirs()
+                }
+                val (code, resp) = client.purgeStorageCache()
+                val backendFreed = if (code in 200..299) {
+                    client.parseCachePurgeResult(resp)?.freedBytes ?: 0L
+                } else 0L
+
+                val totalFreedMB = ((freedAppCache + backendFreed) / (1024.0 * 1024.0)).coerceAtLeast(0.0)
+                updateStorageMetrics()
+                withContext(Dispatchers.Main) {
+                    val msg = String.format("Freed %.1f MB cache! Offline downloads preserved.", totalFreedMB)
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
+                    onResult(msg)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    val errMsg = "Cache clean error: ${e.message}"
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
+                    onResult(errMsg)
+                }
+            }
+        }
+    }
+
+    /** Triggers system MediaScanner to index Unbound/Downloads/ into public Android audio stores. */
+    fun exportDownloadsToPublicStorage(onResult: (String) -> Unit = {}) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+                val tracks = _downloadedMusicTracks.value
+                val pathsToScan = mutableListOf<String>()
+
+                for (t in tracks) {
+                    if (t.streamUrl.startsWith("file://")) {
+                        val path = t.streamUrl.removePrefix("file://")
+                        val f = java.io.File(path)
+                        if (f.exists()) {
+                            pathsToScan.add(f.absolutePath)
+                        }
+                    }
+                }
+
+                if (pathsToScan.isNotEmpty()) {
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        pathsToScan.toTypedArray(),
+                        null
+                    ) { path, uri ->
+                        Log.i(TAG, "Exported & Indexed to MediaStore: $path -> $uri")
+                    }
+                    withContext(Dispatchers.Main) {
+                        val msg = "Exported ${pathsToScan.size} tracks to device media library!"
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
+                        onResult(msg)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        val msg = "No downloaded tracks to export."
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
+                        onResult(msg)
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    val errMsg = "Export error: ${e.message}"
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
+                    onResult(errMsg)
+                }
             }
         }
     }

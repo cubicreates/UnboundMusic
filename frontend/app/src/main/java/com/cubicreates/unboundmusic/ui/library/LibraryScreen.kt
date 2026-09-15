@@ -97,7 +97,8 @@ fun LibraryScreen(
     downloadTasks: Map<String, DownloadTaskDto> = emptyMap(),
     onStartDownload: (TrackItem) -> Unit = {},
     onCancelDownload: (String) -> Unit = {},
-    onDeleteDownload: (String) -> Unit = {}
+    onDeleteDownload: (String) -> Unit = {},
+    onOpenDownloadsHub: () -> Unit = {}
 ) {
     var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
 
@@ -208,8 +209,12 @@ fun LibraryScreen(
                                 source = source,
                                 modifier = Modifier.weight(1f),
                                 onClick = {
-                                    selectedSourceTitle = if (selectedSourceTitle == source.title) null else source.title
-                                    onSourceClick(source)
+                                    if (source.title == "Downloads") {
+                                        onOpenDownloadsHub()
+                                    } else {
+                                        selectedSourceTitle = if (selectedSourceTitle == source.title) null else source.title
+                                        onSourceClick(source)
+                                    }
                                 }
                             )
                         }

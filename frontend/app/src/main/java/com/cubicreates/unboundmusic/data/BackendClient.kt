@@ -235,6 +235,80 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         }
     }
 
+    // ==================== SECTION 3.2: Return YouTube Dislike (RYD) & Like Ratio ====================
+
+    /**
+     * Queries Return YouTube Dislike (RYD) statistics for a video ID.
+     * Primary: Local Go daemon endpoint /api/v1/ryd/votes?videoId={videoId} (cached, low latency).
+     * Fallback: Direct call to https://returnyoutubedislikeapi.com/votes?videoId={videoId}
+     *           if daemon is unreachable or returns non-200.
+     */
+    suspend fun getRydVotes(videoId: String): RydVoteData? = withContext(Dispatchers.IO) {
+        if (videoId.isBlank()) return@withContext null
+
+        // 1. Primary: Query embedded daemon
+        try {
+            val (status, body) = get("/api/v1/ryd/votes?videoId=${URLEncoder.encode(videoId, "UTF-8")}")
+            if (status == 200 && body.isNotBlank()) {
+                val json = JSONObject(body)
+                val likes = json.optLong("likes", 0L)
+                val dislikes = json.optLong("dislikes", 0L)
+                val rating = json.optDouble("rating", 0.0)
+                val viewCount = json.optLong("view_count", json.optLong("viewCount", 0L))
+                val likePct = json.optInt("like_percentage", -1)
+                val calculatedPct = if (likePct >= 0) {
+                    likePct
+                } else {
+                    val total = likes + dislikes
+                    if (total > 0) ((likes.toDouble() / total.toDouble()) * 100).toInt().coerceIn(0, 100) else 100
+                }
+
+                return@withContext RydVoteData(
+                    id = json.optString("id", videoId),
+                    likes = likes,
+                    dislikes = dislikes,
+                    rating = rating,
+                    viewCount = viewCount,
+                    likePercentage = calculatedPct
+                )
+            }
+        } catch (_: Throwable) {}
+
+        // 2. Direct HTTPS Fallback to RYD upstream
+        try {
+            val directReq = Request.Builder()
+                .url("https://returnyoutubedislikeapi.com/votes?videoId=${URLEncoder.encode(videoId, "UTF-8")}")
+                .header("User-Agent", "UnboundMusic/1.0.0 (FOSS Android Client)")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            sharedOkHttpClient.newCall(directReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: return@withContext null
+                    val json = JSONObject(body)
+                    val likes = json.optLong("likes", 0L)
+                    val dislikes = json.optLong("dislikes", 0L)
+                    val rating = json.optDouble("rating", 0.0)
+                    val viewCount = json.optLong("viewCount", json.optLong("view_count", 0L))
+                    val total = likes + dislikes
+                    val pct = if (total > 0) ((likes.toDouble() / total.toDouble()) * 100).toInt().coerceIn(0, 100) else 100
+
+                    return@withContext RydVoteData(
+                        id = json.optString("id", videoId),
+                        likes = likes,
+                        dislikes = dislikes,
+                        rating = rating,
+                        viewCount = viewCount,
+                        likePercentage = pct
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
+        null
+    }
+
     // ==================== SECTION 4: Spotify Canvas ====================
 
     /** Fetches high-resolution visual assets (canvas video, album art, artist portrait). */

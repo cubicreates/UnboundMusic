@@ -168,6 +168,7 @@ fun MainApp(
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
     val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
+    val rydVotes by viewModel.rydVotes.collectAsStateWithLifecycle()
 
     val currentTask = downloadTasks[currentTrack.id]
         ?: downloadTasks.values.find { it.title.isNotBlank() && it.title.equals(currentTrack.title, ignoreCase = true) }
@@ -532,7 +533,9 @@ fun MainApp(
                 onCancelSleepTimer = { viewModel.cancelSleepTimer() },
                 skippedSkitNotice = skippedSkitNotice,
                 onUndoSkip = { viewModel.undoSkitSkip() },
-                onDismissSkipNotice = { viewModel.dismissSkitNotice() }
+                onDismissSkipNotice = { viewModel.dismissSkitNotice() },
+                rydData = rydVotes,
+                onRefreshRydVotes = { viewModel.refreshRydVotes() }
             )
         }
 

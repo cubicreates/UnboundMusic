@@ -393,3 +393,32 @@ data class AlbumPlaylistDto(
     }
 }
 
+/**
+ * Return YouTube Dislike (RYD) community vote statistics and approval percentage.
+ */
+data class RydVoteData(
+    val id: String,
+    val likes: Long,
+    val dislikes: Long,
+    val rating: Double,
+    val viewCount: Long,
+    val likePercentage: Int
+) {
+    /**
+     * Human-friendly compact number formatting (e.g. 1.2M, 45K).
+     */
+    val formattedLikes: String get() = formatCompactNumber(likes)
+    val formattedDislikes: String get() = formatCompactNumber(dislikes)
+    val formattedViews: String get() = formatCompactNumber(viewCount)
+
+    companion object {
+        fun formatCompactNumber(number: Long): String {
+            if (number < 0) return "0"
+            if (number < 1_000) return number.toString()
+            if (number < 1_000_000) return String.format(java.util.Locale.US, "%.1fK", number / 1_000.0).replace(".0K", "K")
+            if (number < 1_000_000_000) return String.format(java.util.Locale.US, "%.1fM", number / 1_000_000.0).replace(".0M", "M")
+            return String.format(java.util.Locale.US, "%.1fB", number / 1_000_000_000.0).replace(".0B", "B")
+        }
+    }
+}
+

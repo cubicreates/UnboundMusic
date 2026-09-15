@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,6 +58,8 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.ThumbDown
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
@@ -84,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.RomanizationMode
+import com.cubicreates.unboundmusic.data.RydVoteData
 import com.cubicreates.unboundmusic.data.SleepTimerState
 import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.ui.components.DownloadButton
@@ -146,7 +150,9 @@ fun NowPlayingScreen(
     onCancelSleepTimer: () -> Unit = {},
     skippedSkitNotice: SkitSkipNotice? = null,
     onUndoSkip: () -> Unit = {},
-    onDismissSkipNotice: () -> Unit = {}
+    onDismissSkipNotice: () -> Unit = {},
+    rydData: RydVoteData? = null,
+    onRefreshRydVotes: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("unbound_player_prefs", Context.MODE_PRIVATE) }
@@ -166,6 +172,7 @@ fun NowPlayingScreen(
     var showQueueSheet by remember { mutableStateOf(false) }
     var showFullLyrics by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
+    var showRydStatsSheet by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -250,7 +257,9 @@ fun NowPlayingScreen(
                         onOpenQueue = { showQueueSheet = true },
                         onOpenFullLyrics = { showFullLyrics = true },
                         onUndoSkip = onUndoSkip,
-                        onDismissSkipNotice = onDismissSkipNotice
+                        onDismissSkipNotice = onDismissSkipNotice,
+                        rydData = rydData,
+                        onOpenRydStats = { showRydStatsSheet = true }
                     )
                 }
 
@@ -286,7 +295,9 @@ fun NowPlayingScreen(
                         onPlayPauseToggle = onPlayPauseToggle,
                         onNextTrack = onNextTrack,
                         onCycleRepeatMode = onCycleRepeatMode,
-                        onOpenQueue = { showQueueSheet = true }
+                        onOpenQueue = { showQueueSheet = true },
+                        rydData = rydData,
+                        onOpenRydStats = { showRydStatsSheet = true }
                     )
                 }
 
@@ -323,7 +334,9 @@ fun NowPlayingScreen(
                         onEqualizerClick = onEqualizerClick,
                         onOpenSleepTimer = { showSleepTimerSheet = true },
                         onOpenQueue = { showQueueSheet = true },
-                        onOpenFullLyrics = { showFullLyrics = true }
+                        onOpenFullLyrics = { showFullLyrics = true },
+                        rydData = rydData,
+                        onOpenRydStats = { showRydStatsSheet = true }
                     )
                 }
             }
@@ -405,6 +418,16 @@ fun NowPlayingScreen(
                 onDismiss = { showSleepTimerSheet = false }
             )
         }
+
+        // 7. Return YouTube Dislike (RYD) Community Sentiment Modal Sheet
+        if (showRydStatsSheet) {
+            RydCommunityStatsSheet(
+                track = track,
+                rydData = rydData,
+                onRefresh = onRefreshRydVotes,
+                onDismiss = { showRydStatsSheet = false }
+            )
+        }
     }
 }
 
@@ -446,7 +469,9 @@ private fun SpotifyPlayerContent(
     onOpenQueue: () -> Unit,
     onOpenFullLyrics: () -> Unit,
     onUndoSkip: () -> Unit,
-    onDismissSkipNotice: () -> Unit
+    onDismissSkipNotice: () -> Unit,
+    rydData: RydVoteData? = null,
+    onOpenRydStats: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -599,6 +624,16 @@ private fun SpotifyPlayerContent(
                     )
                 }
             }
+        }
+
+        // Return YouTube Dislike (RYD) Community Sentiment Pill
+        if (rydData != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            RydCommunitySentimentPill(
+                rydData = rydData,
+                onClick = onOpenRydStats,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -1000,7 +1035,9 @@ private fun AppleMusicPlayerContent(
     onPlayPauseToggle: () -> Unit,
     onNextTrack: () -> Unit,
     onCycleRepeatMode: () -> Unit,
-    onOpenQueue: () -> Unit
+    onOpenQueue: () -> Unit,
+    rydData: RydVoteData? = null,
+    onOpenRydStats: () -> Unit = {}
 ) {
     var showInlineLyricsView by remember { mutableStateOf(false) }
 
@@ -1176,6 +1213,16 @@ private fun AppleMusicPlayerContent(
                     )
                 }
             }
+        }
+
+        // Return YouTube Dislike (RYD) Community Sentiment Pill
+        if (rydData != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            RydCommunitySentimentPill(
+                rydData = rydData,
+                onClick = onOpenRydStats,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -1371,7 +1418,9 @@ private fun M3ExpressivePlayerContent(
     onEqualizerClick: () -> Unit,
     onOpenSleepTimer: () -> Unit,
     onOpenQueue: () -> Unit,
-    onOpenFullLyrics: () -> Unit
+    onOpenFullLyrics: () -> Unit,
+    rydData: RydVoteData? = null,
+    onOpenRydStats: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1513,6 +1562,16 @@ private fun M3ExpressivePlayerContent(
                     )
                 }
             }
+        }
+
+        // Return YouTube Dislike (RYD) Community Sentiment Pill
+        if (rydData != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            RydCommunitySentimentPill(
+                rydData = rydData,
+                onClick = onOpenRydStats,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -1725,3 +1784,132 @@ private fun M3ExpressivePlayerContent(
         }
     }
 }
+
+/**
+ * Modern glassmorphic pill displaying community Likes, Dislikes, and approval ratio from Return YouTube Dislike (RYD).
+ */
+@Composable
+fun RydCommunitySentimentPill(
+    rydData: RydVoteData?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (rydData == null) return
+
+    val approvalPct = rydData.likePercentage
+    val barColor = when {
+        approvalPct >= 90 -> Color(0xFF10B981) // Emerald Green
+        approvalPct >= 75 -> UnboundPrimary     // Cyan / Accent
+        approvalPct >= 50 -> Color(0xFFF59E0B) // Amber
+        else -> Color(0xFFEF4444)              // Coral Red
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF141416).copy(alpha = 0.85f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 7.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Likes & Dislikes
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ThumbUp,
+                            contentDescription = "Likes",
+                            tint = barColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = rydData.formattedLikes,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = OnSurface
+                        )
+                    }
+
+                    Text(
+                        text = "•",
+                        fontSize = 11.sp,
+                        color = OnSurfaceVariant.copy(alpha = 0.5f)
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ThumbDown,
+                            contentDescription = "Dislikes",
+                            tint = OnSurfaceVariant.copy(alpha = 0.75f),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = rydData.formattedDislikes,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = OnSurfaceVariant
+                        )
+                    }
+                }
+
+                // Approval Rating Badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "$approvalPct% Approval",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = barColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            // Two-tone Ratio Micro-Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.10f))
+            ) {
+                val likeRatio = (approvalPct / 100f).coerceIn(0.01f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(likeRatio)
+                        .background(barColor)
+                )
+                if (likeRatio < 1f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .weight(1f - likeRatio)
+                            .background(Color(0xFFEF4444).copy(alpha = 0.6f))
+                    )
+                }
+            }
+        }
+    }
+}
+

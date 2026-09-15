@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.graphics.Color
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistScreen
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
+import com.cubicreates.unboundmusic.ui.downloads.DownloadsScreen
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
 import com.cubicreates.unboundmusic.ui.components.UnboundBottomNavBar
@@ -91,6 +92,7 @@ fun MainApp(
     var showRecap by remember { mutableStateOf(false) }
     var showYouTubeLoginSheet by remember { mutableStateOf(false) }
     var showYouTubeDeviceAuthSheet by remember { mutableStateOf(false) }
+    var showDownloadsScreen by remember { mutableStateOf(false) }
     var viewingArtist by remember { mutableStateOf<String?>(null) }
     var viewingGenre by remember { mutableStateOf<GenreItemDto?>(null) }
 
@@ -165,10 +167,19 @@ fun MainApp(
 
     val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
     val downloadedTrackIds by viewModel.downloadedTrackIds.collectAsStateWithLifecycle()
+    val downloadSpeedBps by viewModel.downloadSpeedBps.collectAsStateWithLifecycle()
+    val downloadedMusicTracks by viewModel.downloadedMusicTracks.collectAsStateWithLifecycle()
+    val cacheSizeMB by viewModel.cacheSizeMB.collectAsStateWithLifecycle()
+    val downloadsSizeMB by viewModel.downloadsSizeMB.collectAsStateWithLifecycle()
+    val freeStorageGB by viewModel.freeStorageGB.collectAsStateWithLifecycle()
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
     val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
     val rydVotes by viewModel.rydVotes.collectAsStateWithLifecycle()
+
+    val activeDownloadsCount = remember(downloadTasks) {
+        downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" || it.status == "PAUSED" }
+    }
 
     val currentTask = downloadTasks[currentTrack.id]
         ?: downloadTasks.values.find { it.title.isNotBlank() && it.title.equals(currentTrack.title, ignoreCase = true) }
@@ -198,8 +209,10 @@ fun MainApp(
                     userAvatarUrl = userAvatarUrl,
                     accountName = accountName,
                     isLoggedIn = isYouTubeConnected,
+                    activeDownloadsCount = activeDownloadsCount,
                     onMenuClick = { showSettings = true },
-                    onProfileClick = { showSettings = true }
+                    onProfileClick = { showSettings = true },
+                    onDownloadsClick = { showDownloadsScreen = true }
                 )
             },
             bottomBar = {
@@ -352,6 +365,7 @@ fun MainApp(
                                     onStartDownload = { viewModel.startTrackDownload(it) },
                                     onCancelDownload = { viewModel.cancelTrackDownload(it) },
                                     onDeleteDownload = { viewModel.deleteTrackDownload(it) },
+                                    onOpenDownloadsHub = { showDownloadsScreen = true },
                                     onSourceClick = { source ->
                                         if (source.title == "Synced YouTube" && !isYouTubeConnected) {
                                             launchYouTubeAuth()
@@ -484,6 +498,44 @@ fun MainApp(
                 isPlaying = playbackState.isPlaying,
                 onPlayNext = { track -> viewModel.playNext(track) },
                 onAddToQueue = { track -> viewModel.addToQueue(track) }
+            )
+        }
+
+        // Modal 8: Centralized Downloads & Storage Management Screen
+        if (showDownloadsScreen) {
+            val effectiveDownloadedTracks = if (downloadedMusicTracks.isNotEmpty()) {
+                downloadedMusicTracks
+            } else {
+                libraryTracks.filter { it.source.contains("Downloads", ignoreCase = true) || it.source.contains("Unbound", ignoreCase = true) }
+            }
+
+            DownloadsScreen(
+                downloadTasks = downloadTasks,
+                downloadedTracks = effectiveDownloadedTracks,
+                downloadSpeedBps = downloadSpeedBps,
+                cacheSizeMB = cacheSizeMB,
+                downloadsSizeMB = downloadsSizeMB,
+                freeStorageGB = freeStorageGB,
+                onBack = { showDownloadsScreen = false },
+                onPauseDownload = { viewModel.pauseDownload(it) },
+                onResumeDownload = { viewModel.resumeDownload(it) },
+                onCancelDownload = { viewModel.cancelTrackDownload(it) },
+                onRetryDownload = { viewModel.retryDownload(it) },
+                onDeleteDownload = { id, title -> viewModel.deleteTrackDownload(id, title) },
+                onTrackSelect = { track ->
+                    viewModel.playTrack(track)
+                    isPlayerExpanded = true
+                },
+                onPlayAllDownloaded = { tracks ->
+                    if (tracks.isNotEmpty()) {
+                        viewModel.playTrackWithQueue(tracks.first(), tracks)
+                        isPlayerExpanded = true
+                    }
+                },
+                onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
+                onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                onClearCache = { viewModel.clearCacheAndStorage() },
+                onExportToStorage = { viewModel.exportDownloadsToPublicStorage() }
             )
         }
 

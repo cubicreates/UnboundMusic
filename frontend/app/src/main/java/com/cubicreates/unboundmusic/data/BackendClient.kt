@@ -1504,6 +1504,45 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         return list
     }
 
+    /** Lists all physical tracks downloaded to Unbound/Downloads. */
+    suspend fun getDownloadedFiles(): Pair<Int, String> = withContext(Dispatchers.IO) {
+        get("/api/v1/download/list")
+    }
+
+    /** Parses tracks from /api/v1/download/list JSON response into TrackItem list. */
+    fun parseDownloadedFiles(jsonStr: String): List<TrackItem> {
+        val list = mutableListOf<TrackItem>()
+        if (jsonStr.isBlank()) return list
+        try {
+            val root = JSONObject(jsonStr)
+            val arr = root.optJSONArray("tracks") ?: return list
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("id", "")
+                val title = obj.optString("title", "Unknown Track")
+                val artist = obj.optString("artist", "Unknown Artist")
+                val album = obj.optString("album", "")
+                val thumb = obj.optString("thumbnail_url", "")
+                val localPath = obj.optString("local_path", "")
+                val durMs = obj.optLong("duration_ms", 0L)
+                val stream = if (localPath.isNotBlank()) "file://$localPath" else obj.optString("stream_url", "")
+                list.add(
+                    TrackItem(
+                        id = id,
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
+                        streamUrl = stream,
+                        durationMs = durMs,
+                        source = "Unbound Downloads"
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        return list
+    }
+
     // ==================== SECTION 9: Acoustic Fingerprinting ====================
 
     /** Identifies an untagged local audio file using AcoustID + Chromaprint. */

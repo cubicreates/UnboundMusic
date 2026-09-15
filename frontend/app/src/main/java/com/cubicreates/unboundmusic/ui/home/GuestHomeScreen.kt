@@ -84,10 +84,12 @@ fun GuestHomeScreen(
     onConnectClick: () -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
-    onDownload: (TrackItem) -> Unit = {}
+    onDownload: (TrackItem) -> Unit = {},
+    selectedMood: String = "All",
+    moodTracks: List<TrackItem> = emptyList(),
+    isMoodLoading: Boolean = false,
+    onMoodFilterSelect: (String) -> Unit = {}
 ) {
-    var selectedMood by remember { mutableStateOf("All") }
-
     val hour = remember {
         java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
     }
@@ -100,14 +102,15 @@ fun GuestHomeScreen(
         }
     }
 
-    val quickPicksTracks = remember(tracks, selectedMood) {
+    val quickPicksTracks = remember(tracks, selectedMood, moodTracks) {
         if (selectedMood.equals("All", ignoreCase = true)) {
             tracks.take(16)
         } else {
-            val filtered = tracks.filter { 
-                it.title.contains(selectedMood, ignoreCase = true) || it.artist.contains(selectedMood, ignoreCase = true) 
+            if (moodTracks.isNotEmpty()) {
+                moodTracks.take(16)
+            } else {
+                tracks.take(16)
             }
-            if (filtered.isNotEmpty()) filtered.take(16) else tracks.take(16)
         }
     }
 
@@ -141,7 +144,7 @@ fun GuestHomeScreen(
             // 0. Mood/Moment Filter Pills
             MoodFilterChipsRow(
                 selectedMood = selectedMood,
-                onMoodSelected = { selectedMood = it }
+                onMoodSelected = onMoodFilterSelect
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -166,8 +169,8 @@ fun GuestHomeScreen(
             if (quickPicksTracks.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 QuickPicksSection(
-                    title = "Trending Quick Picks",
-                    subtitle = "Start a radio or continuous mix",
+                    title = if (selectedMood.equals("All", ignoreCase = true)) "Trending Quick Picks" else "$selectedMood Picks",
+                    subtitle = if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
                     tracks = quickPicksTracks,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,

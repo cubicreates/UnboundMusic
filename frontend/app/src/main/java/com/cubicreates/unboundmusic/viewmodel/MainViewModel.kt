@@ -116,6 +116,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _normalizeVolumeEnabled = MutableStateFlow(false)
     val normalizeVolumeEnabled: StateFlow<Boolean> = _normalizeVolumeEnabled.asStateFlow()
 
+    private val _sponsorBlockEnabled = MutableStateFlow(true)
+    val sponsorBlockEnabled: StateFlow<Boolean> = _sponsorBlockEnabled.asStateFlow()
+
+    private val _discordRpcEnabled = MutableStateFlow(true)
+    val discordRpcEnabled: StateFlow<Boolean> = _discordRpcEnabled.asStateFlow()
+
+    // ==================== Home Mood Filtering ====================
+
+    private val _selectedHomeMood = MutableStateFlow("All")
+    val selectedHomeMood: StateFlow<String> = _selectedHomeMood.asStateFlow()
+
+    private val _moodTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val moodTracks: StateFlow<List<TrackItem>> = _moodTracks.asStateFlow()
+
+    private val _isMoodLoading = MutableStateFlow(false)
+    val isMoodLoading: StateFlow<Boolean> = _isMoodLoading.asStateFlow()
+
+    private val moodCache = java.util.concurrent.ConcurrentHashMap<String, List<TrackItem>>()
+
     // ==================== Equalizer & DSP State ====================
 
     private val _equalizerCurve = MutableStateFlow(EqualizerCurve.FLAT)
@@ -428,6 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 fetchCanvas(track)
                                 fetchSkipSegments(track)
                                 fetchRydVotes(track)
+                                updateDiscordPresence(track)
                             }
                             saveCurrentPlaybackState(0L)
                         }
@@ -448,6 +468,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(application)
         _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(application)
         _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(application)
+        _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(application)
+        _discordRpcEnabled.value = PlaybackStateStore.isDiscordRpcEnabled(application)
         if (_normalizeVolumeEnabled.value) {
             serviceConnection.setLoudness(1000)
         }
@@ -818,6 +840,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Fetch canvas visuals and SponsorBlock skip segments in parallel
                 launch { fetchCanvas(resolvedTrack) }
                 launch { fetchSkipSegments(resolvedTrack) }
+                launch { updateDiscordPresence(resolvedTrack) }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
@@ -1524,6 +1547,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Fetches SponsorBlock music_offtopic skip segments for the current track.
      */
     private suspend fun fetchSkipSegments(track: TrackItem) {
+        if (!_sponsorBlockEnabled.value) {
+            _activeSkipSegments.value = emptyList()
+            lastSkippedSegmentId = null
+            return
+        }
         try {
             _activeSkipSegments.value = emptyList()
             lastSkippedSegmentId = null
@@ -2551,6 +2579,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkSponsorBlockSkip() {
+        if (!_sponsorBlockEnabled.value) return
         val segments = _activeSkipSegments.value
         if (segments.isEmpty()) return
         val curPos = playbackState.value.currentPositionMs
@@ -2808,6 +2837,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         PlaybackStateStore.setNormalizeVolume(getApplication(), enabled)
         val targetGain = if (enabled) 1000 else 0
         serviceConnection.setLoudness(targetGain)
+    }
+
+    fun setSponsorBlockEnabled(enabled: Boolean) {
+        _sponsorBlockEnabled.value = enabled
+        PlaybackStateStore.setSponsorBlockEnabled(getApplication(), enabled)
+        if (!enabled) {
+            _activeSkipSegments.value = emptyList()
+            _skippedSkitNotice.value = null
+        } else {
+            val current = _currentTrack.value
+            if (current.id.isNotBlank()) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    fetchSkipSegments(current)
+                }
+            }
+        }
+    }
+
+    fun setDiscordRpcEnabled(enabled: Boolean) {
+        _discordRpcEnabled.value = enabled
+        PlaybackStateStore.setDiscordRpcEnabled(getApplication(), enabled)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (enabled) {
+                    val current = _currentTrack.value
+                    if (current.title.isNotBlank()) {
+                        client.setDiscordPresence(current.title, current.artist)
+                    }
+                } else {
+                    client.setDiscordPresence("", "")
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun updateDiscordPresence(track: TrackItem) {
+        if (!_discordRpcEnabled.value) return
+        if (track.title.isBlank() || track.title == "Unknown") return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.setDiscordPresence(track.title, track.artist)
+            } catch (e: Exception) {
+                Log.d(TAG, "Discord presence broadcast: ${e.message}")
+            }
+        }
+    }
+
+    fun selectHomeMood(mood: String) {
+        if (_selectedHomeMood.value == mood) return
+        _selectedHomeMood.value = mood
+        if (mood.equals("All", ignoreCase = true)) {
+            _moodTracks.value = emptyList()
+            _isMoodLoading.value = false
+            return
+        }
+
+        val cached = moodCache[mood.lowercase()]
+        if (cached != null && cached.isNotEmpty()) {
+            _moodTracks.value = cached
+            _isMoodLoading.value = false
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isMoodLoading.value = true
+            try {
+                val browseId = when (mood.lowercase()) {
+                    "relax" -> "FEmusic_moods_and_genres_category_chill"
+                    "sleep" -> "FEmusic_moods_and_genres_category_sleep"
+                    "energize" -> "FEmusic_moods_and_genres_category_energy"
+                    "sad" -> "FEmusic_moods_and_genres_category_sad"
+                    "romance" -> "FEmusic_moods_and_genres_category_rnb"
+                    "feel good" -> "FEmusic_moods_and_genres_category_pop"
+                    "workout" -> "FEmusic_moods_and_genres_category_workout"
+                    "party" -> "FEmusic_moods_and_genres_category_dance"
+                    "commute" -> "FEmusic_moods_and_genres_category_commute"
+                    "focus" -> "FEmusic_moods_and_genres_category_focus"
+                    else -> "FEmusic_moods_and_genres_category_${mood.lowercase()}"
+                }
+
+                var tracks = client.getMoodRadio(browseId)
+                if (tracks.isEmpty()) {
+                    val (code, json) = client.search("$mood mix", "music")
+                    if (code in 200..299 && json.isNotBlank()) {
+                        val searchTracks = client.parseSearchResults(json)
+                        if (searchTracks.isNotEmpty()) {
+                            tracks = searchTracks
+                        }
+                    }
+                }
+
+                if (tracks.isNotEmpty()) {
+                    moodCache[mood.lowercase()] = tracks
+                    if (_selectedHomeMood.value == mood) {
+                        _moodTracks.value = tracks
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed loading mood tracks for $mood: ${e.message}")
+            } finally {
+                if (_selectedHomeMood.value == mood) {
+                    _isMoodLoading.value = false
+                }
+            }
+        }
     }
 
     fun saveCustomEqPreset(name: String, curve: EqualizerCurve, bassBoost: Int, virtualizer: Int, loudness: Int) {

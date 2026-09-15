@@ -24,6 +24,8 @@ object PlaybackStateStore {
     private const val KEY_AUTO_DOWNLOAD_LIKED = "key_auto_download_liked"
     private const val KEY_SKIP_SILENCE = "key_skip_silence"
     private const val KEY_NORMALIZE_VOLUME = "key_normalize_volume"
+    private const val KEY_SPONSOR_BLOCK = "key_sponsor_block_enabled"
+    private const val KEY_DISCORD_RPC = "key_discord_rpc_enabled"
 
     private const val KEY_HAS_SAVED_STATE = "key_has_saved_state"
     private const val KEY_SAVED_TRACK = "key_saved_track"
@@ -58,6 +60,22 @@ object PlaybackStateStore {
 
     fun setNormalizeVolume(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_NORMALIZE_VOLUME, enabled).apply()
+    }
+
+    fun isSponsorBlockEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_SPONSOR_BLOCK, true)
+    }
+
+    fun setSponsorBlockEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_SPONSOR_BLOCK, enabled).apply()
+    }
+
+    fun isDiscordRpcEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_DISCORD_RPC, true)
+    }
+
+    fun setDiscordRpcEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_DISCORD_RPC, enabled).apply()
     }
 
     // ==================== Queue & Position Persistence ====================

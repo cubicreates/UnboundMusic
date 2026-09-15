@@ -100,13 +100,14 @@ fun SettingsScreen(
     autoDownloadLikedSongs: Boolean = false,
     skipSilenceEnabled: Boolean = false,
     normalizeVolumeEnabled: Boolean = false,
+    sponsorBlockEnabled: Boolean = true,
+    discordRpcEnabled: Boolean = true,
     onAutoDownloadLikedSongsChange: (Boolean) -> Unit = {},
     onSkipSilenceChange: (Boolean) -> Unit = {},
-    onNormalizeVolumeChange: (Boolean) -> Unit = {}
+    onNormalizeVolumeChange: (Boolean) -> Unit = {},
+    onSponsorBlockChange: (Boolean) -> Unit = {},
+    onDiscordRpcChange: (Boolean) -> Unit = {}
 ) {
-    var discordRpcEnabled by remember { mutableStateOf(true) }
-    var sponsorBlockEnabled by remember { mutableStateOf(true) }
-
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -404,7 +405,7 @@ fun SettingsScreen(
                 title = "Discord Rich Presence",
                 subtitle = "Broadcast listening status on Discord",
                 checked = discordRpcEnabled,
-                onCheckedChange = { discordRpcEnabled = it }
+                onCheckedChange = onDiscordRpcChange
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -414,7 +415,7 @@ fun SettingsScreen(
                 title = "SponsorBlock Audio Filter",
                 subtitle = "Skip non-music segments automatically",
                 checked = sponsorBlockEnabled,
-                onCheckedChange = { sponsorBlockEnabled = it }
+                onCheckedChange = onSponsorBlockChange
             )
 
             Spacer(modifier = Modifier.height(24.dp))

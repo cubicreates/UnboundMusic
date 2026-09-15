@@ -102,22 +102,25 @@ fun PersonalizedHomeScreen(
     onSyncClick: () -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
-    onDownload: (TrackItem) -> Unit = {}
+    onDownload: (TrackItem) -> Unit = {},
+    selectedMood: String = "All",
+    moodTracks: List<TrackItem> = emptyList(),
+    isMoodLoading: Boolean = false,
+    onMoodFilterSelect: (String) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
-    var selectedMood by remember { mutableStateOf("All") }
 
-    // Quick picks tracks: smart shelf named "Quick picks" or "Quick" or first 16 synced tracks
+    // Quick picks tracks: smart shelf named "Quick picks" or "Quick" or first 16 synced tracks, or loaded mood tracks
     val quickPicksShelf = smartShelves.find { it.title.contains("quick", ignoreCase = true) }
-    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood) {
-        val base = quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
+    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood, moodTracks) {
         if (selectedMood.equals("All", ignoreCase = true)) {
-            base
+            quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
         } else {
-            val filtered = base.filter { 
-                it.title.contains(selectedMood, ignoreCase = true) || it.artist.contains(selectedMood, ignoreCase = true) 
+            if (moodTracks.isNotEmpty()) {
+                moodTracks.take(16)
+            } else {
+                quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
             }
-            if (filtered.isNotEmpty()) filtered else base
         }
     }
 
@@ -167,7 +170,7 @@ fun PersonalizedHomeScreen(
             item(key = "mood_filter_pills") {
                 MoodFilterChipsRow(
                     selectedMood = selectedMood,
-                    onMoodSelected = { selectedMood = it }
+                    onMoodSelected = onMoodFilterSelect
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -189,8 +192,8 @@ fun PersonalizedHomeScreen(
             if (quickPicksTracks.isNotEmpty()) {
                 item(key = "quick_picks_grid") {
                     QuickPicksSection(
-                        title = "Quick Picks",
-                        subtitle = "Start a radio or continuous mix",
+                        title = if (selectedMood.equals("All", ignoreCase = true)) "Quick Picks" else "$selectedMood Picks",
+                        subtitle = if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
                         tracks = quickPicksTracks,
                         currentTrackId = currentTrackId,
                         isPlaying = isPlaying,

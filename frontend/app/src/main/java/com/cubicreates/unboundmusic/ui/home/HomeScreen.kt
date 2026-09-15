@@ -52,7 +52,11 @@ fun HomeScreen(
     onConnectClick: () -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
-    onDownload: (TrackItem) -> Unit = {}
+    onDownload: (TrackItem) -> Unit = {},
+    selectedMood: String = "All",
+    moodTracks: List<TrackItem> = emptyList(),
+    isMoodLoading: Boolean = false,
+    onMoodFilterSelect: (String) -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -84,7 +88,11 @@ fun HomeScreen(
                 onSyncClick = onSyncClick,
                 onPlayNext = onPlayNext,
                 onAddToQueue = onAddToQueue,
-                onDownload = onDownload
+                onDownload = onDownload,
+                selectedMood = selectedMood,
+                moodTracks = moodTracks,
+                isMoodLoading = isMoodLoading,
+                onMoodFilterSelect = onMoodFilterSelect
             )
         } else {
             GuestHomeScreen(
@@ -102,7 +110,11 @@ fun HomeScreen(
                 onConnectClick = onConnectClick,
                 onPlayNext = onPlayNext,
                 onAddToQueue = onAddToQueue,
-                onDownload = onDownload
+                onDownload = onDownload,
+                selectedMood = selectedMood,
+                moodTracks = moodTracks,
+                isMoodLoading = isMoodLoading,
+                onMoodFilterSelect = onMoodFilterSelect
             )
         }
     }

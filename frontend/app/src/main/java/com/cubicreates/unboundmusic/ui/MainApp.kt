@@ -183,6 +183,12 @@ fun MainApp(
     val activeCustomPlaylist by viewModel.activeCustomPlaylist.collectAsStateWithLifecycle()
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
 
+    val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
+    val discordRpcEnabled by viewModel.discordRpcEnabled.collectAsStateWithLifecycle()
+    val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
+    val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
+    val isMoodLoading by viewModel.isMoodLoading.collectAsStateWithLifecycle()
+
     val activeDownloadsCount = remember(downloadTasks) {
         downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" || it.status == "PAUSED" }
     }
@@ -316,7 +322,11 @@ fun MainApp(
                                     isPlaying = playbackState.isPlaying,
                                     onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
                                     onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
-                                    onDownload = { track -> viewModel.downloadBatch(listOf(track)) }
+                                    onDownload = { track -> viewModel.downloadBatch(listOf(track)) },
+                                    selectedMood = selectedHomeMood,
+                                    moodTracks = moodTracks,
+                                    isMoodLoading = isMoodLoading,
+                                    onMoodFilterSelect = { viewModel.selectHomeMood(it) }
                                 )
                             }
                             NavigationTab.SEARCH -> {
@@ -418,9 +428,13 @@ fun MainApp(
                 autoDownloadLikedSongs = autoDownloadLikedSongs,
                 skipSilenceEnabled = skipSilenceEnabled,
                 normalizeVolumeEnabled = normalizeVolumeEnabled,
+                sponsorBlockEnabled = sponsorBlockEnabled,
+                discordRpcEnabled = discordRpcEnabled,
                 onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
                 onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
-                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) }
+                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
+                onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
+                onDiscordRpcChange = { viewModel.setDiscordRpcEnabled(it) }
             )
         }
 

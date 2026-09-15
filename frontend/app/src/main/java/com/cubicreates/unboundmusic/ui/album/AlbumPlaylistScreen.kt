@@ -113,7 +113,8 @@ fun AlbumPlaylistScreen(
     currentTrackId: String = "",
     isPlaying: Boolean = false,
     onPlayNext: (TrackItem) -> Unit = {},
-    onAddToQueue: (TrackItem) -> Unit = {}
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onAddToPlaylist: (TrackItem) -> Unit = {}
 ) {
     // In-playlist search state
     var isSearching by remember { mutableStateOf(false) }
@@ -463,7 +464,8 @@ fun AlbumPlaylistScreen(
                         },
                         onStartDownload = { onStartDownload(track) },
                         onPlayNext = { onPlayNext(track) },
-                        onAddToQueue = { onAddToQueue(track) }
+                        onAddToQueue = { onAddToQueue(track) },
+                        onAddToPlaylist = { onAddToPlaylist(track) }
                     )
                 }
             }
@@ -540,7 +542,8 @@ private fun PlaylistTrackRow(
     onLongClick: () -> Unit,
     onStartDownload: () -> Unit,
     onPlayNext: () -> Unit,
-    onAddToQueue: () -> Unit
+    onAddToQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit = {}
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
 
@@ -709,6 +712,14 @@ private fun PlaylistTrackRow(
                     onClick = {
                         showTrackMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to Playlist", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.PlaylistAdd, contentDescription = null, tint = UnboundPrimary, modifier = Modifier.size(18.dp)) },
+                    onClick = {
+                        showTrackMenu = false
+                        onAddToPlaylist()
                     }
                 )
                 if (!isDownloaded) {

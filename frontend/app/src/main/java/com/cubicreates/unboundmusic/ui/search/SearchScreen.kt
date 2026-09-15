@@ -188,7 +188,8 @@ fun SearchScreen(
     onDownloadBatch: (List<TrackItem>) -> Unit = {},
     onPlayNextSingle: (TrackItem) -> Unit = {},
     onAddToQueueSingle: (TrackItem) -> Unit = {},
-    onDownloadSingle: (TrackItem) -> Unit = {}
+    onDownloadSingle: (TrackItem) -> Unit = {},
+    onAddToPlaylistSingle: (TrackItem) -> Unit = {}
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var isFocused by remember { mutableStateOf(false) }
@@ -486,7 +487,8 @@ fun SearchScreen(
                             },
                             onPlayNextSingle = onPlayNextSingle,
                             onAddToQueueSingle = onAddToQueueSingle,
-                            onDownloadSingle = onDownloadSingle
+                            onDownloadSingle = onDownloadSingle,
+                            onAddToPlaylistSingle = onAddToPlaylistSingle
                         )
                     }
                 }
@@ -1039,7 +1041,8 @@ private fun SearchResultsContent(
     onDownloadBatch: () -> Unit,
     onPlayNextSingle: (TrackItem) -> Unit,
     onAddToQueueSingle: (TrackItem) -> Unit,
-    onDownloadSingle: (TrackItem) -> Unit
+    onDownloadSingle: (TrackItem) -> Unit,
+    onAddToPlaylistSingle: (TrackItem) -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Category Pills
@@ -1216,7 +1219,8 @@ private fun SearchResultsContent(
                         },
                         onPlayNext = { onPlayNextSingle(track) },
                         onAddToQueue = { onAddToQueueSingle(track) },
-                        onDownload = { onDownloadSingle(track) }
+                        onDownload = { onDownloadSingle(track) },
+                        onAddToPlaylist = { onAddToPlaylistSingle(track) }
                     )
                 }
             }
@@ -1307,7 +1311,8 @@ private fun SearchResultItem(
     onClick: () -> Unit,
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
-    onDownload: () -> Unit = {}
+    onDownload: () -> Unit = {},
+    onAddToPlaylist: () -> Unit = {}
 ) {
     val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
     val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
@@ -1483,6 +1488,13 @@ private fun SearchResultItem(
                                 onClick = {
                                     showMenu = false
                                     onAddToQueue()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Add to Playlist") },
+                                onClick = {
+                                    showMenu = false
+                                    onAddToPlaylist()
                                 }
                             )
                             DropdownMenuItem(

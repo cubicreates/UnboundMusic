@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistScreen
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
 import com.cubicreates.unboundmusic.ui.downloads.DownloadsScreen
+import com.cubicreates.unboundmusic.ui.playlist.CustomPlaylistScreen
+import com.cubicreates.unboundmusic.ui.playlist.AddToPlaylistSheet
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
 import com.cubicreates.unboundmusic.ui.components.UnboundBottomNavBar
@@ -76,6 +78,7 @@ import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 /**
  * Root composable hosting the navigation shell, floating mini-player, and full screen modals.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp(
     modifier: Modifier = Modifier,
@@ -176,6 +179,9 @@ fun MainApp(
     val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
     val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
     val rydVotes by viewModel.rydVotes.collectAsStateWithLifecycle()
+    val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
+    val activeCustomPlaylist by viewModel.activeCustomPlaylist.collectAsStateWithLifecycle()
+    val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
 
     val activeDownloadsCount = remember(downloadTasks) {
         downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" || it.status == "PAUSED" }
@@ -349,7 +355,8 @@ fun MainApp(
                                     onDownloadBatch = { tracks -> viewModel.downloadBatch(tracks) },
                                     onPlayNextSingle = { track -> viewModel.playNextBatch(listOf(track)) },
                                     onAddToQueueSingle = { track -> viewModel.addToQueueBatch(listOf(track)) },
-                                    onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) }
+                                    onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) },
+                                    onAddToPlaylistSingle = { track -> viewModel.showAddToPlaylist(track) }
                                 )
                             }
                             NavigationTab.LIBRARY -> {
@@ -366,6 +373,12 @@ fun MainApp(
                                     onCancelDownload = { viewModel.cancelTrackDownload(it) },
                                     onDeleteDownload = { viewModel.deleteTrackDownload(it) },
                                     onOpenDownloadsHub = { showDownloadsScreen = true },
+                                    customPlaylists = customPlaylists,
+                                    onCreatePlaylist = { title -> viewModel.createCustomPlaylist(title) },
+                                    onPlaylistClick = { playlist -> viewModel.openCustomPlaylist(playlist) },
+                                    onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
+                                    onPlayNext = { track -> viewModel.playNext(track) },
+                                    onAddToQueue = { track -> viewModel.addToQueue(track) },
                                     onSourceClick = { source ->
                                         if (source.title == "Synced YouTube" && !isYouTubeConnected) {
                                             launchYouTubeAuth()
@@ -497,7 +510,8 @@ fun MainApp(
                 currentTrackId = currentTrack.id,
                 isPlaying = playbackState.isPlaying,
                 onPlayNext = { track -> viewModel.playNext(track) },
-                onAddToQueue = { track -> viewModel.addToQueue(track) }
+                onAddToQueue = { track -> viewModel.addToQueue(track) },
+                onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) }
             )
         }
 
@@ -534,6 +548,7 @@ fun MainApp(
                 },
                 onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
                 onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                 onClearCache = { viewModel.clearCacheAndStorage() },
                 onExportToStorage = { viewModel.exportDownloadsToPublicStorage() }
             )
@@ -651,6 +666,73 @@ fun MainApp(
                 onSearchQueryChanged = { viewModel.searchAutoEqPresets(it) },
                 onPresetSelected = { viewModel.applyAutoEqPreset(it) },
                 onDismiss = { showAutoEqPicker = false }
+            )
+        }
+
+        // Modal 9: Custom User Playlist Detail Screen
+        activeCustomPlaylist?.let { customPlaylist ->
+            CustomPlaylistScreen(
+                playlist = customPlaylist,
+                onBack = { viewModel.closeCustomPlaylist() },
+                onTrackSelect = { track ->
+                    viewModel.playTrackWithQueue(track, customPlaylist.tracks)
+                    isPlayerExpanded = true
+                },
+                onPlayAll = {
+                    if (customPlaylist.tracks.isNotEmpty()) {
+                        viewModel.playTrackWithQueue(customPlaylist.tracks.first(), customPlaylist.tracks)
+                        isPlayerExpanded = true
+                    }
+                },
+                onShuffleAll = {
+                    if (customPlaylist.tracks.isNotEmpty()) {
+                        val shuffled = customPlaylist.tracks.shuffled()
+                        viewModel.playTrackWithQueue(shuffled.first(), shuffled)
+                        isPlayerExpanded = true
+                    }
+                },
+                onDownloadAll = {
+                    customPlaylist.tracks.forEach { track ->
+                        viewModel.startTrackDownload(track)
+                    }
+                },
+                onUpdateDetails = { title, desc, cover ->
+                    viewModel.updateCustomPlaylist(customPlaylist.id, title, desc, cover)
+                },
+                onDeletePlaylist = {
+                    viewModel.deleteCustomPlaylist(customPlaylist.id)
+                },
+                onRemoveTrack = { trackId ->
+                    viewModel.removeTrackFromCustomPlaylist(customPlaylist.id, trackId)
+                },
+                onMoveTrack = { from, to ->
+                    viewModel.moveTrackInCustomPlaylist(customPlaylist.id, from, to)
+                },
+                onPlayNext = { track -> viewModel.playNext(track) },
+                onAddToQueue = { track -> viewModel.addToQueue(track) },
+                onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
+                onStartDownload = { track -> viewModel.startTrackDownload(track) },
+                downloadedTrackIds = downloadedTrackIds,
+                currentTrackId = currentTrack.id,
+                isPlaying = playbackState.isPlaying
+            )
+        }
+
+        // Modal 10: Add to Playlist Bottom Sheet
+        trackToAddToPlaylist?.let { track ->
+            AddToPlaylistSheet(
+                track = track,
+                playlists = customPlaylists,
+                onDismiss = { viewModel.hideAddToPlaylist() },
+                onSelectPlaylist = { playlistId ->
+                    viewModel.addTrackToCustomPlaylist(playlistId, track)
+                    viewModel.hideAddToPlaylist()
+                },
+                onCreateNewPlaylistWithTrack = { title ->
+                    val newPlaylist = viewModel.createCustomPlaylist(title)
+                    viewModel.addTrackToCustomPlaylist(newPlaylist.id, track)
+                    viewModel.hideAddToPlaylist()
+                }
             )
         }
 

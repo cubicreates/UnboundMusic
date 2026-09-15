@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -142,6 +143,7 @@ fun DownloadsScreen(
     onPlayAllDownloaded: (List<TrackItem>) -> Unit,
     onPlayNext: (TrackItem) -> Unit,
     onAddToQueue: (TrackItem) -> Unit,
+    onAddToPlaylist: (TrackItem) -> Unit = {},
     onClearCache: () -> Unit,
     onExportToStorage: () -> Unit,
     modifier: Modifier = Modifier
@@ -361,6 +363,7 @@ fun DownloadsScreen(
                         onPlayAll = { onPlayAllDownloaded(filteredDownloadedTracks) },
                         onPlayNext = onPlayNext,
                         onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
                         onDelete = onDeleteDownload,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -922,6 +925,7 @@ private fun DownloadedTracksTab(
     onPlayAll: () -> Unit,
     onPlayNext: (TrackItem) -> Unit,
     onAddToQueue: (TrackItem) -> Unit,
+    onAddToPlaylist: (TrackItem) -> Unit,
     onDelete: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1058,6 +1062,7 @@ private fun DownloadedTracksTab(
                         onClick = { onTrackSelect(track) },
                         onPlayNext = { onPlayNext(track) },
                         onAddToQueue = { onAddToQueue(track) },
+                        onAddToPlaylist = { onAddToPlaylist(track) },
                         onDelete = { onDelete(track.id, track.title) }
                     )
                 }
@@ -1077,6 +1082,7 @@ private fun DownloadedTrackRow(
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1220,6 +1226,14 @@ private fun DownloadedTrackRow(
                     onClick = {
                         showMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to Playlist", color = OnSurface) },
+                    leadingIcon = { Icon(Icons.Default.PlaylistAdd, contentDescription = null, tint = OnSurface) },
+                    onClick = {
+                        showMenu = false
+                        onAddToPlaylist()
                     }
                 )
                 DropdownMenuItem(

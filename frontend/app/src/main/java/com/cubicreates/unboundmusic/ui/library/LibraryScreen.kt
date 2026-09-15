@@ -23,24 +23,38 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.ui.components.DownloadButton
@@ -98,9 +113,17 @@ fun LibraryScreen(
     onStartDownload: (TrackItem) -> Unit = {},
     onCancelDownload: (String) -> Unit = {},
     onDeleteDownload: (String) -> Unit = {},
-    onOpenDownloadsHub: () -> Unit = {}
+    onOpenDownloadsHub: () -> Unit = {},
+    customPlaylists: List<CustomPlaylist> = emptyList(),
+    onCreatePlaylist: (title: String) -> Unit = {},
+    onPlaylistClick: (CustomPlaylist) -> Unit = {},
+    onAddToPlaylist: (TrackItem) -> Unit = {},
+    onPlayNext: (TrackItem) -> Unit = {},
+    onAddToQueue: (TrackItem) -> Unit = {}
 ) {
     var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistTitle by remember { mutableStateOf("") }
 
     val sources = listOf(
         IngestionSource(
@@ -184,6 +207,64 @@ fun LibraryScreen(
             // 2. Zero-Data Status Card (Bento Style)
             ZeroDataStatusCard(savedGB = savedGB)
 
+            // 2.5 Your Playlists (Carousel)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Your Playlists",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurface,
+                        letterSpacing = (-0.01).sp
+                    )
+
+                    TextButton(onClick = {
+                        newPlaylistTitle = ""
+                        showCreatePlaylistDialog = true
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("New", color = UnboundPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = UnboundSurfaceContainer, thickness = 1.dp)
+                Spacer(modifier = Modifier.height(14.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Create Playlist Action Card
+                    item {
+                        CreatePlaylistCard(
+                            onClick = {
+                                newPlaylistTitle = ""
+                                showCreatePlaylistDialog = true
+                            }
+                        )
+                    }
+
+                    // Existing Custom Playlists
+                    items(customPlaylists, key = { it.id }) { playlist ->
+                        CustomPlaylistCard(
+                            playlist = playlist,
+                            onClick = { onPlaylistClick(playlist) }
+                        )
+                    }
+                }
+            }
+
             // 3. Ingestion Sources (2x2 Grid)
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
@@ -252,7 +333,10 @@ fun LibraryScreen(
                             onClick = { onTrackSelect(track) },
                             onStartDownload = { onStartDownload(track) },
                             onCancelDownload = { onCancelDownload(task?.videoId ?: track.id) },
-                            onDeleteDownload = { onDeleteDownload(task?.videoId ?: track.id) }
+                            onDeleteDownload = { onDeleteDownload(task?.videoId ?: track.id) },
+                            onAddToPlaylist = { onAddToPlaylist(track) },
+                            onPlayNext = { onPlayNext(track) },
+                            onAddToQueue = { onAddToQueue(track) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -289,6 +373,49 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+
+        if (showCreatePlaylistDialog) {
+            AlertDialog(
+                onDismissRequest = { showCreatePlaylistDialog = false },
+                title = { Text("New Playlist", color = OnSurface, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = newPlaylistTitle,
+                        onValueChange = { newPlaylistTitle = it },
+                        label = { Text("Playlist Name", color = OnSurfaceVariant) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = UnboundPrimary,
+                            unfocusedBorderColor = BorderGlass,
+                            focusedTextColor = OnSurface,
+                            unfocusedTextColor = OnSurface
+                        )
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newPlaylistTitle.isNotBlank()) {
+                                onCreatePlaylist(newPlaylistTitle.trim())
+                                showCreatePlaylistDialog = false
+                                newPlaylistTitle = ""
+                            }
+                        },
+                        enabled = newPlaylistTitle.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary)
+                    ) {
+                        Text("Create", color = Color.Black)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreatePlaylistDialog = false }) {
+                        Text("Cancel", color = OnSurfaceVariant)
+                    }
+                },
+                containerColor = SurfaceGlassHighest
+            )
         }
     }
 }
@@ -441,8 +568,13 @@ private fun LibraryTrackRow(
     onClick: () -> Unit,
     onStartDownload: () -> Unit,
     onCancelDownload: () -> Unit,
-    onDeleteDownload: () -> Unit
+    onDeleteDownload: () -> Unit,
+    onAddToPlaylist: () -> Unit = {},
+    onPlayNext: () -> Unit = {},
+    onAddToQueue: () -> Unit = {}
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     val status = when {
         track.source.contains("Downloads", ignoreCase = true) || task?.status == "COMPLETED" -> DownloadUiStatus.DOWNLOADED
         task?.status == "DOWNLOADING" || task?.status == "TAGGING" || task?.status == "QUEUED" -> DownloadUiStatus.DOWNLOADING
@@ -514,13 +646,190 @@ private fun LibraryTrackRow(
             size = 36.dp
         )
 
-        Spacer(modifier = Modifier.width(6.dp))
+        Spacer(modifier = Modifier.width(4.dp))
 
-        Icon(
-            imageVector = Icons.Default.PlayArrow,
-            contentDescription = "Play",
-            tint = OnSurfaceVariant,
-            modifier = Modifier.size(20.dp)
+        // 3-dots Menu
+        Box {
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Track Actions",
+                    tint = OnSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+                modifier = Modifier
+                    .background(SurfaceGlassHighest)
+                    .border(1.dp, BorderGlass, RoundedCornerShape(8.dp))
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Play Next", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onPlayNext()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to Queue", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.QueueMusic,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add to Playlist", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.PlaylistAdd,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onAddToPlaylist()
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatePlaylistCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .width(130.dp)
+            .height(160.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(SurfaceGlassHighest)
+            .border(1.dp, BorderGlass, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(UnboundPrimary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "New Playlist",
+                    tint = UnboundPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "New Playlist",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnSurface,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Create custom",
+                fontSize = 11.sp,
+                color = OnSurfaceVariant,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun CustomPlaylistCard(
+    playlist: CustomPlaylist,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(130.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(SurfaceGlassHighest)
+            .border(1.dp, BorderGlass, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(110.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(UnboundSurfaceContainerHigh),
+            contentAlignment = Alignment.Center
+        ) {
+            if (playlist.effectiveCoverUrl.isNotBlank()) {
+                AsyncImage(
+                    model = playlist.effectiveCoverUrl,
+                    contentDescription = playlist.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.QueueMusic,
+                    contentDescription = null,
+                    tint = UnboundPrimary,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = playlist.title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = "${playlist.tracks.size} tracks",
+            fontSize = 11.sp,
+            color = OnSurfaceVariant,
+            maxLines = 1
         )
     }
 }

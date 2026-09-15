@@ -22,9 +22,11 @@ import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.CuratedCollections
 import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.DeviceCodeData
+import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.data.DownloadStartRequest
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
+import com.cubicreates.unboundmusic.data.LocalPlaylistStore
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
@@ -262,6 +264,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _freeStorageGB = MutableStateFlow(0.0)
     val freeStorageGB: StateFlow<Double> = _freeStorageGB.asStateFlow()
 
+    // ==================== Custom User Playlists State ====================
+
+    private val _customPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    val customPlaylists: StateFlow<List<CustomPlaylist>> = _customPlaylists.asStateFlow()
+
+    private val _activeCustomPlaylist = MutableStateFlow<CustomPlaylist?>(null)
+    val activeCustomPlaylist: StateFlow<CustomPlaylist?> = _activeCustomPlaylist.asStateFlow()
+
+    private val _trackToAddToPlaylist = MutableStateFlow<TrackItem?>(null)
+    val trackToAddToPlaylist: StateFlow<TrackItem?> = _trackToAddToPlaylist.asStateFlow()
+
     private var isPollingDownloads = false
 
     // ==================== YouTube Account & Synced Library State ====================
@@ -455,6 +468,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         startDownloadPollingLoop()
         loadDownloadedMusicFiles()
         updateStorageMetrics()
+        loadCustomPlaylists()
 
         // Auto-advance to next track when playback of current song ends
         serviceConnection.onTrackEndedListener = {
@@ -3234,6 +3248,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addToQueue(track: TrackItem) {
         serviceConnection.addToQueue(track)
+    }
+
+    // ==================== Custom Local Playlists Management ====================
+
+    fun loadCustomPlaylists() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val playlists = LocalPlaylistStore.getPlaylists(getApplication())
+            _customPlaylists.value = playlists
+            val currentActive = _activeCustomPlaylist.value
+            if (currentActive != null) {
+                _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
+            }
+        }
+    }
+
+    fun createCustomPlaylist(
+        title: String,
+        description: String = "",
+        coverUrl: String = "",
+        initialTracks: List<TrackItem> = emptyList()
+    ): CustomPlaylist {
+        val created = LocalPlaylistStore.createPlaylist(getApplication(), title, description, coverUrl, initialTracks)
+        loadCustomPlaylists()
+        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Created playlist '${created.title}'", isLong = false)
+        return created
+    }
+
+    fun updateCustomPlaylist(playlistId: String, title: String, description: String = "", coverUrl: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = LocalPlaylistStore.updatePlaylistDetails(getApplication(), playlistId, title, description, coverUrl)
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                if (updated != null) {
+                    _activeCustomPlaylist.value = updated
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playlist updated", isLong = false)
+                }
+            }
+        }
+    }
+
+    fun deleteCustomPlaylist(playlistId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = LocalPlaylistStore.deletePlaylist(getApplication(), playlistId)
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                if (success) {
+                    if (_activeCustomPlaylist.value?.id == playlistId) {
+                        _activeCustomPlaylist.value = null
+                    }
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playlist deleted", isLong = false)
+                }
+            }
+        }
+    }
+
+    fun addTrackToCustomPlaylist(playlistId: String, track: TrackItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val (added, updated) = LocalPlaylistStore.addTrackToPlaylist(getApplication(), playlistId, track)
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                if (updated != null) {
+                    if (_activeCustomPlaylist.value?.id == playlistId) {
+                        _activeCustomPlaylist.value = updated
+                    }
+                    val msg = if (added) "Added '${track.title}' to '${updated.title}'" else "'${track.title}' is already in '${updated.title}'"
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), msg, isLong = false)
+                }
+                _trackToAddToPlaylist.value = null
+            }
+        }
+    }
+
+    fun removeTrackFromCustomPlaylist(playlistId: String, trackIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = LocalPlaylistStore.removeTrackFromPlaylist(getApplication(), playlistId, trackIndex)
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                if (updated != null) {
+                    if (_activeCustomPlaylist.value?.id == playlistId) {
+                        _activeCustomPlaylist.value = updated
+                    }
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Removed track from playlist", isLong = false)
+                }
+            }
+        }
+    }
+
+    fun removeTrackFromCustomPlaylist(playlistId: String, trackId: String) {
+        val playlist = _customPlaylists.value.find { it.id == playlistId } ?: return
+        val index = playlist.tracks.indexOfFirst { it.id == trackId }
+        if (index >= 0) {
+            removeTrackFromCustomPlaylist(playlistId, index)
+        }
+    }
+
+    fun moveTrackInCustomPlaylist(playlistId: String, fromIndex: Int, toIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = LocalPlaylistStore.reorderTracks(getApplication(), playlistId, fromIndex, toIndex)
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                if (updated != null && _activeCustomPlaylist.value?.id == playlistId) {
+                    _activeCustomPlaylist.value = updated
+                }
+            }
+        }
+    }
+
+    fun openCustomPlaylist(playlist: CustomPlaylist) {
+        _activeCustomPlaylist.value = playlist
+    }
+
+    fun closeCustomPlaylist() {
+        _activeCustomPlaylist.value = null
+    }
+
+    fun showAddToPlaylist(track: TrackItem) {
+        _trackToAddToPlaylist.value = track
+    }
+
+    fun hideAddToPlaylist() {
+        _trackToAddToPlaylist.value = null
     }
 
     override fun onCleared() {

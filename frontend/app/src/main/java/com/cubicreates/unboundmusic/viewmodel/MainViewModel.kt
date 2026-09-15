@@ -33,6 +33,7 @@ import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.PlaybackStateStore
 import com.cubicreates.unboundmusic.data.PlaylistItemDto
 import com.cubicreates.unboundmusic.data.PlaylistShelfDto
+import com.cubicreates.unboundmusic.data.RydVoteData
 import com.cubicreates.unboundmusic.data.SkipSegmentDto
 import com.cubicreates.unboundmusic.data.SleepTimerState
 import com.cubicreates.unboundmusic.data.UserEqPresetDto
@@ -96,6 +97,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isFavorite = MutableStateFlow(false)
     val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
+
+    // ==================== Return YouTube Dislike (RYD) State ====================
+
+    private val _rydVotes = MutableStateFlow<RydVoteData?>(null)
+    val rydVotes: StateFlow<RydVoteData?> = _rydVotes.asStateFlow()
 
     // ==================== Playback Quality & Automation (Batch 1) ====================
 
@@ -393,6 +399,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             launch(Dispatchers.IO) {
                                 fetchCanvas(track)
                                 fetchSkipSegments(track)
+                                fetchRydVotes(track)
                             }
                             saveCurrentPlaybackState(0L)
                         }
@@ -748,6 +755,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Immediately reset lyrics state and fetch for this specific track
         loadLyricsForTrack(track)
+        _rydVotes.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            fetchRydVotes(track)
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -1500,6 +1511,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Skip segments fetch note: ${e.message}")
+        }
+    }
+
+    // ==================== Return YouTube Dislike (RYD) & Like Ratio ====================
+
+    /**
+     * Fetches Return YouTube Dislike (RYD) community statistics and approval ratio for the current track.
+     */
+    suspend fun fetchRydVotes(track: TrackItem) {
+        try {
+            val videoId = track.id.ifBlank {
+                val stream = track.streamUrl
+                if (!stream.startsWith("http") && stream.isNotBlank() && !stream.contains(" ")) {
+                    stream
+                } else ""
+            }
+            if (videoId.isBlank() || videoId.startsWith("local") || videoId.startsWith("file")) {
+                _rydVotes.value = null
+                return
+            }
+
+            val votes = client.getRydVotes(videoId)
+            // Ensure track didn't change while request was running
+            val current = _currentTrack.value
+            val isStillCurrent = (current.id.isNotBlank() && current.id == track.id) ||
+                    (current.title.isNotBlank() && current.title.equals(track.title, ignoreCase = true))
+            if (isStillCurrent) {
+                _rydVotes.value = votes
+                Log.d(TAG, "Loaded RYD votes for '${track.title}': ${votes?.likes} likes, ${votes?.dislikes} dislikes (${votes?.likePercentage}%)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "RYD votes fetch note: ${e.message}")
+        }
+    }
+
+    /**
+     * Forces a refresh of the Return YouTube Dislike community stats for current track.
+     */
+    fun refreshRydVotes() {
+        val track = _currentTrack.value
+        viewModelScope.launch(Dispatchers.IO) {
+            fetchRydVotes(track)
         }
     }
 

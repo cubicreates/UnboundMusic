@@ -49,6 +49,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/rooms"
 	"github.com/cubicreates/unbound-engine/pkg/router"
+	"github.com/cubicreates/unbound-engine/pkg/ryd"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
 	"github.com/cubicreates/unbound-engine/pkg/sleeptimer"
 	"github.com/cubicreates/unbound-engine/pkg/storage"
@@ -96,6 +97,7 @@ type Server struct {
 	autoeq       *autoeq.Engine
 	discordRPC   *discord.Client
 	sponsorblock *sponsorblock.Client
+	rydClient    *ryd.Client
 	roomHub      *rooms.Hub
 	shazamClient *shazam.Client
 	analyticsEng *analytics.Engine
@@ -162,6 +164,7 @@ func NewServer(cfg Config) (*Server, error) {
 	autoEqEngine := autoeq.NewEngine()
 	discordClient := discord.NewClient("")
 	sbClient := sponsorblock.NewClient()
+	rydClient := ryd.NewClient()
 	roomsHub := rooms.NewHub()
 	shazamCli := shazam.NewClient()
 	analyticsEngine := analytics.NewEngine()
@@ -207,6 +210,7 @@ func NewServer(cfg Config) (*Server, error) {
 		autoeq:       autoEqEngine,
 		discordRPC:   discordClient,
 		sponsorblock: sbClient,
+		rydClient:    rydClient,
 		roomHub:      roomsHub,
 		shazamClient: shazamCli,
 		analyticsEng: analyticsEngine,
@@ -245,6 +249,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/autoeq/preset", s.handleAutoEqPreset)
 	mux.HandleFunc("/api/v1/discord/presence", s.handleDiscordPresence)
 	mux.HandleFunc("/api/v1/sponsorblock", s.handleSponsorBlock)
+	mux.HandleFunc("/api/v1/ryd/votes", s.handleRydVotes)
 	mux.HandleFunc("/api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("/api/v1/rooms/join", s.handleRoomJoin)
 	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
@@ -871,6 +876,26 @@ func (s *Server) handleSponsorBlock(w http.ResponseWriter, r *http.Request) {
 		"video_id": videoID,
 		"segments": segments,
 	})
+}
+
+// handleRydVotes fetches Return YouTube Dislike (RYD) community statistics and calculates like/dislike ratios.
+func (s *Server) handleRydVotes(w http.ResponseWriter, r *http.Request) {
+	videoID := r.URL.Query().Get("videoId")
+	if videoID == "" {
+		videoID = r.URL.Query().Get("id")
+	}
+	if videoID == "" {
+		writeError(w, http.StatusBadRequest, "missing videoId or id query parameter")
+		return
+	}
+
+	votes, err := s.rydClient.GetVotes(r.Context(), videoID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("failed fetching RYD votes: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, votes)
 }
 
 // handleRoomCreate creates a shared listening room.

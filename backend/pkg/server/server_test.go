@@ -587,3 +587,56 @@ func TestServerDownloadEndpoints(t *testing.T) {
 	}
 }
 
+func TestServerRydVotesEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_ryd.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Missing videoId query param -> 400
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/v1/ryd/votes", nil)
+	wMissing := httptest.NewRecorder()
+	srv.handleRydVotes(wMissing, reqMissing)
+	if wMissing.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for missing videoId, got %d", wMissing.Code)
+	}
+
+	// 2. Successful response from upstream RYD mock
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"dQw4w9WgXcQ","likes":2000000,"dislikes":50000,"rating":4.9,"viewCount":100000000}`)
+	}))
+	defer mockUpstream.Close()
+
+	srv.rydClient.SetBaseURL(mockUpstream.URL)
+
+	reqValid := httptest.NewRequest(http.MethodGet, "/api/v1/ryd/votes?videoId=dQw4w9WgXcQ", nil)
+	wValid := httptest.NewRecorder()
+	srv.handleRydVotes(wValid, reqValid)
+
+	if wValid.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from ryd votes, got %d", wValid.Code)
+	}
+
+	var res map[string]any
+	if err := json.NewDecoder(wValid.Body).Decode(&res); err != nil {
+		t.Fatalf("failed decoding JSON: %v", err)
+	}
+
+	if res["id"] != "dQw4w9WgXcQ" {
+		t.Errorf("expected id dQw4w9WgXcQ, got %v", res["id"])
+	}
+	if pct, ok := res["like_percentage"].(float64); !ok || int(pct) != 98 {
+		t.Errorf("expected 98%% approval, got %v", res["like_percentage"])
+	}
+}
+

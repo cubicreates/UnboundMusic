@@ -29,13 +29,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -166,14 +162,9 @@ fun GuestHomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // 1. Connect YouTube Call-To-Action Banner
-            ConnectYouTubeBanner(onConnectClick = onConnectClick)
-
-            // 2. 4-Row Snapping Quick Picks Grid (from Billboard/Top tracks)
+            // Quick Picks Grid (from Billboard/Top tracks)
             if (quickPicksTracks.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 QuickPicksSection(
                     title = "Trending Quick Picks",
                     subtitle = "Start a radio or continuous mix",
@@ -264,102 +255,6 @@ fun GuestHomeScreen(
         )
     }
 }
-}
-
-
-@Composable
-private fun ConnectYouTubeBanner(onConnectClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        UnboundPrimary.copy(alpha = 0.25f),
-                        Color(0xFF181216),
-                        Color(0xFF101010)
-                    )
-                )
-            )
-            .border(1.dp, UnboundPrimary.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
-            .padding(18.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(UnboundPrimary.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = null,
-                            tint = UnboundPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "YOUTUBE INTEGRATION",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = UnboundPrimary,
-                            letterSpacing = 1.2.sp
-                        )
-                        Text(
-                            text = "Connect YouTube Account",
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "Sign in to replace the Billboard charts with your personal liked songs, playlists, and tailored music recommendations.",
-                fontSize = 12.sp,
-                color = OnSurfaceVariant,
-                lineHeight = 17.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Button(
-                onClick = onConnectClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = UnboundPrimary,
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Connect with Google",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
 }
 
 @Composable

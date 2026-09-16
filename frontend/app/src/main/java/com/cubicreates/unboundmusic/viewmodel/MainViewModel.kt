@@ -1178,9 +1178,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleTrackFavorite(track: TrackItem) {
+        if (track.id.isBlank()) return
+        val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
+        val willBeFav = !favIds.contains(track.id)
+        if (willBeFav) {
+            PlaybackStateStore.addFavoriteTrackId(getApplication(), track.id)
+        } else {
+            PlaybackStateStore.removeFavoriteTrackId(getApplication(), track.id)
+        }
+        if (track.id == _currentTrack.value.id) {
+            _isFavorite.value = willBeFav
+        }
+        refreshFavoritesList()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.toggleTrackLike(track.id, willBeFav)
+            } catch (e: Exception) {
+                Log.d(TAG, "Track like toggle error: ${e.message}")
+            }
+        }
+    }
+
     fun refreshFavoritesList() {
         val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
-        _favoriteTracks.value = _libraryTracks.value.filter { favIds.contains(it.id) }
+        val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
+        val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
+        val allTracks = (localFavorites + syncedFavorites).distinctBy { it.id }
+        _favoriteTracks.value = allTracks
     }
 
     fun seekTo(progress: Float) {

@@ -115,39 +115,27 @@ fun UnboundTopAppBar(
                     )
                 }
 
-                // Downloads Hub Button with Active Queue Badge
+                // Settings / Profile Button (replaces download button on top bar)
                 IconButton(
-                    onClick = onDownloadsClick,
+                    onClick = onProfileClick,
                     modifier = Modifier.size(40.dp)
                 ) {
-                    Box(
-                        modifier = Modifier.size(40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = "Downloads & Storage",
-                            tint = if (activeDownloadsCount > 0) UnboundPrimary else OnSurfaceVariant,
-                            modifier = Modifier.size(22.dp)
+                    if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = userAvatarUrl,
+                            contentDescription = "Settings & Profile",
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
                         )
-                        if (activeDownloadsCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 2.dp, end = 2.dp)
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(UnboundPrimary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (activeDownloadsCount > 9) "9+" else activeDownloadsCount.toString(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.Black
-                                )
-                            }
-                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = "Settings & Profile",
+                            tint = if (isLoggedIn) UnboundPrimary else OnSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
             }

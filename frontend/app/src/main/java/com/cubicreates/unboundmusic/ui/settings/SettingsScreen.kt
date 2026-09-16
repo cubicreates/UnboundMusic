@@ -116,6 +116,7 @@ fun SettingsScreen(
     onSponsorBlockChange: (Boolean) -> Unit = {},
     onStreamingQualityChange: (AudioQuality) -> Unit = {},
     onDownloadQualityChange: (AudioQuality) -> Unit = {},
+    onOpenDownloadsHub: () -> Unit = {},
     onExportBackupClick: () -> Unit = {},
     onRestoreBackupClick: () -> Unit = {}
 ) {
@@ -294,10 +295,17 @@ fun SettingsScreen(
                 onClick = { showStreamingQualityDialog = true }
             )
 
+            SettingsActionTile(
+                icon = Icons.Default.FileDownload,
+                title = "Downloads & Offline Storage",
+                subtitle = "Manage queued downloads, local music files, and storage cache",
+                onClick = onOpenDownloadsHub
+            )
+
             Spacer(modifier = Modifier.height(10.dp))
 
             SettingsActionTile(
-                icon = Icons.Default.FileDownload,
+                icon = Icons.Default.HighQuality,
                 title = "Download Audio Quality",
                 subtitle = downloadQuality.title,
                 onClick = { showDownloadQualityDialog = true }

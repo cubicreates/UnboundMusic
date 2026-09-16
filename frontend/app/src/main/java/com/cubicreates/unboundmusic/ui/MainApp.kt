@@ -453,15 +453,9 @@ fun MainApp(
                                         viewModel.startRadio(track)
                                         isPlayerExpanded = true
                                     },
-                                    onSourceClick = { source ->
-                                        if (source.title == "Synced YouTube" && !isYouTubeConnected) {
-                                            launchYouTubeAuth()
-                                        } else {
-                                            viewModel.refreshLibrary()
-                                        }
-                                    },
-                                    onTrackSelect = { track ->
-                                        viewModel.playTrackWithQueue(track, libraryTracks)
+                                    downloadedTracks = downloadedMusicTracks,
+                                    onTrackSelect = { track, queue ->
+                                        viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true
                                     },
                                     onRefresh = { viewModel.refreshLibrary() },
@@ -470,14 +464,8 @@ fun MainApp(
                                     recentlyPlayedTracks = recentlyPlayedTracks,
                                     onOpenEqualizer = { showEqualizer = true },
                                     onOpenRingtoneCutter = { track -> ringtoneCutterTrack = track },
-                                    onToggleFavorite = { viewModel.toggleFavorite() },
-                                    onShufflePlayAll = {
-                                        val shuffled = libraryTracks.shuffled()
-                                        if (shuffled.isNotEmpty()) {
-                                            viewModel.playTrackWithQueue(shuffled.first(), shuffled)
-                                            isPlayerExpanded = true
-                                        }
-                                    }
+                                    onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
+                                    onStartShazam = { viewModel.startAmbientShazamRecognition() }
                                 )
                             }
                         }
@@ -513,6 +501,7 @@ fun MainApp(
                 onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
                 onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
                 onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+                onOpenDownloadsHub = { showDownloadsScreen = true },
                 onSleepTimerClick = { showSleepTimerFromSettings = true },
                 onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
                 onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }

@@ -38,10 +38,10 @@ Unbound Music is an offline-first, privacy-respecting, on-device intelligent mus
 
 ## Phase 2: Intelligence, Alignment & Zero-Data Router (Week 1, Days 4-7)
 
-### Day 4: On-Device Forced Aligner & SQLite Memory Bank
+### Day 4: Acoustic Voice-Activity Sync & SQLite Memory Bank
 * Packages: `backend/pkg/aligner`, `backend/pkg/database`
 * Key Deliverables:
-  * Syllable and phoneme tokenizer computing kinetic word-by-word timing for Apple Music-style lyrics glow.
+  * Syllable and phoneme tokenizer computing kinetic word-by-word timing for Apple Music-style lyrics glow via RMS vocal energy windowing and phonetic interpolation.
   * Embedded SQLite database (`modernc.org/sqlite`, zero CGO) with WAL mode.
   * Tables: `tracks`, `synced_lyrics`, `fingerprints`, `taste_vectors`.
 
@@ -49,22 +49,20 @@ Unbound Music is an offline-first, privacy-respecting, on-device intelligent mus
 * Packages: `backend/pkg/router`, `backend/pkg/server`, `backend/pkg/gatekeeper`
 * Key Deliverables:
   * Hybrid playback router: intercepts stream requests and returns local `file://` URIs if acoustic fingerprint matches (0 MB cellular data consumed).
-  * Storage gatekeeper dynamically switching between Full AI mode (>= 100MB free space) and 0-MB heuristic mode (< 100MB free space).
+  * Storage gatekeeper dynamically switching between Full storage mode (>= 100MB free space) and 0-MB heuristic mode (< 100MB free space).
   * Embedded REST daemon listening on `http://127.0.0.1:45731`.
 
-### Day 6: Pure-Go Vector Engine, Recommender & P2P Mesh Sync
-* Packages: `backend/pkg/vector`, `backend/pkg/recommender`, `backend/pkg/p2p`
+### Day 6: Pure-Go Vector Engine & Recommender
+* Packages: `backend/pkg/vector`, `backend/pkg/recommender`
 * Key Deliverables:
   * 128-dimensional mathematical vector engine with cosine similarity execution under 550 microseconds.
   * Offline Smart Radio mix generator clustering local library tracks.
-  * Local Wi-Fi UDP beacon peer discovery (port 45732) and catalog diff synchronization planner.
 
-### Day 7: Edge AI Payload Packager & Zstandard Decompressor
-* Packages: `backend/pkg/ai`, `backend/pkg/gatekeeper`
+### Day 7: Edge Semantic Intelligence & Lookahead Stream Proxy
+* Packages: `backend/pkg/ai`, `backend/pkg/server`
 * Key Deliverables:
-  * Packaging and verified unauthenticated endpoints for SmolLM2-135M GGUF and MiniLM ONNX.
-  * Zstandard Level 19 streaming decompressor unpacking models in under 120ms.
-  * Natural language vibe search parser and lyric mood analyzer.
+  * In-memory deterministic vibe query parser and acoustic sentiment mood analyzer (< 1ms execution, 0 MB model RAM).
+  * Lookahead stream proxy ring buffering ~30 seconds ahead to eliminate cellular playback dropouts.
 
 ---
 

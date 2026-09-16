@@ -16,13 +16,13 @@ Unbound Music is an offline-first, on-device intelligent music streaming engine 
 | Package | Subsystem | Functionality & Capabilities |
 | :--- | :--- | :--- |
 | `backend/pkg/genius` | Uncensored Lyrics Scraper | Scrapes complete uncensored lyrics chronologically (Intro $\to$ Outro) with LRCLIB fallback. |
-| `backend/pkg/aligner` | On-Device Forced Aligner | Phonetic and syllable tokenizer providing Apple Music-style kinetic glowing timestamps. |
+| `backend/pkg/aligner` | Acoustic Voice-Activity Sync | RMS vocal energy windowing + phonetic syllable interpolation providing kinetic glowing timestamps. |
 | `backend/pkg/canvas` | Spotify Canvas Video Engine | Fetches official 8-second vertical looping MP4 canvas video backgrounds. |
 
 ### 3. On-Device Intelligence & Audio Recognition
 | Package | Subsystem | Functionality & Capabilities |
 | :--- | :--- | :--- |
-| `backend/pkg/ai` | Edge AI & Semantic Vibe | SmolLM2-135M GGUF, MiniLM ONNX, natural language intent parser, lyric mood analyzer. |
+| `backend/pkg/ai` | Edge Semantic Vibe | Deterministic natural language vibe parser, acoustic valence/arousal mood analyzer, zero subprocess overhead. |
 | `backend/pkg/shazam` | Shazam Audio Recognition | 16kHz FFT peak picker, landmark hashing, official binary signature encoder, $0.00 discovery. |
 | `backend/pkg/vector` | Vector RAG Engine | 128-dimensional cosine similarity calculator executing in $< 550\mu\text{s}$. |
 | `backend/pkg/recommender` | Offline Smart Radio | Algorithmic radio mix generator based on audio acoustic proximity and taste vectors. |

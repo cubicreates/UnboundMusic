@@ -2,7 +2,7 @@
   <img src="https://github.com/user-attachments/assets/f46e4a67-4ec6-4bdb-a4b8-f6e039005ce2" alt="Unbound Music Banner" width="100%">
   
   <h1>Unbound Music</h1>
-  <p><strong>A Next-Gen, Audio-Exclusive FOSS Platform with an Embedded Go Engine, Adaptive Storage Gatekeeper, On-Device Forced Lyric Alignment & Acoustic Fingerprinting.</strong></p>
+  <p><strong>A Next-Gen, Audio-Exclusive FOSS Platform with an Embedded Go Engine, Adaptive Storage Gatekeeper, Acoustic Voice-Activity Lyric Sync & Acoustic Fingerprinting.</strong></p>
 
   <p>
     <img src="https://img.shields.io/badge/License-GPL--3.0-0052CC?style=flat-square" alt="License">
@@ -28,13 +28,13 @@
 | Feature Domain | Traditional FOSS Clients | Unbound Music Hybrid Architecture |
 | :--- | :--- | :--- |
 | **Download Footprint** | Heavy multi-hundred MB bundles | **$\sim 36.5\text{ MB}$ Self-Contained Bundle** ($< 50\text{MB}$) with zero extra downloads |
-| **Intelligence Engine** | Cloud LLM tokens or zero intelligence | **On-Device Micro-AI** (SmolLM2-135M GGUF + MiniLM ONNX + 128-dim Vector Search) |
+| **Intelligence Engine** | Cloud LLM tokens or zero intelligence | **Pure-Go Edge Intelligence** (Deterministic Vibe Classifier & 128-dim Vector Cosine Similarity) |
 | **Audio Recognition** | None or paid third-party APIs | **Pure-Go 16kHz FFT Peak Constellation Shazam Subsystem** ($0.00 cost) |
-| **Scraper Architecture** | External cloud scraper APIs (prone to bans) | **Embedded Go Daemon** running on-device as a private micro-server (`127.0.0.1:45731`) |
-| **Lyrics Pipeline** | Censored radio databases | **Genius FOSS (100% Uncensored) + On-Device CTC Forced Syllable Alignment** |
+| **Scraper Architecture** | External cloud scraper APIs (prone to bans) | **Embedded Go Daemon** running on-device as a private micro-server via Unix Domain Socket |
+| **Lyrics Pipeline** | Censored radio databases | **Genius FOSS (100% Uncensored) + Acoustic RMS Voice-Activity Detector & Phonetic Interpolation** |
 | **Visual Aesthetics** | Static album art | **Spotify Canvas 8-Second Vertical Looping Video Backgrounds** |
-| **Storage Ingestion** | Unorganized file dumps | **Acoustic Fingerprinting** + WhatsApp-Safe Copy & Downloads Move |
-| **Network Efficiency** | Duplicate network streams for local tracks | **Zero-Data Hybrid Router** (intercepts online requests $\to$ plays local file) |
+| **Storage Ingestion** | Unorganized file dumps | **Acoustic Fingerprinting** + WhatsApp-Safe Copy & Downloads Move + MediaStore Hybrid Ingestion |
+| **Network Efficiency** | Duplicate network streams for local tracks | **Zero-Data Hybrid Router & Lookahead Stream Proxy** (intercepts online requests $\to$ plays local file / ring buffer) |
 | **Personal Analytics** | Basic play counts | **On-Device Unbound Recap** (Decade distribution + Taste Diversity entropy) |
 | **Acoustic Control** | Generic system equalizers | **AutoEq 4,000+ Profiles + ReplayGain Normalization + DJ Crossfade** |
 
@@ -62,13 +62,13 @@
 | Package | Subsystem | Functionality & Capabilities |
 | :--- | :--- | :--- |
 | `backend/pkg/genius` | Uncensored Lyrics Scraper | Scrapes complete uncensored lyrics chronologically (Intro $\to$ Outro) with LRCLIB fallback. |
-| `backend/pkg/aligner` | On-Device Forced Aligner | Phonetic and syllable tokenizer providing Apple Music-style kinetic glowing timestamps. |
+| `backend/pkg/aligner` | Acoustic Voice-Activity Sync | RMS vocal energy windowing + phonetic syllable interpolation providing kinetic glowing timestamps with 0 MB model RAM. |
 | `backend/pkg/canvas` | Spotify Canvas Video Engine | Fetches official 8-second vertical looping MP4 canvas video backgrounds. |
 
 ### 3. On-Device Intelligence & Audio Recognition
 | Package | Subsystem | Functionality & Capabilities |
 | :--- | :--- | :--- |
-| `backend/pkg/ai` | Edge AI & Semantic Vibe | SmolLM2-135M GGUF, MiniLM ONNX, natural language intent parser, lyric mood analyzer. |
+| `backend/pkg/ai` | Edge Semantic Vibe | Deterministic natural language vibe parser, acoustic valence/arousal mood analyzer, zero subprocess overhead. |
 | `backend/pkg/shazam` | Shazam Audio Recognition | 16kHz FFT peak picker, landmark hashing, official binary signature encoder, $0.00 discovery. |
 | `backend/pkg/vector` | Vector RAG Engine | 128-dimensional cosine similarity calculator executing in $< 550\mu\text{s}$. |
 | `backend/pkg/recommender` | Offline Smart Radio | Algorithmic radio mix generator based on audio acoustic proximity and taste vectors. |

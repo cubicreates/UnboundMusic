@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Shuffle
@@ -114,6 +115,7 @@ fun AlbumPlaylistScreen(
     isPlaying: Boolean = false,
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {}
 ) {
     // In-playlist search state
@@ -465,6 +467,7 @@ fun AlbumPlaylistScreen(
                         onStartDownload = { onStartDownload(track) },
                         onPlayNext = { onPlayNext(track) },
                         onAddToQueue = { onAddToQueue(track) },
+                        onStartRadio = { onStartRadio(track) },
                         onAddToPlaylist = { onAddToPlaylist(track) }
                     )
                 }
@@ -543,6 +546,7 @@ private fun PlaylistTrackRow(
     onStartDownload: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onStartRadio: () -> Unit = {},
     onAddToPlaylist: () -> Unit = {}
 ) {
     var showTrackMenu by remember { mutableStateOf(false) }
@@ -712,6 +716,14 @@ private fun PlaylistTrackRow(
                     onClick = {
                         showTrackMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Start Radio", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, tint = UnboundPrimary, modifier = Modifier.size(18.dp)) },
+                    onClick = {
+                        showTrackMenu = false
+                        onStartRadio()
                     }
                 )
                 DropdownMenuItem(

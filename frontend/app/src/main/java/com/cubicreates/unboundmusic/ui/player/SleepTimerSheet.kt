@@ -208,10 +208,12 @@ fun SleepTimerSheet(
                 )
 
                 presets.forEach { (minutes, label) ->
+                    val isSelected = timerState.isActive && !timerState.endOfTrack && (timerState.initialDurationMs == minutes * 60 * 1000L)
                     PresetOptionRow(
                         icon = Icons.Default.Schedule,
                         title = label,
                         subtitle = "Fade out after $minutes min",
+                        isSelected = isSelected,
                         onClick = {
                             onStartTimer(minutes, false)
                             onDismiss()
@@ -224,6 +226,7 @@ fun SleepTimerSheet(
                     icon = Icons.Default.MusicOff,
                     title = "End of current track",
                     subtitle = "Fade and pause when song finishes",
+                    isSelected = timerState.isActive && timerState.endOfTrack,
                     onClick = {
                         onStartTimer(0, true)
                         onDismiss()
@@ -239,14 +242,15 @@ private fun PresetOptionRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    isSelected: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceGlassHighest)
-            .border(1.dp, BorderGlass, RoundedCornerShape(14.dp))
+            .background(if (isSelected) UnboundPrimary.copy(alpha = 0.15f) else SurfaceGlassHighest)
+            .border(1.dp, if (isSelected) UnboundPrimary else BorderGlass, RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -255,13 +259,13 @@ private fun PresetOptionRow(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(UnboundBackground),
+                .background(if (isSelected) UnboundPrimary else UnboundBackground),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = UnboundPrimary,
+                tint = if (isSelected) UnboundBackground else UnboundPrimary,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -272,13 +276,13 @@ private fun PresetOptionRow(
             Text(
                 text = title,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OnSurface
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                color = if (isSelected) UnboundPrimary else OnSurface
             )
             Text(
                 text = subtitle,
                 fontSize = 11.sp,
-                color = OnSurfaceVariant
+                color = if (isSelected) UnboundPrimary.copy(alpha = 0.8f) else OnSurfaceVariant
             )
         }
     }

@@ -51,6 +51,11 @@ var fallbackConfigs = []ClientConfig{
 
 // GetStreamInfo queries YouTube's player API across client profiles until a valid pure audio stream is extracted.
 func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.StreamInfo, error) {
+	return c.GetStreamInfoWithQuality(ctx, videoID, "high")
+}
+
+// GetStreamInfoWithQuality queries YouTube's player API and returns an audio stream matching the requested quality (low, medium, high).
+func (c *Client) GetStreamInfoWithQuality(ctx context.Context, videoID string, quality string) (*models.StreamInfo, error) {
 	if strings.TrimSpace(videoID) == "" {
 		return nil, fmt.Errorf("video ID cannot be empty")
 	}
@@ -83,7 +88,7 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 			continue
 		}
 
-		info, err := parsePlayerResponse(videoID, respBytes)
+		info, err := parsePlayerResponseWithQuality(videoID, respBytes, quality)
 		if err == nil && info != nil && info.StreamURL != "" {
 			return info, nil
 		}
@@ -121,7 +126,7 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 				continue
 			}
 
-			info, err := parsePlayerResponse(videoID, respBytes)
+			info, err := parsePlayerResponseWithQuality(videoID, respBytes, quality)
 			if err == nil && info != nil && info.StreamURL != "" {
 				return info, nil
 			}
@@ -136,6 +141,11 @@ func (c *Client) GetStreamInfo(ctx context.Context, videoID string) (*models.Str
 
 // parsePlayerResponse traverses adaptiveFormats to find the highest bitrate pure Opus or AAC audio stream.
 func parsePlayerResponse(videoID string, data []byte) (*models.StreamInfo, error) {
+	return parsePlayerResponseWithQuality(videoID, data, "high")
+}
+
+// parsePlayerResponseWithQuality traverses adaptiveFormats to find the target quality pure Opus or AAC audio stream.
+func parsePlayerResponseWithQuality(videoID string, data []byte, quality string) (*models.StreamInfo, error) {
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse player response JSON: %w", err)
@@ -156,30 +166,67 @@ func parsePlayerResponse(videoID string, data []byte) (*models.StreamInfo, error
 		return nil, fmt.Errorf("no adaptiveFormats found for video %s", videoID)
 	}
 
-	var bestFormat map[string]any
-	bestBitrate := 0
-
+	var audioFormats []map[string]any
 	for _, f := range adaptiveFormats {
 		fMap, ok := f.(map[string]any)
 		if !ok {
 			continue
 		}
-
 		mimeType, _ := fMap["mimeType"].(string)
-		// Strictly filter for audio-only streams (ignore all video formats)
-		if !strings.HasPrefix(mimeType, "audio/") {
-			continue
-		}
-
-		bitrate := ParseBitrate(fMap["bitrate"])
-		if bitrate > bestBitrate {
-			bestBitrate = bitrate
-			bestFormat = fMap
+		if strings.HasPrefix(mimeType, "audio/") {
+			audioFormats = append(audioFormats, fMap)
 		}
 	}
 
-	if bestFormat == nil {
+	if len(audioFormats) == 0 {
 		return nil, fmt.Errorf("no pure audio format found in streamingData")
+	}
+
+	var bestFormat map[string]any
+	bestBitrate := 0
+
+	switch strings.ToLower(strings.TrimSpace(quality)) {
+	case "low":
+		// Low quality: data saver ~48kbps opus. Pick the format with lowest bitrate or closest to 48-50kbps.
+		minBitrate := int(^uint(0) >> 1)
+		for _, fMap := range audioFormats {
+			br := ParseBitrate(fMap["bitrate"])
+			if br > 0 && br < minBitrate {
+				minBitrate = br
+				bestFormat = fMap
+				bestBitrate = br
+			}
+		}
+	case "medium":
+		// Medium quality: balanced ~128kbps-160kbps opus.
+		targetBr := 140000
+		bestDiff := int(^uint(0) >> 1)
+		for _, fMap := range audioFormats {
+			br := ParseBitrate(fMap["bitrate"])
+			diff := br - targetBr
+			if diff < 0 {
+				diff = -diff
+			}
+			if diff < bestDiff {
+				bestDiff = diff
+				bestFormat = fMap
+				bestBitrate = br
+			}
+		}
+	default:
+		// High quality: maximum audio bitrate available
+		for _, fMap := range audioFormats {
+			br := ParseBitrate(fMap["bitrate"])
+			if br > bestBitrate {
+				bestBitrate = br
+				bestFormat = fMap
+			}
+		}
+	}
+
+	if bestFormat == nil && len(audioFormats) > 0 {
+		bestFormat = audioFormats[0]
+		bestBitrate = ParseBitrate(bestFormat["bitrate"])
 	}
 
 	rawURL, _ := bestFormat["url"].(string)

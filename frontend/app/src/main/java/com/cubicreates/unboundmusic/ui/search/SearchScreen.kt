@@ -188,6 +188,7 @@ fun SearchScreen(
     onDownloadBatch: (List<TrackItem>) -> Unit = {},
     onPlayNextSingle: (TrackItem) -> Unit = {},
     onAddToQueueSingle: (TrackItem) -> Unit = {},
+    onStartRadioSingle: (TrackItem) -> Unit = {},
     onDownloadSingle: (TrackItem) -> Unit = {},
     onAddToPlaylistSingle: (TrackItem) -> Unit = {}
 ) {
@@ -487,6 +488,7 @@ fun SearchScreen(
                             },
                             onPlayNextSingle = onPlayNextSingle,
                             onAddToQueueSingle = onAddToQueueSingle,
+                            onStartRadioSingle = onStartRadioSingle,
                             onDownloadSingle = onDownloadSingle,
                             onAddToPlaylistSingle = onAddToPlaylistSingle
                         )
@@ -1041,6 +1043,7 @@ private fun SearchResultsContent(
     onDownloadBatch: () -> Unit,
     onPlayNextSingle: (TrackItem) -> Unit,
     onAddToQueueSingle: (TrackItem) -> Unit,
+    onStartRadioSingle: (TrackItem) -> Unit = {},
     onDownloadSingle: (TrackItem) -> Unit,
     onAddToPlaylistSingle: (TrackItem) -> Unit = {}
 ) {
@@ -1219,6 +1222,7 @@ private fun SearchResultsContent(
                         },
                         onPlayNext = { onPlayNextSingle(track) },
                         onAddToQueue = { onAddToQueueSingle(track) },
+                        onStartRadio = { onStartRadioSingle(track) },
                         onDownload = { onDownloadSingle(track) },
                         onAddToPlaylist = { onAddToPlaylistSingle(track) }
                     )
@@ -1311,6 +1315,7 @@ private fun SearchResultItem(
     onClick: () -> Unit,
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
+    onStartRadio: () -> Unit = {},
     onDownload: () -> Unit = {},
     onAddToPlaylist: () -> Unit = {}
 ) {
@@ -1488,6 +1493,20 @@ private fun SearchResultItem(
                                 onClick = {
                                     showMenu = false
                                     onAddToQueue()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Start Radio") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Radio,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onStartRadio()
                                 }
                             )
                             DropdownMenuItem(

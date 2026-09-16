@@ -18,6 +18,7 @@ import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.daemon.DaemonLifecycleState
 import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.AccountStatusData
+import com.cubicreates.unboundmusic.data.AudioQuality
 import com.cubicreates.unboundmusic.data.CascadeSearchResponse
 import com.cubicreates.unboundmusic.data.CuratedCollections
 import com.cubicreates.unboundmusic.data.DaypartingState
@@ -119,8 +120,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _sponsorBlockEnabled = MutableStateFlow(true)
     val sponsorBlockEnabled: StateFlow<Boolean> = _sponsorBlockEnabled.asStateFlow()
 
-    private val _discordRpcEnabled = MutableStateFlow(true)
-    val discordRpcEnabled: StateFlow<Boolean> = _discordRpcEnabled.asStateFlow()
+    private val _streamingQuality = MutableStateFlow(PlaybackStateStore.getStreamingQuality(application))
+    val streamingQuality: StateFlow<AudioQuality> = _streamingQuality.asStateFlow()
+
+    private val _downloadQuality = MutableStateFlow(PlaybackStateStore.getDownloadQuality(application))
+    val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
+
+    fun setStreamingQuality(quality: AudioQuality) {
+        _streamingQuality.value = quality
+        PlaybackStateStore.setStreamingQuality(getApplication(), quality)
+    }
+
+    fun setDownloadQuality(quality: AudioQuality) {
+        _downloadQuality.value = quality
+        PlaybackStateStore.setDownloadQuality(getApplication(), quality)
+    }
+
+    fun setPlaybackSpeed(speed: Float, pitch: Float = 1.0f) {
+        serviceConnection.setPlaybackSpeed(speed, pitch)
+    }
 
     // ==================== Home Mood Filtering ====================
 
@@ -447,7 +465,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 fetchCanvas(track)
                                 fetchSkipSegments(track)
                                 fetchRydVotes(track)
-                                updateDiscordPresence(track)
                             }
                             saveCurrentPlaybackState(0L)
                         }
@@ -469,7 +486,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(application)
         _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(application)
         _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(application)
-        _discordRpcEnabled.value = PlaybackStateStore.isDiscordRpcEnabled(application)
         if (_normalizeVolumeEnabled.value) {
             serviceConnection.setLoudness(1000)
         }
@@ -761,6 +777,55 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Starts an on-demand Magic Serendipity Radio session seeded by the specified track.
+     * Queries the on-device Markov transition generator (/api/v1/radio/magic) with local taste affinity.
+     * Falls back seamlessly to InnerTube /next or YouTube search radio to ensure 100% reliability.
+     */
+    fun startRadio(seedTrack: TrackItem, onStarted: (() -> Unit)? = null) {
+        if (seedTrack.id.isBlank() && seedTrack.title.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
+
+                // 1. Query Go daemon on-device Markov Serendipity Radio generator
+                val result = client.getMagicRadio(localHour = hour, seedTrackId = cleanId)
+                var radioQueue = result?.queue?.filter { it.id != seedTrack.id } ?: emptyList()
+
+                // 2. Fallback to InnerTube /next
+                if (radioQueue.isEmpty() && cleanId.isNotBlank()) {
+                    val (code, resp) = client.getRadioNext(cleanId)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        radioQueue = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
+                    }
+                }
+
+                // 3. Fallback to YouTube search radio query
+                if (radioQueue.isEmpty()) {
+                    val query = "${seedTrack.artist} ${seedTrack.title} radio"
+                    val (sCode, sResp) = client.search(query, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        radioQueue = client.parseSearchResults(sResp).filter { it.id != seedTrack.id }
+                    }
+                }
+
+                val fullQueue = listOf(seedTrack) + radioQueue
+                withContext(Dispatchers.Main) {
+                    playTrackWithQueue(seedTrack, fullQueue)
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Radio: ${seedTrack.title}")
+                    onStarted?.invoke()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting radio: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    playTrack(seedTrack)
+                    onStarted?.invoke()
+                }
+            }
+        }
+    }
+
+    /**
      * Ingests physical playback behavior telemetry (completions, skips, loops) into on-device taste engine.
      */
     fun logPlaybackTelemetry(track: TrackItem, listenedMs: Long, durationMs: Long, isCompleted: Boolean) {
@@ -840,7 +905,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Fetch canvas visuals and SponsorBlock skip segments in parallel
                 launch { fetchCanvas(resolvedTrack) }
                 launch { fetchSkipSegments(resolvedTrack) }
-                launch { updateDiscordPresence(resolvedTrack) }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
@@ -1018,13 +1082,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         automixJob?.cancel()
         automixJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val (code, resp) = client.getRadioNext(seedTrack.id)
                 var nextTracks: List<TrackItem> = emptyList()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    nextTracks = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
+
+                // 1. Primary: On-device Markov Serendipity Radio generator with taste affinity re-ranking
+                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                val magicResult = client.getMagicRadio(localHour = hour, seedTrackId = seedTrack.id)
+                if (magicResult != null && magicResult.queue.isNotEmpty()) {
+                    nextTracks = magicResult.queue.filter { it.id != seedTrack.id }
                 }
 
-                // Zero-fail fallback: If /next was empty or failed, use YouTube search radio query
+                // 2. Secondary: InnerTube /next endpoint
+                if (nextTracks.isEmpty()) {
+                    val (code, resp) = client.getRadioNext(seedTrack.id)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        nextTracks = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
+                    }
+                }
+
+                // 3. Zero-fail fallback: If /next was empty or failed, use YouTube search radio query
                 if (nextTracks.isEmpty()) {
                     val query = "${seedTrack.artist} ${seedTrack.title} radio"
                     val (sCode, sResp) = client.search(query, type = "song")
@@ -1065,6 +1140,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val willBeFav = !_isFavorite.value
         _isFavorite.value = willBeFav
         val current = _currentTrack.value
+        if (current.id.isNotBlank()) {
+            if (willBeFav) {
+                PlaybackStateStore.addFavoriteTrackId(getApplication(), current.id)
+            } else {
+                PlaybackStateStore.removeFavoriteTrackId(getApplication(), current.id)
+            }
+        }
         if (willBeFav && _autoDownloadLikedSongs.value) {
             startTrackDownload(current)
         }
@@ -2633,7 +2715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Phase 7: Bedtime Sleep Engine ====================
 
     /**
-     * Starts the bedtime sleep timer with logarithmic 30-second volume fadeout.
+     * Starts the bedtime sleep timer with logarithmic 30-second volume fadeout or end-of-track stop.
      */
     fun startSleepTimer(minutes: Int, endOfSong: Boolean = false) {
         cancelSleepTimer()
@@ -2646,14 +2728,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 endOfTrack = true
             )
             sleepTimerJob = viewModelScope.launch {
-                var previousTrackId = playbackState.value.currentTrack?.id
+                var initialTrackId = playbackState.value.currentTrack?.id
                 while (isActive) {
                     delay(500)
                     val state = playbackState.value
                     val curTrackId = state.currentTrack?.id
-                    val nearEnd = state.durationMs > 0 && state.currentPositionMs >= (state.durationMs - 1200L)
-                    val trackChanged = previousTrackId != null && curTrackId != null && curTrackId != previousTrackId
-                    if (nearEnd || trackChanged || (!state.isPlaying && state.currentPositionMs > 0)) {
+                    if (initialTrackId == null && curTrackId != null) {
+                        initialTrackId = curTrackId
+                    }
+                    val nearEnd = state.durationMs > 5_000L && state.currentPositionMs >= (state.durationMs - 1500L)
+                    val trackChanged = initialTrackId != null && curTrackId != null && curTrackId != initialTrackId
+
+                    if (nearEnd || trackChanged) {
                         for (i in 10 downTo 0) {
                             UnboundPlaybackService.activeSleepFadeGain = (i / 10f) * (i / 10f)
                             delay(100)
@@ -2663,9 +2749,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         cancelSleepTimer()
                         break
-                    }
-                    if (curTrackId != null) {
-                        previousTrackId = curTrackId
                     }
                 }
             }
@@ -2718,6 +2801,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sleepTimerJob = null
         UnboundPlaybackService.activeSleepFadeGain = 1.0f
         _sleepTimerState.value = SleepTimerState(isActive = false)
+    }
+
+    /**
+     * Reloads custom playlists, favorites, and playback settings after a backup restore.
+     */
+    fun reloadAfterRestore() {
+        loadCustomPlaylists()
+        _streamingQuality.value = PlaybackStateStore.getStreamingQuality(getApplication())
+        _downloadQuality.value = PlaybackStateStore.getDownloadQuality(getApplication())
+        _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(getApplication())
+        _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(getApplication())
+        _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(getApplication())
+        _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(getApplication())
+        _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), _currentTrack.value.id)
     }
 
 
@@ -2855,34 +2952,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setDiscordRpcEnabled(enabled: Boolean) {
-        _discordRpcEnabled.value = enabled
-        PlaybackStateStore.setDiscordRpcEnabled(getApplication(), enabled)
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                if (enabled) {
-                    val current = _currentTrack.value
-                    if (current.title.isNotBlank()) {
-                        client.setDiscordPresence(current.title, current.artist)
-                    }
-                } else {
-                    client.setDiscordPresence("", "")
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
-    fun updateDiscordPresence(track: TrackItem) {
-        if (!_discordRpcEnabled.value) return
-        if (track.title.isBlank() || track.title == "Unknown") return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                client.setDiscordPresence(track.title, track.artist)
-            } catch (e: Exception) {
-                Log.d(TAG, "Discord presence broadcast: ${e.message}")
-            }
-        }
-    }
 
     fun selectHomeMood(mood: String) {
         if (_selectedHomeMood.value == mood) return

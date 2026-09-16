@@ -71,7 +71,10 @@ import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.ui.account.YouTubeDeviceAuthSheet
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
+import com.cubicreates.unboundmusic.ui.player.SleepTimerSheet
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 
@@ -184,10 +187,53 @@ fun MainApp(
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
 
     val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
-    val discordRpcEnabled by viewModel.discordRpcEnabled.collectAsStateWithLifecycle()
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
     val isMoodLoading by viewModel.isMoodLoading.collectAsStateWithLifecycle()
+
+    val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
+    val downloadQuality by viewModel.downloadQuality.collectAsStateWithLifecycle()
+    var showSleepTimerFromSettings by remember { mutableStateOf(false) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val json = com.cubicreates.unboundmusic.data.BackupRestoreManager.exportBackupJson(context)
+                context.contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(json.toByteArray(Charsets.UTF_8))
+                }
+                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Backup exported successfully!")
+            } catch (e: Exception) {
+                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Export failed: ${e.message}")
+            }
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val json = context.contentResolver.openInputStream(uri)?.use { inp ->
+                    inp.bufferedReader().readText()
+                } ?: ""
+                val res = com.cubicreates.unboundmusic.data.BackupRestoreManager.restoreBackupJson(context, json)
+                if (res.success) {
+                    viewModel.reloadAfterRestore()
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        context,
+                        "Restored ${res.playlistsRestored} playlists, ${res.favoritesRestored} favorites!"
+                    )
+                } else {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Restore failed: ${res.errorMessage}")
+                }
+            } catch (e: Exception) {
+                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Restore error: ${e.message}")
+            }
+        }
+    }
 
     val activeDownloadsCount = remember(downloadTasks) {
         downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" || it.status == "PAUSED" }
@@ -323,6 +369,10 @@ fun MainApp(
                                     onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
                                     onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
                                     onDownload = { track -> viewModel.downloadBatch(listOf(track)) },
+                                    onStartRadio = { track ->
+                                        viewModel.startRadio(track)
+                                        isPlayerExpanded = true
+                                    },
                                     selectedMood = selectedHomeMood,
                                     moodTracks = moodTracks,
                                     isMoodLoading = isMoodLoading,
@@ -365,6 +415,10 @@ fun MainApp(
                                     onDownloadBatch = { tracks -> viewModel.downloadBatch(tracks) },
                                     onPlayNextSingle = { track -> viewModel.playNextBatch(listOf(track)) },
                                     onAddToQueueSingle = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                                    onStartRadioSingle = { track ->
+                                        viewModel.startRadio(track)
+                                        isPlayerExpanded = true
+                                    },
                                     onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) },
                                     onAddToPlaylistSingle = { track -> viewModel.showAddToPlaylist(track) }
                                 )
@@ -389,6 +443,10 @@ fun MainApp(
                                     onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                                     onPlayNext = { track -> viewModel.playNext(track) },
                                     onAddToQueue = { track -> viewModel.addToQueue(track) },
+                                    onStartRadio = { track ->
+                                        viewModel.startRadio(track)
+                                        isPlayerExpanded = true
+                                    },
                                     onSourceClick = { source ->
                                         if (source.title == "Synced YouTube" && !isYouTubeConnected) {
                                             launchYouTubeAuth()
@@ -429,12 +487,27 @@ fun MainApp(
                 skipSilenceEnabled = skipSilenceEnabled,
                 normalizeVolumeEnabled = normalizeVolumeEnabled,
                 sponsorBlockEnabled = sponsorBlockEnabled,
-                discordRpcEnabled = discordRpcEnabled,
+                streamingQuality = streamingQuality,
+                downloadQuality = downloadQuality,
                 onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
                 onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
                 onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
                 onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
-                onDiscordRpcChange = { viewModel.setDiscordRpcEnabled(it) }
+                onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
+                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+                onSleepTimerClick = { showSleepTimerFromSettings = true },
+                onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
+                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
+            )
+        }
+
+        // Modal: Sleep Timer from Settings
+        if (showSleepTimerFromSettings) {
+            SleepTimerSheet(
+                timerState = sleepTimerState,
+                onStartTimer = { minutes, endOfSong -> viewModel.startSleepTimer(minutes, endOfSong) },
+                onCancelTimer = { viewModel.cancelSleepTimer() },
+                onDismiss = { showSleepTimerFromSettings = false }
             )
         }
 
@@ -525,6 +598,10 @@ fun MainApp(
                 isPlaying = playbackState.isPlaying,
                 onPlayNext = { track -> viewModel.playNext(track) },
                 onAddToQueue = { track -> viewModel.addToQueue(track) },
+                onStartRadio = { track ->
+                    viewModel.startRadio(track)
+                    isPlayerExpanded = true
+                },
                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) }
             )
         }
@@ -562,6 +639,10 @@ fun MainApp(
                 },
                 onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
                 onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
+                onStartRadio = { track ->
+                    viewModel.startRadio(track)
+                    isPlayerExpanded = true
+                },
                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                 onClearCache = { viewModel.clearCacheAndStorage() },
                 onExportToStorage = { viewModel.exportDownloadsToPublicStorage() }
@@ -616,7 +697,15 @@ fun MainApp(
                 onUndoSkip = { viewModel.undoSkitSkip() },
                 onDismissSkipNotice = { viewModel.dismissSkitNotice() },
                 rydData = rydVotes,
-                onRefreshRydVotes = { viewModel.refreshRydVotes() }
+                onRefreshRydVotes = { viewModel.refreshRydVotes() },
+                onStartRadio = {
+                    if (currentTrack.title.isNotBlank()) {
+                        viewModel.startRadio(currentTrack)
+                    }
+                },
+                playbackSpeed = playbackState.playbackSpeed,
+                playbackPitch = playbackState.playbackPitch,
+                onSetPlaybackSpeedAndPitch = { speed, pitch -> viewModel.setPlaybackSpeed(speed, pitch) }
             )
         }
 
@@ -724,6 +813,10 @@ fun MainApp(
                 },
                 onPlayNext = { track -> viewModel.playNext(track) },
                 onAddToQueue = { track -> viewModel.addToQueue(track) },
+                onStartRadio = { track ->
+                    viewModel.startRadio(track)
+                    isPlayerExpanded = true
+                },
                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                 onStartDownload = { track -> viewModel.startTrackDownload(track) },
                 downloadedTrackIds = downloadedTrackIds,

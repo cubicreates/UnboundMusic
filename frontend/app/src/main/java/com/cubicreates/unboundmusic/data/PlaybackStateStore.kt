@@ -12,6 +12,18 @@ import com.cubicreates.unboundmusic.ui.components.TrackItem
 import org.json.JSONArray
 import org.json.JSONObject
 
+enum class AudioQuality(val id: String, val title: String, val subtitle: String) {
+    LOW("low", "Data Saver (48 kbps)", "48 kbps OPUS – Conserves mobile data"),
+    MEDIUM("medium", "Standard (128 kbps)", "128 kbps OPUS – Great balance"),
+    HIGH("high", "High (256 kbps)", "256 kbps OPUS/AAC – Maximum fidelity");
+
+    companion object {
+        fun fromId(id: String): AudioQuality {
+            return entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: HIGH
+        }
+    }
+}
+
 data class SavedPlaybackState(
     val track: TrackItem,
     val queue: List<TrackItem>,
@@ -25,7 +37,9 @@ object PlaybackStateStore {
     private const val KEY_SKIP_SILENCE = "key_skip_silence"
     private const val KEY_NORMALIZE_VOLUME = "key_normalize_volume"
     private const val KEY_SPONSOR_BLOCK = "key_sponsor_block_enabled"
-    private const val KEY_DISCORD_RPC = "key_discord_rpc_enabled"
+    private const val KEY_STREAMING_QUALITY = "key_streaming_quality"
+    private const val KEY_DOWNLOAD_QUALITY = "key_download_quality"
+    private const val KEY_FAVORITE_TRACK_IDS = "key_favorite_track_ids"
 
     private const val KEY_HAS_SAVED_STATE = "key_has_saved_state"
     private const val KEY_SAVED_TRACK = "key_saved_track"
@@ -34,6 +48,72 @@ object PlaybackStateStore {
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    // ==================== Audio Quality Settings ====================
+
+    fun getStreamingQuality(context: Context): AudioQuality {
+        val raw = getPrefs(context).getString(KEY_STREAMING_QUALITY, AudioQuality.HIGH.id) ?: AudioQuality.HIGH.id
+        return AudioQuality.fromId(raw)
+    }
+
+    fun setStreamingQuality(context: Context, quality: AudioQuality) {
+        getPrefs(context).edit().putString(KEY_STREAMING_QUALITY, quality.id).apply()
+    }
+
+    fun getDownloadQuality(context: Context): AudioQuality {
+        val raw = getPrefs(context).getString(KEY_DOWNLOAD_QUALITY, AudioQuality.HIGH.id) ?: AudioQuality.HIGH.id
+        return AudioQuality.fromId(raw)
+    }
+
+    fun setDownloadQuality(context: Context, quality: AudioQuality) {
+        getPrefs(context).edit().putString(KEY_DOWNLOAD_QUALITY, quality.id).apply()
+    }
+
+    // ==================== Favorites Persistence ====================
+
+    fun getFavoriteTrackIds(context: Context): Set<String> {
+        val json = getPrefs(context).getString(KEY_FAVORITE_TRACK_IDS, null) ?: return emptySet()
+        return try {
+            val arr = JSONArray(json)
+            val set = mutableSetOf<String>()
+            for (i in 0 until arr.length()) {
+                val id = arr.optString(i)
+                if (id.isNotBlank()) set.add(id)
+            }
+            set
+        } catch (_: Exception) {
+            emptySet()
+        }
+    }
+
+    fun setFavoriteTrackIds(context: Context, ids: Set<String>) {
+        try {
+            val arr = JSONArray()
+            for (id in ids) {
+                if (id.isNotBlank()) arr.put(id)
+            }
+            getPrefs(context).edit().putString(KEY_FAVORITE_TRACK_IDS, arr.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
+    fun addFavoriteTrackId(context: Context, id: String) {
+        if (id.isBlank()) return
+        val current = getFavoriteTrackIds(context).toMutableSet()
+        current.add(id)
+        setFavoriteTrackIds(context, current)
+    }
+
+    fun removeFavoriteTrackId(context: Context, id: String) {
+        if (id.isBlank()) return
+        val current = getFavoriteTrackIds(context).toMutableSet()
+        current.remove(id)
+        setFavoriteTrackIds(context, current)
+    }
+
+    fun isFavoriteTrack(context: Context, id: String): Boolean {
+        if (id.isBlank()) return false
+        return getFavoriteTrackIds(context).contains(id)
     }
 
     // ==================== Playback Automation Settings ====================
@@ -68,14 +148,6 @@ object PlaybackStateStore {
 
     fun setSponsorBlockEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_SPONSOR_BLOCK, enabled).apply()
-    }
-
-    fun isDiscordRpcEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_DISCORD_RPC, true)
-    }
-
-    fun setDiscordRpcEnabled(context: Context, enabled: Boolean) {
-        getPrefs(context).edit().putBoolean(KEY_DISCORD_RPC, enabled).apply()
     }
 
     // ==================== Queue & Position Persistence ====================

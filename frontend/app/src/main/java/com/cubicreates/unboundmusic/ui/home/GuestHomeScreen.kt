@@ -88,7 +88,8 @@ fun GuestHomeScreen(
     selectedMood: String = "All",
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
-    onMoodFilterSelect: (String) -> Unit = {}
+    onMoodFilterSelect: (String) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {}
 ) {
     val hour = remember {
         java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -177,7 +178,8 @@ fun GuestHomeScreen(
                     onTrackSelect = onTrackSelect,
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
-                    onDownload = onDownload
+                    onDownload = onDownload,
+                    onStartRadio = onStartRadio
                 )
             }
 

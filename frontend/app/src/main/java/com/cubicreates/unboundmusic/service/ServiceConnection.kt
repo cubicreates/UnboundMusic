@@ -21,6 +21,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -61,7 +62,9 @@ data class PlaybackUiState(
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
     val mediaItemCount: Int = 0,
-    val queue: List<TrackItem> = emptyList()
+    val queue: List<TrackItem> = emptyList(),
+    val playbackSpeed: Float = 1.0f,
+    val playbackPitch: Float = 1.0f
 )
 
 /**
@@ -525,7 +528,9 @@ class ServiceConnection private constructor(private val context: Context) {
             hasNext = ctrl.hasNextMediaItem() || originalQueue.size > 1 || onSkipToNextListener != null,
             hasPrevious = ctrl.hasPreviousMediaItem() || originalQueue.size > 1 || onSkipToPreviousListener != null,
             mediaItemCount = ctrl.mediaItemCount,
-            queue = if (queueList.isNotEmpty()) queueList else originalQueue
+            queue = if (queueList.isNotEmpty()) queueList else originalQueue,
+            playbackSpeed = ctrl.playbackParameters.speed,
+            playbackPitch = ctrl.playbackParameters.pitch
         )
     }
 
@@ -545,6 +550,17 @@ class ServiceConnection private constructor(private val context: Context) {
             formattedPosition = formatTime(position),
             formattedRemaining = "-${formatTime(remaining)}"
         )
+    }
+
+    fun setPlaybackSpeed(speed: Float, pitch: Float = 1.0f) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { setPlaybackSpeed(speed, pitch) }
+            return
+        }
+        val safeSpeed = speed.coerceIn(0.25f, 3.0f)
+        val safePitch = pitch.coerceIn(0.25f, 2.0f)
+        controller?.playbackParameters = PlaybackParameters(safeSpeed, safePitch)
+        syncState()
     }
 
     fun getEqualizerCurve(): EqualizerCurve {
@@ -580,6 +596,7 @@ class ServiceConnection private constructor(private val context: Context) {
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) = syncState()
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) = syncState()
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) = syncState()
         override fun onPlaybackStateChanged(playbackState: Int) {
             syncState()
             if (playbackState == Player.STATE_ENDED) {

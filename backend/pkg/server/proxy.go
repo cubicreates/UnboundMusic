@@ -115,7 +115,8 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Cache Miss: resolve stream URL from YouTube Innertube
-	streamInfo, err := s.ytClient.GetStreamInfo(r.Context(), videoID)
+	quality := r.URL.Query().Get("quality")
+	streamInfo, err := s.ytClient.GetStreamInfoWithQuality(r.Context(), videoID, quality)
 	if err != nil || streamInfo == nil || streamInfo.StreamURL == "" {
 		errMsg := "unknown stream resolution error"
 		if err != nil {

@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -48,6 +50,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
@@ -65,6 +68,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -73,7 +77,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -106,6 +114,7 @@ fun CustomPlaylistScreen(
     onMoveTrack: (fromIndex: Int, toIndex: Int) -> Unit,
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onStartDownload: (TrackItem) -> Unit = {},
     downloadedTrackIds: Set<String> = emptySet(),
@@ -118,14 +127,22 @@ fun CustomPlaylistScreen(
     var showEditDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
+    var localTracks by remember(playlist.tracks) { mutableStateOf(playlist.tracks) }
+    var draggingTrackId by remember { mutableStateOf<String?>(null) }
+    var dragAccumulatedOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { 68.dp.toPx() }
+
     // Filter tracks if searching
-    val displayedTracks by remember(playlist.tracks, searchQuery) {
+    val displayedTracks by remember(localTracks, searchQuery) {
         derivedStateOf {
             if (searchQuery.isBlank()) {
-                playlist.tracks
+                localTracks
             } else {
                 val query = searchQuery.trim().lowercase()
-                playlist.tracks.filter {
+                localTracks.filter {
                     it.title.lowercase().contains(query) ||
                     it.artist.lowercase().contains(query)
                 }
@@ -424,30 +441,97 @@ fun CustomPlaylistScreen(
 
             // Tracks List
             itemsIndexed(displayedTracks, key = { _, track -> track.id }) { index, track ->
-                val originalIndex = playlist.tracks.indexOfFirst { it.id == track.id }
+                val originalIndex = localTracks.indexOfFirst { it.id == track.id }
                 val isCurrentPlaying = track.id == currentTrackId
                 val isDownloaded = downloadedTrackIds.contains(track.id)
+                val isDragging = draggingTrackId == track.id
+
+                val dragModifier = if (searchQuery.isBlank()) {
+                    Modifier.pointerInput(track.id, localTracks.size) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                draggingTrackId = track.id
+                                dragStartIndex = originalIndex
+                                dragAccumulatedOffsetY = 0f
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragAccumulatedOffsetY += dragAmount.y
+                                val currentIdx = localTracks.indexOfFirst { it.id == draggingTrackId }
+                                if (currentIdx != -1) {
+                                    if (dragAccumulatedOffsetY > itemHeightPx && currentIdx < localTracks.lastIndex) {
+                                        val nextIdx = currentIdx + 1
+                                        val updated = localTracks.toMutableList()
+                                        val item = updated.removeAt(currentIdx)
+                                        updated.add(nextIdx, item)
+                                        localTracks = updated
+                                        dragAccumulatedOffsetY -= itemHeightPx
+                                    } else if (dragAccumulatedOffsetY < -itemHeightPx && currentIdx > 0) {
+                                        val prevIdx = currentIdx - 1
+                                        val updated = localTracks.toMutableList()
+                                        val item = updated.removeAt(currentIdx)
+                                        updated.add(prevIdx, item)
+                                        localTracks = updated
+                                        dragAccumulatedOffsetY += itemHeightPx
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                val finalIndex = localTracks.indexOfFirst { it.id == draggingTrackId }
+                                val startIdx = dragStartIndex
+                                if (startIdx != null && finalIndex >= 0 && startIdx != finalIndex) {
+                                    onMoveTrack(startIdx, finalIndex)
+                                }
+                                draggingTrackId = null
+                                dragStartIndex = null
+                                dragAccumulatedOffsetY = 0f
+                            },
+                            onDragCancel = {
+                                localTracks = playlist.tracks
+                                draggingTrackId = null
+                                dragStartIndex = null
+                                dragAccumulatedOffsetY = 0f
+                            }
+                        )
+                    }
+                } else {
+                    Modifier
+                }
 
                 CustomPlaylistTrackRow(
                     index = index,
                     track = track,
                     isCurrentPlaying = isCurrentPlaying,
                     isDownloaded = isDownloaded,
+                    isDragging = isDragging,
+                    dragOffsetY = if (isDragging) dragAccumulatedOffsetY else 0f,
+                    dragHandleModifier = dragModifier,
                     canMoveUp = originalIndex > 0 && searchQuery.isBlank(),
-                    canMoveDown = originalIndex < playlist.tracks.lastIndex && originalIndex >= 0 && searchQuery.isBlank(),
+                    canMoveDown = originalIndex < localTracks.lastIndex && originalIndex >= 0 && searchQuery.isBlank(),
                     onClick = { onTrackSelect(track) },
                     onMoveUp = {
                         if (originalIndex > 0) {
-                            onMoveTrack(originalIndex, originalIndex - 1)
+                            val prevIdx = originalIndex - 1
+                            val updated = localTracks.toMutableList()
+                            val item = updated.removeAt(originalIndex)
+                            updated.add(prevIdx, item)
+                            localTracks = updated
+                            onMoveTrack(originalIndex, prevIdx)
                         }
                     },
                     onMoveDown = {
-                        if (originalIndex >= 0 && originalIndex < playlist.tracks.lastIndex) {
-                            onMoveTrack(originalIndex, originalIndex + 1)
+                        if (originalIndex >= 0 && originalIndex < localTracks.lastIndex) {
+                            val nextIdx = originalIndex + 1
+                            val updated = localTracks.toMutableList()
+                            val item = updated.removeAt(originalIndex)
+                            updated.add(nextIdx, item)
+                            localTracks = updated
+                            onMoveTrack(originalIndex, nextIdx)
                         }
                     },
                     onPlayNext = { onPlayNext(track) },
                     onAddToQueue = { onAddToQueue(track) },
+                    onStartRadio = { onStartRadio(track) },
                     onAddToPlaylist = { onAddToPlaylist(track) },
                     onRemove = { onRemoveTrack(track.id) },
                     onStartDownload = { onStartDownload(track) }
@@ -519,6 +603,9 @@ private fun CustomPlaylistTrackRow(
     track: TrackItem,
     isCurrentPlaying: Boolean,
     isDownloaded: Boolean,
+    isDragging: Boolean = false,
+    dragOffsetY: Float = 0f,
+    dragHandleModifier: Modifier = Modifier,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onClick: () -> Unit,
@@ -526,6 +613,7 @@ private fun CustomPlaylistTrackRow(
     onMoveDown: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onStartRadio: () -> Unit = {},
     onAddToPlaylist: () -> Unit,
     onRemove: () -> Unit,
     onStartDownload: () -> Unit
@@ -536,45 +624,75 @@ private fun CustomPlaylistTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 3.dp)
+            .zIndex(if (isDragging) 20f else 1f)
+            .graphicsLayer {
+                translationY = if (isDragging) dragOffsetY else 0f
+                if (isDragging) {
+                    scaleX = 1.03f
+                    scaleY = 1.03f
+                    shadowElevation = 24f
+                }
+            }
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isCurrentPlaying) UnboundPrimary.copy(alpha = 0.12f) else SurfaceGlassHighest)
+            .background(
+                if (isDragging) UnboundPrimary.copy(alpha = 0.24f)
+                else if (isCurrentPlaying) UnboundPrimary.copy(alpha = 0.12f)
+                else SurfaceGlassHighest
+            )
             .border(
-                width = 1.dp,
-                color = if (isCurrentPlaying) UnboundPrimary.copy(alpha = 0.4f) else BorderGlass,
+                width = if (isDragging) 1.5.dp else 1.dp,
+                color = if (isDragging) UnboundPrimary else if (isCurrentPlaying) UnboundPrimary.copy(alpha = 0.4f) else BorderGlass,
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Reordering controls (Move Up / Move Down)
+        // Drag handle with touch gesture support
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .then(dragHandleModifier),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = "Drag to reorder",
+                tint = if (isDragging) UnboundPrimary else OnSurfaceVariant.copy(alpha = 0.65f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(2.dp))
+
+        // Precision Move Up / Move Down buttons
         Column(
-            modifier = Modifier.width(28.dp),
+            modifier = Modifier.width(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             IconButton(
                 onClick = onMoveUp,
                 enabled = canMoveUp,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowUp,
                     contentDescription = "Move Up",
                     tint = if (canMoveUp) OnSurfaceVariant else OnSurfaceVariant.copy(alpha = 0.2f),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
             IconButton(
                 onClick = onMoveDown,
                 enabled = canMoveDown,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "Move Down",
                     tint = if (canMoveDown) OnSurfaceVariant else OnSurfaceVariant.copy(alpha = 0.2f),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -706,6 +824,21 @@ private fun CustomPlaylistTrackRow(
                     onClick = {
                         showTrackMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Start Radio", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Radio,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showTrackMenu = false
+                        onStartRadio()
                     }
                 )
                 DropdownMenuItem(

@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -89,7 +90,8 @@ fun QuickPicksSection(
     onTrackSelect: (TrackItem, List<TrackItem>) -> Unit,
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
-    onDownload: (TrackItem) -> Unit = {}
+    onDownload: (TrackItem) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {}
 ) {
     if (tracks.isEmpty()) return
 
@@ -187,7 +189,8 @@ fun QuickPicksSection(
                     onClick = { onTrackSelect(track, tracks) },
                     onPlayNext = { onPlayNext(track) },
                     onAddToQueue = { onAddToQueue(track) },
-                    onDownload = { onDownload(track) }
+                    onDownload = { onDownload(track) },
+                    onStartRadio = { onStartRadio(track) }
                 )
             }
         }
@@ -202,7 +205,8 @@ private fun QuickPickRowItem(
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    onStartRadio: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -301,6 +305,14 @@ private fun QuickPickRowItem(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Start Radio") },
+                        leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, tint = UnboundPrimary, modifier = Modifier.size(18.dp)) },
+                        onClick = {
+                            showMenu = false
+                            onStartRadio()
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Play Next") },
                         onClick = {

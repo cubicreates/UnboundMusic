@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
@@ -63,6 +64,7 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
+import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 @Composable
 fun QueueBottomSheet(
@@ -73,6 +75,7 @@ fun QueueBottomSheet(
     onTrackSelect: (Int) -> Unit = {},
     onMoveItem: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onRemoveItem: (index: Int) -> Unit = {},
+    onStartRadio: () -> Unit = {},
     onDismiss: () -> Unit = {}
 ) {
     Dialog(onDismissRequest = onDismiss) {
@@ -138,6 +141,34 @@ fun QueueBottomSheet(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = UnboundPrimary
+                                )
+                            }
+                        }
+
+                        // Magic Radio (Markov Engine) Trigger Pill
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(UnboundTertiary.copy(alpha = 0.18f))
+                                .clickable {
+                                    onStartRadio()
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Radio,
+                                    contentDescription = "Magic Radio",
+                                    tint = UnboundTertiary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Radio",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = UnboundTertiary
                                 )
                             }
                         }

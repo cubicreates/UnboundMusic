@@ -106,7 +106,8 @@ fun PersonalizedHomeScreen(
     selectedMood: String = "All",
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
-    onMoodFilterSelect: (String) -> Unit = {}
+    onMoodFilterSelect: (String) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -200,7 +201,8 @@ fun PersonalizedHomeScreen(
                         onTrackSelect = onTrackSelect,
                         onPlayNext = onPlayNext,
                         onAddToQueue = onAddToQueue,
-                        onDownload = onDownload
+                        onDownload = onDownload,
+                        onStartRadio = onStartRadio
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }

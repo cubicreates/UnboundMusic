@@ -37,18 +37,23 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -67,7 +72,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.data.AudioQuality
 import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
@@ -101,13 +108,20 @@ fun SettingsScreen(
     skipSilenceEnabled: Boolean = false,
     normalizeVolumeEnabled: Boolean = false,
     sponsorBlockEnabled: Boolean = true,
-    discordRpcEnabled: Boolean = true,
+    streamingQuality: AudioQuality = AudioQuality.HIGH,
+    downloadQuality: AudioQuality = AudioQuality.HIGH,
     onAutoDownloadLikedSongsChange: (Boolean) -> Unit = {},
     onSkipSilenceChange: (Boolean) -> Unit = {},
     onNormalizeVolumeChange: (Boolean) -> Unit = {},
     onSponsorBlockChange: (Boolean) -> Unit = {},
-    onDiscordRpcChange: (Boolean) -> Unit = {}
+    onStreamingQualityChange: (AudioQuality) -> Unit = {},
+    onDownloadQualityChange: (AudioQuality) -> Unit = {},
+    onExportBackupClick: () -> Unit = {},
+    onRestoreBackupClick: () -> Unit = {}
 ) {
+    var showStreamingQualityDialog by remember { mutableStateOf(false) }
+    var showDownloadQualityDialog by remember { mutableStateOf(false) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -267,8 +281,26 @@ fun SettingsScreen(
             SettingsActionTile(
                 icon = Icons.Default.Bedtime,
                 title = "Sleep Timer & Fade-Out",
-                subtitle = "Smooth 30s exponential fade attenuation",
+                subtitle = "Smooth 30s exponential fade attenuation or stop at end of song",
                 onClick = onSleepTimerClick
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsActionTile(
+                icon = Icons.Default.HighQuality,
+                title = "Streaming Audio Quality",
+                subtitle = streamingQuality.title,
+                onClick = { showStreamingQualityDialog = true }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsActionTile(
+                icon = Icons.Default.FileDownload,
+                title = "Download Audio Quality",
+                subtitle = downloadQuality.title,
+                onClick = { showDownloadQualityDialog = true }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -398,15 +430,6 @@ fun SettingsScreen(
                 onClick = onYouTubeSyncClick
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsToggleTile(
-                icon = Icons.Default.Radio,
-                title = "Discord Rich Presence",
-                subtitle = "Broadcast listening status on Discord",
-                checked = discordRpcEnabled,
-                onCheckedChange = onDiscordRpcChange
-            )
 
             Spacer(modifier = Modifier.height(10.dp))
 
@@ -439,6 +462,27 @@ fun SettingsScreen(
                 onClick = onCleanStorageForUninstallClick
             )
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Backup & Restore
+            SettingsSectionHeader(title = "BACKUP & RESTORE")
+
+            SettingsActionTile(
+                icon = Icons.Default.Backup,
+                title = "Export Backup (JSON)",
+                subtitle = "Save custom playlists, favorites, and settings to a JSON file",
+                onClick = onExportBackupClick
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SettingsActionTile(
+                icon = Icons.Default.Restore,
+                title = "Restore from Backup (JSON)",
+                subtitle = "Restore playlists, favorites, and settings from JSON file",
+                onClick = onRestoreBackupClick
+            )
+
             Spacer(modifier = Modifier.height(10.dp))
 
             SettingsActionTile(
@@ -466,6 +510,91 @@ fun SettingsScreen(
                     fontSize = 11.sp,
                     color = OnSurfaceVariant.copy(alpha = 0.6f)
                 )
+            }
+        }
+
+        if (showStreamingQualityDialog) {
+            QualitySelectionDialog(
+                title = "Streaming Audio Quality",
+                selected = streamingQuality,
+                onSelect = {
+                    onStreamingQualityChange(it)
+                    showStreamingQualityDialog = false
+                },
+                onDismiss = { showStreamingQualityDialog = false }
+            )
+        }
+
+        if (showDownloadQualityDialog) {
+            QualitySelectionDialog(
+                title = "Download Audio Quality",
+                selected = downloadQuality,
+                onSelect = {
+                    onDownloadQualityChange(it)
+                    showDownloadQualityDialog = false
+                },
+                onDismiss = { showDownloadQualityDialog = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun QualitySelectionDialog(
+    title: String,
+    selected: AudioQuality,
+    onSelect: (AudioQuality) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(UnboundBackground)
+                .border(1.dp, BorderGlass, RoundedCornerShape(24.dp))
+                .padding(22.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = title,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OnSurface,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                AudioQuality.entries.forEach { q ->
+                    val isChecked = q == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelect(q) }
+                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isChecked,
+                            onClick = { onSelect(q) },
+                            colors = RadioButtonDefaults.colors(selectedColor = UnboundPrimary)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = q.title,
+                                fontSize = 14.sp,
+                                fontWeight = if (isChecked) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isChecked) UnboundPrimary else OnSurface
+                            )
+                            Text(
+                                text = q.subtitle,
+                                fontSize = 11.sp,
+                                color = OnSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
     }

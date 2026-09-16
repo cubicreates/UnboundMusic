@@ -56,7 +56,8 @@ fun HomeScreen(
     selectedMood: String = "All",
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
-    onMoodFilterSelect: (String) -> Unit = {}
+    onMoodFilterSelect: (String) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -92,7 +93,8 @@ fun HomeScreen(
                 selectedMood = selectedMood,
                 moodTracks = moodTracks,
                 isMoodLoading = isMoodLoading,
-                onMoodFilterSelect = onMoodFilterSelect
+                onMoodFilterSelect = onMoodFilterSelect,
+                onStartRadio = onStartRadio
             )
         } else {
             GuestHomeScreen(
@@ -114,7 +116,8 @@ fun HomeScreen(
                 selectedMood = selectedMood,
                 moodTracks = moodTracks,
                 isMoodLoading = isMoodLoading,
-                onMoodFilterSelect = onMoodFilterSelect
+                onMoodFilterSelect = onMoodFilterSelect,
+                onStartRadio = onStartRadio
             )
         }
     }

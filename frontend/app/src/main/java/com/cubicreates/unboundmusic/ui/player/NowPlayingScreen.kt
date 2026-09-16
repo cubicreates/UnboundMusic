@@ -53,11 +53,13 @@ import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Icon
@@ -152,7 +154,11 @@ fun NowPlayingScreen(
     onUndoSkip: () -> Unit = {},
     onDismissSkipNotice: () -> Unit = {},
     rydData: RydVoteData? = null,
-    onRefreshRydVotes: () -> Unit = {}
+    onRefreshRydVotes: () -> Unit = {},
+    onStartRadio: () -> Unit = {},
+    playbackSpeed: Float = 1.0f,
+    playbackPitch: Float = 1.0f,
+    onSetPlaybackSpeedAndPitch: (speed: Float, pitch: Float) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("unbound_player_prefs", Context.MODE_PRIVATE) }
@@ -173,6 +179,7 @@ fun NowPlayingScreen(
     var showFullLyrics by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showRydStatsSheet by remember { mutableStateOf(false) }
+    var showSpeedPitchDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -254,6 +261,9 @@ fun NowPlayingScreen(
                         onCycleRepeatMode = onCycleRepeatMode,
                         onEqualizerClick = onEqualizerClick,
                         onOpenSleepTimer = { showSleepTimerSheet = true },
+                        onStartRadio = onStartRadio,
+                        playbackSpeed = playbackSpeed,
+                        onOpenPlaybackSpeed = { showSpeedPitchDialog = true },
                         onOpenQueue = { showQueueSheet = true },
                         onOpenFullLyrics = { showFullLyrics = true },
                         onUndoSkip = onUndoSkip,
@@ -333,6 +343,8 @@ fun NowPlayingScreen(
                         onCycleRepeatMode = onCycleRepeatMode,
                         onEqualizerClick = onEqualizerClick,
                         onOpenSleepTimer = { showSleepTimerSheet = true },
+                        playbackSpeed = playbackSpeed,
+                        onOpenPlaybackSpeed = { showSpeedPitchDialog = true },
                         onOpenQueue = { showQueueSheet = true },
                         onOpenFullLyrics = { showFullLyrics = true },
                         rydData = rydData,
@@ -342,19 +354,24 @@ fun NowPlayingScreen(
             }
         }
 
-        // 3. Style Picker Modal Bottom Sheet
+        // -----------------------------------------------------------------------------------------
+        // Modal Bottom Sheets & Overlays
+        // -----------------------------------------------------------------------------------------
+
+        // 1. Interactive UI Style Picker
         if (showStylePickerSheet) {
             NowPlayingStylePickerSheet(
                 currentStyle = currentStyle,
-                onStyleSelected = { selected ->
-                    currentStyle = selected
-                    prefs.edit().putString("now_playing_style", selected.name).apply()
+                onStyleSelected = { newStyle ->
+                    currentStyle = newStyle
+                    prefs.edit().putString("now_playing_style", newStyle.name).apply()
+                    showStylePickerSheet = false
                 },
                 onDismiss = { showStylePickerSheet = false }
             )
         }
 
-        // 4. Full Screen Kinetic Lyrics Overlay (when invoked in Spotify / M3 mode)
+        // 2. Full-Screen Interactive Karaoke Lyrics Overlay
         if (showFullLyrics) {
             Box(
                 modifier = Modifier
@@ -405,6 +422,7 @@ fun NowPlayingScreen(
                 onTrackSelect = onQueueTrackSelect,
                 onMoveItem = onMoveQueueItem,
                 onRemoveItem = onRemoveQueueItem,
+                onStartRadio = onStartRadio,
                 onDismiss = { showQueueSheet = false }
             )
         }
@@ -426,6 +444,16 @@ fun NowPlayingScreen(
                 rydData = rydData,
                 onRefresh = onRefreshRydVotes,
                 onDismiss = { showRydStatsSheet = false }
+            )
+        }
+
+        // 8. Playback Speed & Pitch Modal Dialog
+        if (showSpeedPitchDialog) {
+            PlaybackSpeedDialog(
+                currentSpeed = playbackSpeed,
+                currentPitch = playbackPitch,
+                onSpeedPitchChanged = onSetPlaybackSpeedAndPitch,
+                onDismiss = { showSpeedPitchDialog = false }
             )
         }
     }
@@ -466,6 +494,9 @@ private fun SpotifyPlayerContent(
     onCycleRepeatMode: () -> Unit,
     onEqualizerClick: () -> Unit,
     onOpenSleepTimer: () -> Unit,
+    onStartRadio: () -> Unit = {},
+    playbackSpeed: Float = 1.0f,
+    onOpenPlaybackSpeed: () -> Unit = {},
     onOpenQueue: () -> Unit,
     onOpenFullLyrics: () -> Unit,
     onUndoSkip: () -> Unit,
@@ -865,6 +896,30 @@ private fun SpotifyPlayerContent(
                     imageVector = Icons.Default.Bedtime,
                     contentDescription = "Sleep Timer",
                     tint = if (sleepTimerActive) UnboundPrimary else OnSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onStartRadio,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Radio,
+                    contentDescription = "Start Radio",
+                    tint = UnboundPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            IconButton(
+                onClick = onOpenPlaybackSpeed,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Speed,
+                    contentDescription = "Playback Speed",
+                    tint = if (playbackSpeed != 1.0f) UnboundPrimary else OnSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -1417,6 +1472,8 @@ private fun M3ExpressivePlayerContent(
     onCycleRepeatMode: () -> Unit,
     onEqualizerClick: () -> Unit,
     onOpenSleepTimer: () -> Unit,
+    playbackSpeed: Float = 1.0f,
+    onOpenPlaybackSpeed: () -> Unit = {},
     onOpenQueue: () -> Unit,
     onOpenFullLyrics: () -> Unit,
     rydData: RydVoteData? = null,
@@ -1778,6 +1835,38 @@ private fun M3ExpressivePlayerContent(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (sleepTimerActive) UnboundPrimary else OnSurface
+                    )
+                }
+            }
+
+            // Speed Pill
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (playbackSpeed != 1.0f) UnboundPrimary.copy(alpha = 0.2f) else SurfaceGlassHighest)
+                    .border(
+                        1.dp,
+                        if (playbackSpeed != 1.0f) UnboundPrimary else BorderGlass,
+                        RoundedCornerShape(14.dp)
+                    )
+                    .clickable { onOpenPlaybackSpeed() }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = null,
+                        tint = if (playbackSpeed != 1.0f) UnboundPrimary else OnSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (playbackSpeed != 1.0f) "${playbackSpeed}x" else "Speed",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (playbackSpeed != 1.0f) UnboundPrimary else OnSurface
                     )
                 }
             }

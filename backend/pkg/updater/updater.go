@@ -55,7 +55,7 @@ func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "UnboundMusic-Desktop/1.0.0")
+	req.Header.Set("User-Agent", "UnboundMusic-Android/1.0.0")
 
 	resp, err := u.httpClient.Do(req)
 	if err != nil {

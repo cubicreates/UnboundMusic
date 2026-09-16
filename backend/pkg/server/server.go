@@ -16,6 +16,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -517,7 +518,12 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// For remote audio streams, provide both the direct YouTube CDN signed URL and the local reverse proxy URL.
 	if stream.StreamType != router.StreamTypeLocalZeroData && stream.TrackID != "" {
-		stream.ProxyStreamURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/proxy/stream?id=%s", s.cfg.Port, stream.TrackID)
+		quality := r.URL.Query().Get("quality")
+		qualityParam := ""
+		if quality != "" {
+			qualityParam = "&quality=" + url.QueryEscape(quality)
+		}
+		stream.ProxyStreamURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/proxy/stream?id=%s%s", s.cfg.Port, stream.TrackID, qualityParam)
 		if stream.DirectStreamURL == "" {
 			stream.DirectStreamURL = stream.StreamURL
 		}

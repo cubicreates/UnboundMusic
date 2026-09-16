@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Sync
@@ -119,7 +120,8 @@ fun LibraryScreen(
     onPlaylistClick: (CustomPlaylist) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
-    onAddToQueue: (TrackItem) -> Unit = {}
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {}
 ) {
     var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -336,7 +338,8 @@ fun LibraryScreen(
                             onDeleteDownload = { onDeleteDownload(task?.videoId ?: track.id) },
                             onAddToPlaylist = { onAddToPlaylist(track) },
                             onPlayNext = { onPlayNext(track) },
-                            onAddToQueue = { onAddToQueue(track) }
+                            onAddToQueue = { onAddToQueue(track) },
+                            onStartRadio = { onStartRadio(track) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -571,7 +574,8 @@ private fun LibraryTrackRow(
     onDeleteDownload: () -> Unit,
     onAddToPlaylist: () -> Unit = {},
     onPlayNext: () -> Unit = {},
-    onAddToQueue: () -> Unit = {}
+    onAddToQueue: () -> Unit = {},
+    onStartRadio: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -697,6 +701,21 @@ private fun LibraryTrackRow(
                     onClick = {
                         showMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Start Radio", color = OnSurface, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Radio,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onStartRadio()
                     }
                 )
                 DropdownMenuItem(

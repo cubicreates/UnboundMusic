@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Speed
@@ -143,6 +144,7 @@ fun DownloadsScreen(
     onPlayAllDownloaded: (List<TrackItem>) -> Unit,
     onPlayNext: (TrackItem) -> Unit,
     onAddToQueue: (TrackItem) -> Unit,
+    onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onClearCache: () -> Unit,
     onExportToStorage: () -> Unit,
@@ -363,6 +365,7 @@ fun DownloadsScreen(
                         onPlayAll = { onPlayAllDownloaded(filteredDownloadedTracks) },
                         onPlayNext = onPlayNext,
                         onAddToQueue = onAddToQueue,
+                        onStartRadio = onStartRadio,
                         onAddToPlaylist = onAddToPlaylist,
                         onDelete = onDeleteDownload,
                         modifier = Modifier.fillMaxSize()
@@ -925,6 +928,7 @@ private fun DownloadedTracksTab(
     onPlayAll: () -> Unit,
     onPlayNext: (TrackItem) -> Unit,
     onAddToQueue: (TrackItem) -> Unit,
+    onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit,
     onDelete: (String, String) -> Unit,
     modifier: Modifier = Modifier
@@ -1062,6 +1066,7 @@ private fun DownloadedTracksTab(
                         onClick = { onTrackSelect(track) },
                         onPlayNext = { onPlayNext(track) },
                         onAddToQueue = { onAddToQueue(track) },
+                        onStartRadio = { onStartRadio(track) },
                         onAddToPlaylist = { onAddToPlaylist(track) },
                         onDelete = { onDelete(track.id, track.title) }
                     )
@@ -1082,6 +1087,7 @@ private fun DownloadedTrackRow(
     onClick: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onStartRadio: () -> Unit = {},
     onAddToPlaylist: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -1226,6 +1232,14 @@ private fun DownloadedTrackRow(
                     onClick = {
                         showMenu = false
                         onAddToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Start Radio", color = OnSurface) },
+                    leadingIcon = { Icon(Icons.Default.Radio, contentDescription = null, tint = OnSurface) },
+                    onClick = {
+                        showMenu = false
+                        onStartRadio()
                     }
                 )
                 DropdownMenuItem(

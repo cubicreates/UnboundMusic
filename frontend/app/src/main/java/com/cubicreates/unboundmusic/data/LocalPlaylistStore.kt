@@ -212,6 +212,28 @@ object LocalPlaylistStore {
         return updated
     }
 
+    /** Imports a list of playlists from a backup, either replacing or merging with existing ones. */
+    @Synchronized
+    fun importPlaylists(context: Context, imported: List<CustomPlaylist>, overwrite: Boolean = false): Int {
+        if (imported.isEmpty()) return 0
+        val current = if (overwrite) mutableListOf() else getPlaylists(context).toMutableList()
+        var importedCount = 0
+
+        for (p in imported) {
+            val existingIndex = current.indexOfFirst { it.id == p.id }
+            if (existingIndex >= 0) {
+                current[existingIndex] = p
+            } else {
+                current.add(p)
+            }
+            exportPlaylistToFile(context, p)
+            importedCount++
+        }
+
+        saveAll(context, current)
+        return importedCount
+    }
+
     // ==================== Serialization Helpers ====================
 
     private fun saveAll(context: Context, playlists: List<CustomPlaylist>) {

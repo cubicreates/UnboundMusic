@@ -116,6 +116,40 @@ object PlaybackStateStore {
         return getFavoriteTrackIds(context).contains(id)
     }
 
+    // ==================== Recently Played Persistence ====================
+
+    private const val KEY_RECENTLY_PLAYED_TRACKS = "key_recently_played_tracks"
+
+    fun getRecentlyPlayed(context: Context): List<TrackItem> {
+        val json = getPrefs(context).getString(KEY_RECENTLY_PLAYED_TRACKS, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            val list = mutableListOf<TrackItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                list.add(jsonToTrack(obj))
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun addRecentlyPlayed(context: Context, track: TrackItem) {
+        if (track.id.isBlank() && track.title.isBlank()) return
+        try {
+            val current = getRecentlyPlayed(context).toMutableList()
+            current.removeAll { it.id == track.id || (it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)) }
+            current.add(0, track)
+            val trimmed = current.take(100)
+            val arr = JSONArray()
+            for (t in trimmed) {
+                arr.put(trackToJson(t))
+            }
+            getPrefs(context).edit().putString(KEY_RECENTLY_PLAYED_TRACKS, arr.toString()).apply()
+        } catch (_: Exception) {}
+    }
+
     // ==================== Playback Automation Settings ====================
 
     fun isAutoDownloadLiked(context: Context): Boolean {

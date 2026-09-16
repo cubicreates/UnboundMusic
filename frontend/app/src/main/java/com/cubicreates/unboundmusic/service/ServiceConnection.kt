@@ -579,6 +579,10 @@ class ServiceConnection private constructor(private val context: Context) {
         AudioEffectController.setLoudness(gainMb)
     }
 
+    fun setReverbPreset(preset: Short) {
+        AudioEffectController.setReverbPreset(preset)
+    }
+
     fun setSkipSilence(enabled: Boolean) {
         val intent = Intent(context, UnboundPlaybackService::class.java).apply {
             action = UnboundPlaybackService.ACTION_SET_SKIP_SILENCE

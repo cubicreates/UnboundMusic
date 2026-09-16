@@ -57,6 +57,7 @@ import com.cubicreates.unboundmusic.ui.playlist.CustomPlaylistScreen
 import com.cubicreates.unboundmusic.ui.playlist.AddToPlaylistSheet
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.NavigationTab
+import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.UnboundBottomNavBar
 import com.cubicreates.unboundmusic.ui.components.UnboundTopAppBar
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqPickerDialog
@@ -75,6 +76,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.player.SleepTimerSheet
+import com.cubicreates.unboundmusic.ui.tools.RingtoneCutterScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 
@@ -101,6 +103,7 @@ fun MainApp(
     var showDownloadsScreen by remember { mutableStateOf(false) }
     var viewingArtist by remember { mutableStateOf<String?>(null) }
     var viewingGenre by remember { mutableStateOf<GenreItemDto?>(null) }
+    var ringtoneCutterTrack by remember { mutableStateOf<TrackItem?>(null) }
 
     val deviceAuthData by viewModel.deviceAuthData.collectAsStateWithLifecycle()
     val isStartingDeviceAuth by viewModel.isStartingDeviceAuth.collectAsStateWithLifecycle()
@@ -185,6 +188,9 @@ fun MainApp(
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
     val activeCustomPlaylist by viewModel.activeCustomPlaylist.collectAsStateWithLifecycle()
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
+    val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
+    val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
+    val reverbPreset by viewModel.reverbPreset.collectAsStateWithLifecycle()
 
     val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
@@ -459,7 +465,19 @@ fun MainApp(
                                         isPlayerExpanded = true
                                     },
                                     onRefresh = { viewModel.refreshLibrary() },
-                                    onProfileClick = { showSettings = true }
+                                    onProfileClick = { showSettings = true },
+                                    favoriteTracks = favoriteTracks,
+                                    recentlyPlayedTracks = recentlyPlayedTracks,
+                                    onOpenEqualizer = { showEqualizer = true },
+                                    onOpenRingtoneCutter = { track -> ringtoneCutterTrack = track },
+                                    onToggleFavorite = { viewModel.toggleFavorite() },
+                                    onShufflePlayAll = {
+                                        val shuffled = libraryTracks.shuffled()
+                                        if (shuffled.isNotEmpty()) {
+                                            viewModel.playTrackWithQueue(shuffled.first(), shuffled)
+                                            isPlayerExpanded = true
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -741,23 +759,33 @@ fun MainApp(
             )
         }
 
-        // Modal 2: 10-Band Equalizer Screen (Can open from Settings or NowPlayingScreen)
+        // Modal 2: Pro Equalizer & Sound Effects Screen
         if (showEqualizer) {
             EqualizerScreen(
                 initialCurve = equalizerCurve,
                 initialBassBoost = bassBoostStrength,
                 initialVirtualizer = virtualizerStrength,
                 initialLoudness = loudnessGainMb,
+                initialReverbPreset = reverbPreset,
                 customPresets = customEqPresets,
                 onCurveChanged = { viewModel.setEqualizerCurve(it) },
                 onBassBoostChanged = { viewModel.setBassBoost(it) },
                 onVirtualizerChanged = { viewModel.setVirtualizer(it) },
                 onLoudnessChanged = { viewModel.setLoudness(it) },
+                onReverbPresetChanged = { viewModel.setReverbPreset(it) },
                 onSaveCustomPreset = { name, curve, bb, v, l ->
                     viewModel.saveCustomEqPreset(name, curve, bb, v, l)
                 },
                 onAutoEqClick = { showAutoEqPicker = true },
                 onClose = { showEqualizer = false }
+            )
+        }
+
+        // Modal 2.5: Ringtone Cutter & Waveform Trimmer
+        ringtoneCutterTrack?.let { track ->
+            RingtoneCutterScreen(
+                track = track,
+                onClose = { ringtoneCutterTrack = null }
             )
         }
 

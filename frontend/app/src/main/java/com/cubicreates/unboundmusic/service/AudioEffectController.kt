@@ -11,6 +11,7 @@ package com.cubicreates.unboundmusic.service
 
 import android.media.audiofx.BassBoost
 import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.util.Log
 
@@ -24,11 +25,13 @@ object AudioEffectController {
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
     private var loudnessEnhancer: LoudnessEnhancer? = null
+    private var presetReverb: PresetReverb? = null
     private var currentSessionId: Int = 0
 
     @Volatile var bassBoostStrength: Int = 0 // 0..1000
     @Volatile var virtualizerStrength: Int = 0 // 0..1000
     @Volatile var loudnessGainMb: Int = 0 // 0..1500 (mB)
+    @Volatile var reverbPresetShort: Short = 0 // 0=None, 1=SmallRoom, 2=MediumRoom, 3=LargeRoom, 4=MediumHall, 5=LargeHall, 6=Plate
 
     @Synchronized
     fun attachAudioSession(sessionId: Int) {
@@ -45,6 +48,9 @@ object AudioEffectController {
         }
         if (loudnessGainMb > 0) {
             applyLoudnessInternal()
+        }
+        if (reverbPresetShort > 0) {
+            applyReverbInternal()
         }
         Log.i(TAG, "AudioEffectController session registered: $sessionId")
     }
@@ -121,6 +127,33 @@ object AudioEffectController {
     }
 
     @Synchronized
+    private fun applyReverbInternal() {
+        if (currentSessionId == 0) return
+        try {
+            if (presetReverb == null) {
+                presetReverb = PresetReverb(0, currentSessionId)
+            }
+            presetReverb?.let {
+                it.preset = reverbPresetShort
+                it.enabled = reverbPresetShort > 0
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to apply PresetReverb: ${e.message}")
+        }
+    }
+
+    @Synchronized
+    fun setReverbPreset(preset: Short) {
+        reverbPresetShort = preset
+        if (reverbPresetShort > 0) {
+            applyReverbInternal()
+        } else {
+            try { presetReverb?.release() } catch (_: Exception) {}
+            presetReverb = null
+        }
+    }
+
+    @Synchronized
     fun setLoudness(gainMb: Int) {
         loudnessGainMb = gainMb.coerceIn(0, 1500)
         if (loudnessGainMb > 0) {
@@ -147,6 +180,11 @@ object AudioEffectController {
             loudnessEnhancer?.release()
         } catch (_: Exception) {}
         loudnessEnhancer = null
+
+        try {
+            presetReverb?.release()
+        } catch (_: Exception) {}
+        presetReverb = null
 
         currentSessionId = 0
     }

@@ -186,6 +186,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _loudnessGainMb = MutableStateFlow(0)
     val loudnessGainMb: StateFlow<Int> = _loudnessGainMb.asStateFlow()
 
+    private val _reverbPreset = MutableStateFlow<Short>(0)
+    val reverbPreset: StateFlow<Short> = _reverbPreset.asStateFlow()
+
+    private val _recentlyPlayedTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val recentlyPlayedTracks: StateFlow<List<TrackItem>> = _recentlyPlayedTracks.asStateFlow()
+
+    private val _favoriteTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val favoriteTracks: StateFlow<List<TrackItem>> = _favoriteTracks.asStateFlow()
+
     private val _customEqPresets = MutableStateFlow<List<UserEqPresetDto>>(emptyList())
     val customEqPresets: StateFlow<List<UserEqPresetDto>> = _customEqPresets.asStateFlow()
 
@@ -507,6 +516,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadDownloadedMusicFiles()
         updateStorageMetrics()
         loadCustomPlaylists()
+        try {
+            _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(application)
+        } catch (_: Exception) {}
 
         // Auto-advance to next track when playback of current song ends
         serviceConnection.onTrackEndedListener = {
@@ -687,6 +699,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val allLocal = (whatsapp + telegram + downloads).map { it.toTrackItem() }
                 if (allLocal.isNotEmpty()) {
                     _libraryTracks.value = allLocal
+                    refreshFavoritesList()
                 }
             }
         }
@@ -856,6 +869,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playTrack(track: TrackItem) {
         _currentTrack.value = track
         saveCurrentPlaybackState(0L)
+        try {
+            PlaybackStateStore.addRecentlyPlayed(getApplication(), track)
+            _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
+        } catch (_: Exception) {}
         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
 
         // If track is not part of an existing multi-track queue, seed with this track and auto-hydrate YouTube automix
@@ -1146,6 +1163,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 PlaybackStateStore.removeFavoriteTrackId(getApplication(), current.id)
             }
+            refreshFavoritesList()
         }
         if (willBeFav && _autoDownloadLikedSongs.value) {
             startTrackDownload(current)
@@ -1158,6 +1176,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.w(TAG, "Track like toggle error: ${e.message}")
             }
         }
+    }
+
+    fun refreshFavoritesList() {
+        val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
+        _favoriteTracks.value = _libraryTracks.value.filter { favIds.contains(it.id) }
     }
 
     fun seekTo(progress: Float) {
@@ -1833,6 +1856,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _libraryTracks.value = combined
                     }
                 }
+                refreshFavoritesList()
 
                 val dlIds = unboundDownloads.map { it.id }.toSet()
                 _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
@@ -2916,6 +2940,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             client.setAppSetting("eq_loudness", gainMb.toString())
         }
+    }
+
+    fun setReverbPreset(preset: Short) {
+        _reverbPreset.value = preset
+        serviceConnection.setReverbPreset(preset)
     }
 
     fun setAutoDownloadLikedSongs(enabled: Boolean) {

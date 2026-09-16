@@ -30,7 +30,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
@@ -58,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,6 +91,12 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
+enum class LibraryViewMode {
+    HUB,
+    TABS,
+    STORAGE
+}
+
 data class IngestionSource(
     val title: String,
     val countText: String,
@@ -105,6 +114,8 @@ fun LibraryScreen(
     youtubeCount: Int = 0,
     tracks: List<TrackItem> = emptyList(),
     syncedYouTubeTracks: List<TrackItem> = emptyList(),
+    favoriteTracks: List<TrackItem> = emptyList(),
+    recentlyPlayedTracks: List<TrackItem> = emptyList(),
     onMenuClick: () -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSourceClick: (IngestionSource) -> Unit = {},
@@ -121,8 +132,16 @@ fun LibraryScreen(
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
-    onStartRadio: (TrackItem) -> Unit = {}
+    onStartRadio: (TrackItem) -> Unit = {},
+    onOpenEqualizer: () -> Unit = {},
+    onOpenRingtoneCutter: (TrackItem) -> Unit = {},
+    onToggleFavorite: (TrackItem) -> Unit = {},
+    onShufflePlayAll: () -> Unit = {}
 ) {
+    var viewMode by remember { mutableStateOf(LibraryViewMode.HUB) }
+    var activeTabInitialTab by remember { mutableIntStateOf(0) }
+    var customSubList by remember { mutableStateOf<List<TrackItem>?>(null) }
+
     var selectedSourceTitle by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistTitle by remember { mutableStateOf("") }
@@ -154,20 +173,107 @@ fun LibraryScreen(
         )
     )
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(UnboundBackground)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // 1. Header Section
+    when (viewMode) {
+        LibraryViewMode.HUB -> {
+            OfflineLibraryHubScreen(
+                libraryTracks = tracks,
+                favoriteTracks = favoriteTracks,
+                recentlyPlayedTracks = recentlyPlayedTracks,
+                foldersCount = sources.size,
+                customPlaylists = customPlaylists,
+                onOpenLibraryTab = { initialTab ->
+                    activeTabInitialTab = initialTab
+                    customSubList = null
+                    viewMode = LibraryViewMode.TABS
+                },
+                onOpenFolders = {
+                    viewMode = LibraryViewMode.STORAGE
+                },
+                onOpenFavorites = {
+                    activeTabInitialTab = 0
+                    customSubList = favoriteTracks
+                    viewMode = LibraryViewMode.TABS
+                },
+                onOpenRecentlyPlayed = {
+                    activeTabInitialTab = 0
+                    customSubList = recentlyPlayedTracks
+                    viewMode = LibraryViewMode.TABS
+                },
+                onOpenRecentlyAdded = {
+                    activeTabInitialTab = 0
+                    customSubList = tracks.take(50)
+                    viewMode = LibraryViewMode.TABS
+                },
+                onOpenEqualizer = onOpenEqualizer,
+                onShufflePlayAll = onShufflePlayAll,
+                onCreatePlaylist = {
+                    newPlaylistTitle = ""
+                    showCreatePlaylistDialog = true
+                },
+                onPlaylistClick = onPlaylistClick,
+                onMenuClick = onProfileClick,
+                onSearchClick = {
+                    activeTabInitialTab = 0
+                    customSubList = null
+                    viewMode = LibraryViewMode.TABS
+                }
+            )
+        }
+
+        LibraryViewMode.TABS -> {
+            OfflineLibraryTabScreen(
+                tracks = customSubList ?: tracks,
+                initialTab = activeTabInitialTab,
+                onTrackSelect = onTrackSelect,
+                onPlayNext = onPlayNext,
+                onAddToPlaylist = onAddToPlaylist,
+                onOpenRingtoneCutter = onOpenRingtoneCutter,
+                onToggleFavorite = onToggleFavorite,
+                onDeleteTrack = { onDeleteDownload(it.id) },
+                onBack = { viewMode = LibraryViewMode.HUB }
+            )
+        }
+
+        LibraryViewMode.STORAGE -> {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(UnboundBackground)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 8.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    // Back to Offline Hub Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceGlassHighest)
+                            .clickable { viewMode = LibraryViewMode.HUB }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color(0xFF00E5FF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Back to Music Player Hub",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF00E5FF)
+                        )
+                    }
+
+                    // 1. Header Section
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -339,7 +445,8 @@ fun LibraryScreen(
                             onAddToPlaylist = { onAddToPlaylist(track) },
                             onPlayNext = { onPlayNext(track) },
                             onAddToQueue = { onAddToQueue(track) },
-                            onStartRadio = { onStartRadio(track) }
+                            onStartRadio = { onStartRadio(track) },
+                            onOpenRingtoneCutter = { onOpenRingtoneCutter(track) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
@@ -421,6 +528,8 @@ fun LibraryScreen(
             )
         }
     }
+}
+}
 }
 
 @Composable
@@ -575,7 +684,8 @@ private fun LibraryTrackRow(
     onAddToPlaylist: () -> Unit = {},
     onPlayNext: () -> Unit = {},
     onAddToQueue: () -> Unit = {},
-    onStartRadio: () -> Unit = {}
+    onStartRadio: () -> Unit = {},
+    onOpenRingtoneCutter: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -731,6 +841,21 @@ private fun LibraryTrackRow(
                     onClick = {
                         showMenu = false
                         onAddToPlaylist()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Ringtone Cutter", color = Color(0xFFFFD54F), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.ContentCut,
+                            contentDescription = null,
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onOpenRingtoneCutter()
                     }
                 )
             }

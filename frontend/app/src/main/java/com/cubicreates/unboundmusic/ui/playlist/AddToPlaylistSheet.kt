@@ -127,18 +127,20 @@ fun AddToPlaylistSheet(
                             .clip(RoundedCornerShape(8.dp))
                             .background(SurfaceGlassHighest)
                     ) {
-                        if (track.coverUrl.isNotBlank()) {
+                        var trackCoverError by remember(track.coverUrl) { mutableStateOf(false) }
+                        if (track.coverUrl.isNotBlank() && !trackCoverError) {
                             AsyncImage(
                                 model = track.coverUrl,
                                 contentDescription = track.title,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                onError = { trackCoverError = true }
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.MusicNote,
                                 contentDescription = null,
-                                tint = OnSurfaceVariant,
+                                tint = UnboundPrimary,
                                 modifier = Modifier.size(24.dp).align(Alignment.Center)
                             )
                         }
@@ -275,18 +277,20 @@ fun AddToPlaylistSheet(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(UnboundSurfaceContainerHigh)
                             ) {
-                                if (pl.effectiveCoverUrl.isNotBlank()) {
+                                var plCoverError by remember(pl.effectiveCoverUrl) { mutableStateOf(false) }
+                                if (pl.effectiveCoverUrl.isNotBlank() && !plCoverError) {
                                     AsyncImage(
                                         model = pl.effectiveCoverUrl,
                                         contentDescription = pl.title,
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
+                                        contentScale = ContentScale.Crop,
+                                        onError = { plCoverError = true }
                                     )
                                 } else {
                                     Icon(
-                                        imageVector = Icons.Default.QueueMusic,
+                                        imageVector = Icons.Default.MusicNote,
                                         contentDescription = null,
-                                        tint = OnSurfaceVariant,
+                                        tint = UnboundPrimary.copy(alpha = 0.8f),
                                         modifier = Modifier.size(22.dp).align(Alignment.Center)
                                     )
                                 }

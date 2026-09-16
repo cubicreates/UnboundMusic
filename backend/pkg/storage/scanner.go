@@ -136,6 +136,24 @@ func ScanDirectory(ctx context.Context, repo *database.Repository, targetPath, s
 		category := InferFolderCategory(path, sourceFolder)
 		title, artist, album := ExtractID3Metadata(path, baseName, category)
 
+		coverURL := ""
+		audioExt := filepath.Ext(path)
+		candidateCovers := []string{
+			path + ".cover.jpg",
+			strings.TrimSuffix(path, audioExt) + ".cover.jpg",
+			filepath.Join(filepath.Dir(path), "cover.jpg"),
+			filepath.Join(filepath.Dir(path), "folder.jpg"),
+			filepath.Join(filepath.Dir(path), "album.jpg"),
+			filepath.Join(filepath.Dir(path), "front.jpg"),
+			filepath.Join(filepath.Dir(path), "cover.png"),
+		}
+		for _, cp := range candidateCovers {
+			if fi, err := os.Stat(cp); err == nil && fi.Size() > 0 {
+				coverURL = "file://" + filepath.ToSlash(cp)
+				break
+			}
+		}
+
 		localTrack := &models.LocalTrack{
 			ID:           trackID,
 			FilePath:     path,
@@ -148,6 +166,7 @@ func ScanDirectory(ctx context.Context, repo *database.Repository, targetPath, s
 			SourceFolder: category,
 			DateIndexed:  time.Now().Unix(),
 			MTime:        fileMTime,
+			CoverURL:     coverURL,
 		}
 
 		if repo != nil {

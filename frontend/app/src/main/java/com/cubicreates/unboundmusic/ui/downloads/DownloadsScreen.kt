@@ -700,18 +700,20 @@ private fun DownloadTaskCard(
                         .clip(RoundedCornerShape(10.dp))
                         .background(UnboundSurfaceContainerHigh)
                 ) {
-                    if (task.artworkUrl.isNotBlank()) {
+                    var taskCoverError by remember(task.artworkUrl) { mutableStateOf(false) }
+                    if (task.artworkUrl.isNotBlank() && !taskCoverError) {
                         AsyncImage(
                             model = task.artworkUrl,
                             contentDescription = task.title,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            onError = { taskCoverError = true }
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.MusicNote,
                             contentDescription = null,
-                            tint = OnSurfaceVariant,
+                            tint = UnboundPrimary,
                             modifier = Modifier
                                 .size(24.dp)
                                 .align(Alignment.Center)
@@ -1112,18 +1114,20 @@ private fun DownloadedTrackRow(
                 .clip(RoundedCornerShape(8.dp))
                 .background(UnboundSurfaceContainerHigh)
         ) {
-            if (track.coverUrl.isNotBlank()) {
+            var trackCoverError by remember(track.coverUrl) { mutableStateOf(false) }
+            if (track.coverUrl.isNotBlank() && !trackCoverError) {
                 AsyncImage(
                     model = track.coverUrl,
                     contentDescription = track.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    onError = { trackCoverError = true }
                 )
             } else {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
-                    tint = OnSurfaceVariant,
+                    tint = UnboundPrimary,
                     modifier = Modifier
                         .size(22.dp)
                         .align(Alignment.Center)

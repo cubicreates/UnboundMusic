@@ -232,8 +232,8 @@ func (r *Repository) UpsertLocalTrack(ctx context.Context, track *models.LocalTr
 	}
 
 	query := `
-	INSERT INTO local_tracks (id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO local_tracks (id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(file_path) DO UPDATE SET
 		title = excluded.title,
 		artist = excluded.artist,
@@ -243,12 +243,13 @@ func (r *Repository) UpsertLocalTrack(ctx context.Context, track *models.LocalTr
 		file_size = excluded.file_size,
 		source_folder = excluded.source_folder,
 		date_indexed = excluded.date_indexed,
-		mtime = excluded.mtime;
+		mtime = excluded.mtime,
+		cover_url = CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE local_tracks.cover_url END;
 	`
 	_, err := r.db.conn.ExecContext(ctx, query,
 		track.ID, track.FilePath, track.Title, track.Artist, track.Album,
 		track.DurationMs, track.Format, track.FileSize, track.SourceFolder,
-		track.DateIndexed, track.MTime,
+		track.DateIndexed, track.MTime, track.CoverURL,
 	)
 	return err
 }
@@ -256,7 +257,7 @@ func (r *Repository) UpsertLocalTrack(ctx context.Context, track *models.LocalTr
 // GetLocalTracksBySource returns all indexed local tracks for a given source folder ("whatsapp", "telegram", "downloads").
 func (r *Repository) GetLocalTracksBySource(ctx context.Context, sourceFolder string) ([]models.LocalTrack, error) {
 	query := `
-	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime
+	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url
 	FROM local_tracks
 	WHERE LOWER(source_folder) = LOWER(?) OR LOWER(source_folder) LIKE '%' || LOWER(?) || '%'
 	ORDER BY title ASC;
@@ -273,7 +274,7 @@ func (r *Repository) GetLocalTracksBySource(ctx context.Context, sourceFolder st
 		if err := rows.Scan(
 			&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
 			&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
-			&t.DateIndexed, &t.MTime,
+			&t.DateIndexed, &t.MTime, &t.CoverURL,
 		); err != nil {
 			return nil, err
 		}
@@ -319,7 +320,7 @@ func (r *Repository) GetLocalFolders(ctx context.Context) ([]LocalFolderSummary,
 // GetAllLocalTracks returns all indexed physical tracks on the device.
 func (r *Repository) GetAllLocalTracks(ctx context.Context) ([]models.LocalTrack, error) {
 	query := `
-	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime
+	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url
 	FROM local_tracks
 	ORDER BY title ASC;
 	`
@@ -335,7 +336,7 @@ func (r *Repository) GetAllLocalTracks(ctx context.Context) ([]models.LocalTrack
 		if err := rows.Scan(
 			&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
 			&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
-			&t.DateIndexed, &t.MTime,
+			&t.DateIndexed, &t.MTime, &t.CoverURL,
 		); err != nil {
 			return nil, err
 		}
@@ -347,7 +348,7 @@ func (r *Repository) GetAllLocalTracks(ctx context.Context) ([]models.LocalTrack
 // GetLocalTrackByPath finds a local track by its absolute file path.
 func (r *Repository) GetLocalTrackByPath(ctx context.Context, filePath string) (*models.LocalTrack, error) {
 	query := `
-	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime
+	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url
 	FROM local_tracks
 	WHERE file_path = ?
 	LIMIT 1;
@@ -357,7 +358,7 @@ func (r *Repository) GetLocalTrackByPath(ctx context.Context, filePath string) (
 	err := row.Scan(
 		&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
 		&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
-		&t.DateIndexed, &t.MTime,
+		&t.DateIndexed, &t.MTime, &t.CoverURL,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -366,6 +367,75 @@ func (r *Repository) GetLocalTrackByPath(ctx context.Context, filePath string) (
 		return nil, err
 	}
 	return &t, nil
+}
+
+// GetLocalTrackByID finds a local track by its ID (e.g. YouTube VideoID or hash).
+func (r *Repository) GetLocalTrackByID(ctx context.Context, id string) (*models.LocalTrack, error) {
+	query := `
+	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url
+	FROM local_tracks
+	WHERE id = ? OR id = 'local_dl_' || ?
+	LIMIT 1;
+	`
+	row := r.db.conn.QueryRowContext(ctx, query, id, id)
+	var t models.LocalTrack
+	err := row.Scan(
+		&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
+		&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
+		&t.DateIndexed, &t.MTime, &t.CoverURL,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &t, nil
+}
+
+// FindLocalTrackByTitleArtist searches for an indexed local track by title and artist match.
+func (r *Repository) FindLocalTrackByTitleArtist(ctx context.Context, title, artist string) (*models.LocalTrack, error) {
+	cleanTitle := strings.TrimSpace(title)
+	if cleanTitle == "" {
+		return nil, nil
+	}
+	query := `
+	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url
+	FROM local_tracks
+	WHERE LOWER(title) = LOWER(?) OR LOWER(title) LIKE '%' || LOWER(?) || '%'
+	LIMIT 10;
+	`
+	rows, err := r.db.conn.QueryContext(ctx, query, cleanTitle, cleanTitle)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bestTrack *models.LocalTrack
+	cleanArtist := strings.ToLower(strings.TrimSpace(artist))
+
+	for rows.Next() {
+		var t models.LocalTrack
+		if err := rows.Scan(
+			&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
+			&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
+			&t.DateIndexed, &t.MTime, &t.CoverURL,
+		); err != nil {
+			continue
+		}
+
+		// Exact or bidirectional artist match
+		tArtist := strings.ToLower(strings.TrimSpace(t.Artist))
+		if cleanArtist != "" && tArtist != "" && tArtist != "unknown artist" {
+			if strings.Contains(tArtist, cleanArtist) || strings.Contains(cleanArtist, tArtist) {
+				return &t, nil
+			}
+		}
+		if bestTrack == nil {
+			bestTrack = &t
+		}
+	}
+	return bestTrack, nil
 }
 
 // DeleteLocalTrack removes an indexed track from local_tracks by file path.
@@ -677,7 +747,7 @@ func (r *Repository) SearchTracksFTS(ctx context.Context, query string, limit in
 	}
 
 	sqlQuery := `
-	SELECT lt.id, lt.file_path, lt.title, lt.artist, lt.album, lt.duration_ms, lt.format, lt.file_size, lt.source_folder, lt.date_indexed, lt.mtime
+	SELECT lt.id, lt.file_path, lt.title, lt.artist, lt.album, lt.duration_ms, lt.format, lt.file_size, lt.source_folder, lt.date_indexed, lt.mtime, lt.cover_url
 	FROM local_tracks lt
 	JOIN local_tracks_fts fts ON lt.id = fts.track_id
 	WHERE local_tracks_fts MATCH ?
@@ -697,7 +767,7 @@ func (r *Repository) SearchTracksFTS(ctx context.Context, query string, limit in
 		if err := rows.Scan(
 			&t.ID, &t.FilePath, &t.Title, &t.Artist, &t.Album,
 			&t.DurationMs, &t.Format, &t.FileSize, &t.SourceFolder,
-			&t.DateIndexed, &t.MTime,
+			&t.DateIndexed, &t.MTime, &t.CoverURL,
 		); err != nil {
 			continue
 		}

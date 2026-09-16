@@ -45,17 +45,33 @@ data class LocalTrack(
     val fileSize: Long = 0,
     val sourceFolder: String = "music",
     val dateIndexed: Long = 0,
-    val mtime: Long = 0
+    val mtime: Long = 0,
+    val coverUrl: String = ""
 ) {
     fun toTrackItem(): TrackItem {
         val stream = when {
             filePath.startsWith("content://") || filePath.startsWith("file://") -> filePath
             else -> "file://$filePath"
         }
+        val effectiveCover = coverUrl.ifBlank {
+            try {
+                val cleanPath = when {
+                    filePath.startsWith("file://") -> filePath.removePrefix("file://")
+                    filePath.startsWith("content://") -> null
+                    else -> filePath
+                }
+                if (cleanPath != null) {
+                    val directCover = java.io.File("$cleanPath.cover.jpg")
+                    if (directCover.exists() && directCover.length() > 0) {
+                        "file://${directCover.absolutePath}"
+                    } else null
+                } else null
+            } catch (_: Exception) { null } ?: ""
+        }
         return TrackItem(
             title = title,
             artist = artist,
-            coverUrl = "",
+            coverUrl = effectiveCover,
             streamUrl = stream,
             id = id,
             album = album,

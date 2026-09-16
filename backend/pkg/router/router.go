@@ -71,6 +71,7 @@ func (r *Router) ResolvePlayback(ctx context.Context, trackID, title, artist str
 	// 1. Local Database & Storage Match (Zero Data Interception)
 	if r.repo != nil {
 		if trackID != "" {
+			// Check tracks table
 			cachedTrack, err := r.repo.GetTrack(ctx, trackID)
 			if err == nil && cachedTrack != nil && cachedTrack.IsLocal && cachedTrack.LocalPath != "" {
 				if fileInfo, err := os.Stat(cachedTrack.LocalPath); err == nil && fileInfo.Size() > 0 {
@@ -84,6 +85,44 @@ func (r *Router) ResolvePlayback(ctx context.Context, trackID, title, artist str
 						BitrateKbps:  cachedTrack.BitrateKbps,
 						DataConsumed: 0,
 						LocalPath:    cachedTrack.LocalPath,
+					}, nil
+				}
+			}
+
+			// Check local_tracks table by trackID
+			localTrack, err := r.repo.GetLocalTrackByID(ctx, trackID)
+			if err == nil && localTrack != nil && localTrack.FilePath != "" {
+				if fileInfo, err := os.Stat(localTrack.FilePath); err == nil && fileInfo.Size() > 0 {
+					return &ResolvedStream{
+						TrackID:      localTrack.ID,
+						Title:        localTrack.Title,
+						Artist:       localTrack.Artist,
+						StreamURL:    fmt.Sprintf("file://%s", localTrack.FilePath),
+						StreamType:   StreamTypeLocalZeroData,
+						Codec:        strings.ToUpper(localTrack.Format),
+						BitrateKbps:  160,
+						DataConsumed: 0,
+						LocalPath:    localTrack.FilePath,
+					}, nil
+				}
+			}
+		}
+
+		// Check local_tracks table by title + artist fuzzy match
+		if title != "" {
+			localTrack, err := r.repo.FindLocalTrackByTitleArtist(ctx, title, artist)
+			if err == nil && localTrack != nil && localTrack.FilePath != "" {
+				if fileInfo, err := os.Stat(localTrack.FilePath); err == nil && fileInfo.Size() > 0 {
+					return &ResolvedStream{
+						TrackID:      localTrack.ID,
+						Title:        localTrack.Title,
+						Artist:       localTrack.Artist,
+						StreamURL:    fmt.Sprintf("file://%s", localTrack.FilePath),
+						StreamType:   StreamTypeLocalZeroData,
+						Codec:        strings.ToUpper(localTrack.Format),
+						BitrateKbps:  160,
+						DataConsumed: 0,
+						LocalPath:    localTrack.FilePath,
 					}, nil
 				}
 			}

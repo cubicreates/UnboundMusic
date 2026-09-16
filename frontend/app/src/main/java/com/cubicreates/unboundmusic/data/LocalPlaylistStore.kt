@@ -44,9 +44,21 @@ data class CustomPlaylist(
             }
         }
 
-    /** Effective cover image (custom cover or fallback to first track's cover) */
+    /** Effective cover image (custom cover, first track's cover, or companion cover art) */
     val effectiveCoverUrl: String
-        get() = coverUrl.ifBlank { tracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: "" }
+        get() = coverUrl.ifBlank {
+            tracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: run {
+                tracks.firstNotNullOfOrNull { t ->
+                    if (t.streamUrl.startsWith("file://")) {
+                        try {
+                            val path = t.streamUrl.removePrefix("file://")
+                            val cov = java.io.File("$path.cover.jpg")
+                            if (cov.exists() && cov.length() > 0) "file://${cov.absolutePath}" else null
+                        } catch (_: Exception) { null }
+                    } else null
+                } ?: ""
+            }
+        }
 }
 
 object LocalPlaylistStore {

@@ -97,6 +97,7 @@ import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -889,12 +890,15 @@ private fun PlaylistCard(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            if (playlist.coverUrl.isNotBlank()) {
+            val effectiveCover = playlist.effectiveCoverUrl
+            var coverError by remember(effectiveCover) { mutableStateOf(false) }
+            if (effectiveCover.isNotBlank() && !coverError) {
                 AsyncImage(
-                    model = playlist.coverUrl,
+                    model = effectiveCover,
                     contentDescription = playlist.title,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
+                    onError = { coverError = true }
                 )
                 Box(
                     modifier = Modifier
@@ -1354,29 +1358,11 @@ private fun LibraryTrackRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Thumbnail
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(UnboundSurfaceContainerHigh),
-            contentAlignment = Alignment.Center
-        ) {
-            if (track.coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = UnboundPrimary,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
+        UnboundTrackThumbnail(
+            coverUrl = track.coverUrl,
+            contentDescription = track.title,
+            modifier = Modifier.size(46.dp)
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 

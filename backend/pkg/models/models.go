@@ -280,3 +280,41 @@ type AlbumPlaylist struct {
 	Tracks        []Track `json:"tracks"`
 }
 
+// CustomPlaylist represents a user-created local or cloud playlist stored in the SQLite database.
+type CustomPlaylist struct {
+	ID          string          `json:"id"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	CoverURL    string          `json:"cover_url"`
+	Tracks      []PlaylistTrack `json:"tracks"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
+}
+
+// PlaylistTrack represents a single track item inside a user playlist with its ordered position.
+type PlaylistTrack struct {
+	ID         string `json:"id"`
+	PlaylistID string `json:"playlist_id,omitempty"`
+	Title      string `json:"title"`
+	Artist     string `json:"artist"`
+	Album      string `json:"album"`
+	DurationMs int64  `json:"duration_ms"`
+	StreamURL  string `json:"stream_url"`
+	CoverURL   string `json:"cover_url"`
+	Source     string `json:"source"`
+	Position   int    `json:"position"`
+}
+
+// UserFavorite represents an explicit user favorited track (online or local).
+type UserFavorite struct {
+	TrackID     string `json:"track_id"`
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
+	DurationMs  int64  `json:"duration_ms"`
+	StreamURL   string `json:"stream_url"`
+	CoverURL    string `json:"cover_url"`
+	Source      string `json:"source"`
+	FavoritedAt int64  `json:"favorited_at"`
+}
+

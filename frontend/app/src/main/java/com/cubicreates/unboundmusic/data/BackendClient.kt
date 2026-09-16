@@ -1576,13 +1576,235 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         post("/api/v1/fingerprint/identify", json)
     }
 
+    // ==================== Custom Playlists (SQLite-backed) ====================
+
+    suspend fun getPlaylists(): List<CustomPlaylist> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/playlists")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<CustomPlaylist>()
+        try {
+            val root = JSONObject(json)
+            val arr = root.optJSONArray("playlists") ?: return@withContext emptyList()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(parsePlaylistJson(obj))
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
+    suspend fun createPlaylist(
+        title: String,
+        description: String = "",
+        coverUrl: String = "",
+        initialTracks: List<TrackItem> = emptyList(),
+        id: String? = null
+    ): CustomPlaylist? = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            if (!id.isNullOrBlank()) {
+                put("id", id)
+            }
+            put("title", title)
+            put("description", description)
+            put("cover_url", coverUrl)
+            val tracksArr = org.json.JSONArray()
+            for (t in initialTracks) {
+                tracksArr.put(
+                    JSONObject().apply {
+                        put("id", t.id)
+                        put("title", t.title)
+                        put("artist", t.artist)
+                        put("album", t.album)
+                        put("duration_ms", t.durationMs)
+                        put("stream_url", t.streamUrl)
+                        put("cover_url", t.coverUrl)
+                        put("source", t.source)
+                    }
+                )
+            }
+            put("tracks", tracksArr)
+        }
+        val (code, json) = post("/api/v1/playlists", payload.toString())
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val pObj = root.optJSONObject("playlist") ?: return@withContext null
+            parsePlaylistJson(pObj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun updatePlaylistDetails(
+        id: String,
+        title: String,
+        description: String = "",
+        coverUrl: String = ""
+    ): CustomPlaylist? = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("title", title)
+            put("description", description)
+            put("cover_url", coverUrl)
+        }
+        val (code, json) = put("/api/v1/playlists/$id", payload.toString())
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val pObj = root.optJSONObject("playlist") ?: return@withContext null
+            parsePlaylistJson(pObj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun deletePlaylist(id: String): Boolean = withContext(Dispatchers.IO) {
+        val (code, _) = delete("/api/v1/playlists/$id")
+        code in 200..299
+    }
+
+    suspend fun addTrackToPlaylist(playlistId: String, track: TrackItem): CustomPlaylist? = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("id", track.id)
+            put("title", track.title)
+            put("artist", track.artist)
+            put("album", track.album)
+            put("duration_ms", track.durationMs)
+            put("stream_url", track.streamUrl)
+            put("cover_url", track.coverUrl)
+            put("source", track.source)
+        }
+        val (code, json) = post("/api/v1/playlists/$playlistId/tracks", payload.toString())
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val pObj = root.optJSONObject("playlist") ?: return@withContext null
+            parsePlaylistJson(pObj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun removeTrackFromPlaylist(playlistId: String, position: Int): CustomPlaylist? = withContext(Dispatchers.IO) {
+        val (code, json) = delete("/api/v1/playlists/$playlistId/tracks/$position")
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val pObj = root.optJSONObject("playlist") ?: return@withContext null
+            parsePlaylistJson(pObj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    suspend fun reorderPlaylist(playlistId: String, fromIndex: Int, toIndex: Int): CustomPlaylist? = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("from_index", fromIndex)
+            put("to_index", toIndex)
+        }
+        val (code, json) = put("/api/v1/playlists/$playlistId/reorder", payload.toString())
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val root = JSONObject(json)
+            val pObj = root.optJSONObject("playlist") ?: return@withContext null
+            parsePlaylistJson(pObj)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ==================== User Favorites (SQLite-backed) ====================
+
+    suspend fun getFavorites(): List<TrackItem> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/favorites")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<TrackItem>()
+        try {
+            val root = JSONObject(json)
+            val arr = root.optJSONArray("favorites") ?: return@withContext emptyList()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    TrackItem(
+                        id = obj.optString("track_id"),
+                        title = obj.optString("title"),
+                        artist = obj.optString("artist"),
+                        album = obj.optString("album"),
+                        durationMs = obj.optLong("duration_ms"),
+                        streamUrl = obj.optString("stream_url"),
+                        coverUrl = obj.optString("cover_url"),
+                        source = obj.optString("source", "local")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
+    suspend fun toggleFavorite(track: TrackItem): Boolean = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("track_id", track.id)
+            put("title", track.title)
+            put("artist", track.artist)
+            put("album", track.album)
+            put("duration_ms", track.durationMs)
+            put("stream_url", track.streamUrl)
+            put("cover_url", track.coverUrl)
+            put("source", track.source)
+        }
+        val (code, json) = post("/api/v1/favorites/toggle", payload.toString())
+        if (code !in 200..299 || json.isBlank()) return@withContext false
+        try {
+            val root = JSONObject(json)
+            root.optBoolean("favorite", false)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun parsePlaylistJson(obj: JSONObject): CustomPlaylist {
+        val id = obj.optString("id")
+        val title = obj.optString("title")
+        val description = obj.optString("description")
+        val coverUrl = obj.optString("cover_url")
+        val createdAt = obj.optLong("created_at")
+        val updatedAt = obj.optLong("updated_at")
+        val tracksList = mutableListOf<TrackItem>()
+        val arr = obj.optJSONArray("tracks")
+        if (arr != null) {
+            for (j in 0 until arr.length()) {
+                val tObj = arr.getJSONObject(j)
+                tracksList.add(
+                    TrackItem(
+                        id = tObj.optString("id"),
+                        title = tObj.optString("title"),
+                        artist = tObj.optString("artist"),
+                        album = tObj.optString("album"),
+                        durationMs = tObj.optLong("duration_ms"),
+                        streamUrl = tObj.optString("stream_url"),
+                        coverUrl = tObj.optString("cover_url"),
+                        source = tObj.optString("source", "local")
+                    )
+                )
+            }
+        }
+        return CustomPlaylist(
+            id = id,
+            title = title,
+            description = description,
+            coverUrl = coverUrl,
+            tracks = tracksList,
+            createdAt = createdAt,
+            updatedAt = updatedAt
+        )
+    }
+
     // ==================== HTTP Transport (High-Performance Pooled OkHttp) ====================
 
     private val fallbackClient: OkHttpClient by lazy {
         sharedOkHttpClient
     }
 
-    private fun executeWithRetry(path: String, isPost: Boolean, jsonBody: String? = null): Pair<Int, String> {
+    private fun executeWithRetry(path: String, method: String, jsonBody: String? = null): Pair<Int, String> {
         val maxAttempts = 3
         var attempt = 0
         var lastError = "Network error"
@@ -1591,30 +1813,37 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             attempt++
             try {
                 val reqBuilder = Request.Builder().url("$baseUrl$path")
-                if (isPost && jsonBody != null) {
-                    reqBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
-                } else {
-                    reqBuilder.get()
+                val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
+                when (method.uppercase()) {
+                    "POST" -> reqBuilder.post(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+                    "PUT" -> reqBuilder.put(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+                    "DELETE" -> {
+                        if (body != null) reqBuilder.delete(body) else reqBuilder.delete()
+                    }
+                    else -> reqBuilder.get()
                 }
                 httpClient.newCall(reqBuilder.build()).execute().use { response ->
-                    val body = response.body?.string() ?: ""
-                    return Pair(response.code, body)
+                    val respBody = response.body?.string() ?: ""
+                    return Pair(response.code, respBody)
                 }
             } catch (e: Exception) {
                 lastError = e.message ?: "Network error"
-                // If UDS fails or is unavailable on this device, attempt fallback to TCP loopback
                 if (isUnixSocket) {
                     try {
                         val fallbackUrl = "http://127.0.0.1:45731$path"
                         val reqBuilder = Request.Builder().url(fallbackUrl)
-                        if (isPost && jsonBody != null) {
-                            reqBuilder.post(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
-                        } else {
-                            reqBuilder.get()
+                        val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
+                        when (method.uppercase()) {
+                            "POST" -> reqBuilder.post(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+                            "PUT" -> reqBuilder.put(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
+                            "DELETE" -> {
+                                if (body != null) reqBuilder.delete(body) else reqBuilder.delete()
+                            }
+                            else -> reqBuilder.get()
                         }
                         fallbackClient.newCall(reqBuilder.build()).execute().use { response ->
-                            val body = response.body?.string() ?: ""
-                            return Pair(response.code, body)
+                            val respBody = response.body?.string() ?: ""
+                            return Pair(response.code, respBody)
                         }
                     } catch (fbErr: Exception) {
                         lastError = fbErr.message ?: lastError
@@ -1634,7 +1863,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         return Pair(-1, lastError)
     }
 
-    private fun get(path: String): Pair<Int, String> = executeWithRetry(path, isPost = false)
+    private fun get(path: String): Pair<Int, String> = executeWithRetry(path, "GET")
 
-    private fun post(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, isPost = true, jsonBody = jsonBody)
+    private fun post(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, "POST", jsonBody = jsonBody)
+
+    private fun put(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, "PUT", jsonBody = jsonBody)
+
+    private fun delete(path: String): Pair<Int, String> = executeWithRetry(path, "DELETE")
 }

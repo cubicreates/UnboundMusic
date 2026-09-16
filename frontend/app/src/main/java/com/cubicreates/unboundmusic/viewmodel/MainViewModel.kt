@@ -1144,6 +1144,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                client.toggleFavorite(current)
                 client.toggleTrackLike(current.id, willBeFav)
                 loadSyncedYouTubeTracks()
             } catch (e: Exception) {
@@ -1167,6 +1168,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         refreshFavoritesList()
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                client.toggleFavorite(track)
                 client.toggleTrackLike(track.id, willBeFav)
             } catch (e: Exception) {
                 Log.d(TAG, "Track like toggle error: ${e.message}")
@@ -1175,11 +1177,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshFavoritesList() {
-        val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
-        val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
-        val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
-        val allTracks = (localFavorites + syncedFavorites).distinctBy { it.id }
-        _favoriteTracks.value = allTracks
+        viewModelScope.launch(Dispatchers.IO) {
+            val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
+            var backendFavs = client.getFavorites()
+            if (backendFavs.isEmpty() && favIds.isNotEmpty()) {
+                val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
+                val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
+                val allTracks = (localFavorites + syncedFavorites).distinctBy { it.id }
+                for (t in allTracks) {
+                    client.toggleFavorite(t)
+                }
+                backendFavs = client.getFavorites()
+            }
+            val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
+            val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
+            val allTracks = (backendFavs + localFavorites + syncedFavorites).distinctBy { it.id }
+            withContext(Dispatchers.Main) {
+                _favoriteTracks.value = allTracks
+            }
+        }
     }
 
     fun seekTo(progress: Float) {
@@ -3501,11 +3517,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadCustomPlaylists() {
         viewModelScope.launch(Dispatchers.IO) {
-            val playlists = LocalPlaylistStore.getPlaylists(getApplication())
-            _customPlaylists.value = playlists
-            val currentActive = _activeCustomPlaylist.value
-            if (currentActive != null) {
-                _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
+            var playlists = client.getPlaylists()
+            if (playlists.isEmpty()) {
+                val legacy = LocalPlaylistStore.getPlaylists(getApplication())
+                if (legacy.isNotEmpty()) {
+                    Log.i(TAG, "Migrating ${legacy.size} legacy playlists to Go SQLite backend...")
+                    for (p in legacy) {
+                        client.createPlaylist(p.title, p.description, p.coverUrl, p.tracks, p.id)
+                    }
+                    playlists = client.getPlaylists()
+                }
+            }
+            if (playlists.isEmpty()) {
+                playlists = LocalPlaylistStore.getPlaylists(getApplication())
+            }
+            withContext(Dispatchers.Main) {
+                _customPlaylists.value = playlists
+                val currentActive = _activeCustomPlaylist.value
+                if (currentActive != null) {
+                    _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
+                }
             }
         }
     }
@@ -3517,14 +3548,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         initialTracks: List<TrackItem> = emptyList()
     ): CustomPlaylist {
         val created = LocalPlaylistStore.createPlaylist(getApplication(), title, description, coverUrl, initialTracks)
-        loadCustomPlaylists()
+        viewModelScope.launch(Dispatchers.IO) {
+            client.createPlaylist(title, description, coverUrl, initialTracks, created.id)
+            loadCustomPlaylists()
+        }
         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Created playlist '${created.title}'", isLong = false)
         return created
     }
 
     fun updateCustomPlaylist(playlistId: String, title: String, description: String = "", coverUrl: String = "") {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = LocalPlaylistStore.updatePlaylistDetails(getApplication(), playlistId, title, description, coverUrl)
+            LocalPlaylistStore.updatePlaylistDetails(getApplication(), playlistId, title, description, coverUrl)
+            val updated = client.updatePlaylistDetails(playlistId, title, description, coverUrl)
             loadCustomPlaylists()
             withContext(Dispatchers.Main) {
                 if (updated != null) {
@@ -3537,7 +3572,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteCustomPlaylist(playlistId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val success = LocalPlaylistStore.deletePlaylist(getApplication(), playlistId)
+            LocalPlaylistStore.deletePlaylist(getApplication(), playlistId)
+            val success = client.deletePlaylist(playlistId)
             loadCustomPlaylists()
             withContext(Dispatchers.Main) {
                 if (success) {
@@ -3552,7 +3588,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addTrackToCustomPlaylist(playlistId: String, track: TrackItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            val (added, updated) = LocalPlaylistStore.addTrackToPlaylist(getApplication(), playlistId, track)
+            val (added, _) = LocalPlaylistStore.addTrackToPlaylist(getApplication(), playlistId, track)
+            val updated = client.addTrackToPlaylist(playlistId, track)
             loadCustomPlaylists()
             withContext(Dispatchers.Main) {
                 if (updated != null) {
@@ -3569,7 +3606,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun removeTrackFromCustomPlaylist(playlistId: String, trackIndex: Int) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = LocalPlaylistStore.removeTrackFromPlaylist(getApplication(), playlistId, trackIndex)
+            LocalPlaylistStore.removeTrackFromPlaylist(getApplication(), playlistId, trackIndex)
+            val updated = client.removeTrackFromPlaylist(playlistId, trackIndex)
             loadCustomPlaylists()
             withContext(Dispatchers.Main) {
                 if (updated != null) {
@@ -3592,7 +3630,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun moveTrackInCustomPlaylist(playlistId: String, fromIndex: Int, toIndex: Int) {
         viewModelScope.launch(Dispatchers.IO) {
-            val updated = LocalPlaylistStore.reorderTracks(getApplication(), playlistId, fromIndex, toIndex)
+            LocalPlaylistStore.reorderTracks(getApplication(), playlistId, fromIndex, toIndex)
+            val updated = client.reorderPlaylist(playlistId, fromIndex, toIndex)
             loadCustomPlaylists()
             withContext(Dispatchers.Main) {
                 if (updated != null && _activeCustomPlaylist.value?.id == playlistId) {

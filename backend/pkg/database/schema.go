@@ -200,5 +200,43 @@ CREATE TABLE IF NOT EXISTS user_eq_presets (
     bass_boost INTEGER DEFAULT 0,
     virtualizer INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS custom_playlists (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    cover_url TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id TEXT NOT NULL,
+    track_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT NOT NULL DEFAULT '',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    stream_url TEXT NOT NULL DEFAULT '',
+    cover_url TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'local',
+    position INTEGER NOT NULL,
+    FOREIGN KEY(playlist_id) REFERENCES custom_playlists(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks_pid ON playlist_tracks(playlist_id, position);
+
+CREATE TABLE IF NOT EXISTS user_favorites (
+    track_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT NOT NULL DEFAULT '',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    stream_url TEXT NOT NULL DEFAULT '',
+    cover_url TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'local',
+    favorited_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_favorites_time ON user_favorites(favorited_at DESC);
 `
 

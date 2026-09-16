@@ -132,6 +132,12 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/account/liked", d.HandleGetAccountLiked)
 	mux.HandleFunc("/api/v1/track/like", d.HandleToggleTrackLike)
 
+	// Custom Playlists & Favorites Endpoints (SQLite-backed)
+	mux.HandleFunc("/api/v1/playlists", d.HandlePlaylistsRouter)
+	mux.HandleFunc("/api/v1/playlists/", d.HandlePlaylistsRouter)
+	mux.HandleFunc("/api/v1/favorites", d.HandleFavoritesRouter)
+	mux.HandleFunc("/api/v1/favorites/", d.HandleFavoritesRouter)
+
 	// Phase 3: Settings Studio, EQ Presets & Storage Cache Purge
 	mux.HandleFunc("/api/v1/settings", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

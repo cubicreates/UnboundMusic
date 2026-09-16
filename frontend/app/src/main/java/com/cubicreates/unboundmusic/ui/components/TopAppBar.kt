@@ -115,29 +115,8 @@ fun UnboundTopAppBar(
                     )
                 }
 
-                // Settings / Profile Button (replaces download button on top bar)
-                IconButton(
-                    onClick = onProfileClick,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = userAvatarUrl,
-                            contentDescription = "Settings & Profile",
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Settings & Profile",
-                            tint = if (isLoggedIn) UnboundPrimary else OnSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
+                // Right spacer to keep center branding centered (user icon removed as requested)
+                Spacer(modifier = Modifier.size(40.dp))
             }
         }
     }

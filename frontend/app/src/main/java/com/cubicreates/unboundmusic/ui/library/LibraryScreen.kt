@@ -16,6 +16,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -424,7 +425,7 @@ private fun LibraryHubView(
             .padding(top = 16.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // Top Header: Clean "Music Player" title with refresh button (NO 3-dots, NO search icon)
+        // Top Header: Clean "Library" title with refresh button (NO 3-dots, NO search icon)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -432,15 +433,15 @@ private fun LibraryHubView(
         ) {
             Column {
                 Text(
-                    text = "Music Player",
-                    fontSize = 26.sp,
+                    text = "Library",
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = OnSurface,
                     letterSpacing = (-0.02).sp
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Personal offline library & tools",
+                    text = "Personal audio, folders & playlists",
                     fontSize = 13.sp,
                     color = OnSurfaceVariant
                 )
@@ -466,7 +467,7 @@ private fun LibraryHubView(
         // ==================== The 6 Hub Category Tiles ====================
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Row 1: OFFLINE TRACKS, FOLDERS, FAVORITE
             Row(
@@ -474,8 +475,9 @@ private fun LibraryHubView(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 UnboundHubTile(
-                    title = "OFFLINE TRACKS",
+                    title = "TRACKS",
                     count = tracksCount.toString(),
+                    subtitle = "Local audio",
                     icon = Icons.Default.MusicNote,
                     accentColor = Color(0xFF2979FF), // Electric Blue
                     modifier = Modifier.weight(1f),
@@ -485,6 +487,7 @@ private fun LibraryHubView(
                 UnboundHubTile(
                     title = "FOLDERS",
                     count = foldersCount.toString(),
+                    subtitle = "Directories",
                     icon = Icons.Default.Folder,
                     accentColor = Color(0xFFFF9100), // Warm Amber
                     modifier = Modifier.weight(1f),
@@ -494,6 +497,7 @@ private fun LibraryHubView(
                 UnboundHubTile(
                     title = "FAVORITE",
                     count = favoritesCount.toString(),
+                    subtitle = "Liked tracks",
                     icon = Icons.Default.Favorite,
                     accentColor = Color(0xFFFF5252), // Coral Red
                     modifier = Modifier.weight(1f),
@@ -507,8 +511,9 @@ private fun LibraryHubView(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 UnboundHubTile(
-                    title = "RECENT PLAYED",
+                    title = "HISTORY",
                     count = recentlyPlayedCount.toString(),
+                    subtitle = "Recent played",
                     icon = Icons.Default.History,
                     accentColor = Color(0xFF00E5FF), // Aqua Cyan
                     modifier = Modifier.weight(1f),
@@ -516,8 +521,9 @@ private fun LibraryHubView(
                 )
 
                 UnboundHubTile(
-                    title = "DOWNLOADED",
+                    title = "OFFLINE",
                     count = downloadedCount.toString(),
+                    subtitle = "Downloaded",
                     icon = Icons.Default.Download,
                     accentColor = Color(0xFF00E676), // Neon Green
                     modifier = Modifier.weight(1f),
@@ -526,16 +532,18 @@ private fun LibraryHubView(
 
                 UnboundHubTile(
                     title = "SHAZAM",
-                    count = "LISTEN",
+                    count = "IDENTIFY",
+                    subtitle = "Audio scan",
                     icon = Icons.Default.GraphicEq,
                     accentColor = Color(0xFFB388FF), // Neon Purple
+                    badgeText = "LIVE",
                     modifier = Modifier.weight(1f),
                     onClick = onStartShazam
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
         // ==================== Playlists Section ====================
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -544,13 +552,30 @@ private fun LibraryHubView(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "PLAYLISTS (${customPlaylists.size})",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface,
-                    letterSpacing = 0.5.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Playlists",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface,
+                        letterSpacing = (-0.01).sp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SurfaceGlassHighest)
+                            .border(1.dp, BorderGlass, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = customPlaylists.size.toString(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary
+                        )
+                    }
+                }
 
                 Box(
                     modifier = Modifier
@@ -580,35 +605,92 @@ private fun LibraryHubView(
             Spacer(modifier = Modifier.height(14.dp))
 
             if (customPlaylists.isEmpty()) {
+                // Eye-catching Hero Banner for creating playlists (matching Discover featured banner)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(SurfaceGlassHighest)
-                        .border(1.dp, BorderGlass, RoundedCornerShape(16.dp))
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    UnboundPrimary.copy(alpha = 0.22f),
+                                    Color(0xFF7C4DFF).copy(alpha = 0.18f),
+                                    Color(0xFF181818)
+                                )
+                            )
+                        )
+                        .border(
+                            BorderStroke(
+                                1.dp,
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        UnboundPrimary.copy(alpha = 0.45f),
+                                        Color(0xFF7C4DFF).copy(alpha = 0.30f),
+                                        BorderGlass
+                                    )
+                                )
+                            ),
+                            RoundedCornerShape(18.dp)
+                        )
+                        .clickable(onClick = onCreatePlaylist)
+                        .padding(16.dp)
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = OnSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No custom playlists yet",
-                            color = OnSurface,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap '+ New' to create your first music playlist",
-                            color = OnSurfaceVariant,
-                            fontSize = 12.sp
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(UnboundPrimary, Color(0xFF7C4DFF))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(14.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Create Your Custom Playlist",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Curate local device & synced tracks into personalized mix tapes",
+                                fontSize = 12.sp,
+                                color = OnSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(UnboundPrimary)
+                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = "Create",
+                                color = OnPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             } else {
@@ -634,20 +716,38 @@ private fun LibraryHubView(
 private fun UnboundHubTile(
     title: String,
     count: String,
+    subtitle: String,
     icon: ImageVector,
     accentColor: Color,
+    badgeText: String? = null,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
-            .aspectRatio(0.95f)
-            .clip(RoundedCornerShape(16.dp))
-            .background(SurfaceGlassHighest)
+            .height(124.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        accentColor.copy(alpha = 0.28f),
+                        Color(0xFF202020),
+                        Color(0xFF131313)
+                    )
+                )
+            )
             .border(
-                width = 1.dp,
-                color = BorderGlass,
-                shape = RoundedCornerShape(16.dp)
+                BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(
+                        colors = listOf(
+                            accentColor.copy(alpha = 0.60f),
+                            accentColor.copy(alpha = 0.15f),
+                            BorderGlass
+                        )
+                    )
+                ),
+                shape = RoundedCornerShape(18.dp)
             )
             .clickable(onClick = onClick)
             .padding(12.dp)
@@ -656,39 +756,73 @@ private fun UnboundHubTile(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Icon Pill
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.20f)),
-                contentAlignment = Alignment.Center
+            // Top Row: Icon pill & optional badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    tint = accentColor,
-                    modifier = Modifier.size(20.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(accentColor.copy(alpha = 0.18f))
+                        .border(1.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(11.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = accentColor,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                if (!badgeText.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(accentColor.copy(alpha = 0.20f))
+                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
             }
 
-            // Text Info
+            // Bottom Column: Count, Title, and Subtitle
             Column {
                 Text(
                     text = count,
-                    fontSize = 16.sp,
+                    fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
-                    color = accentColor,
+                    color = Color.White,
+                    letterSpacing = (-0.02).sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = title,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = OnSurface,
+                    color = accentColor,
                     letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(1.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 10.sp,
+                    color = OnSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -706,10 +840,10 @@ private fun PlaylistCard(
 ) {
     Column(
         modifier = Modifier
-            .width(130.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .width(150.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(SurfaceGlassHighest)
-            .border(1.dp, BorderGlass, RoundedCornerShape(14.dp))
+            .border(BorderStroke(1.dp, BorderGlass), RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(10.dp)
     ) {
@@ -717,12 +851,13 @@ private fun PlaylistCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(
                     Brush.linearGradient(
                         colors = listOf(
-                            UnboundPrimary.copy(alpha = 0.3f),
-                            UnboundTertiary.copy(alpha = 0.15f)
+                            Color(0xFF4CD6FB).copy(alpha = 0.7f),
+                            Color(0xFF7C4DFF).copy(alpha = 0.85f),
+                            Color(0xFF1E1E1E)
                         )
                     )
                 ),
@@ -735,12 +870,40 @@ private fun PlaylistCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
+                            )
+                        )
+                )
             } else {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+
+            // Floating mini play indicator badge in bottom right corner
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(8.dp)
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .border(1.dp, UnboundPrimary.copy(alpha = 0.4f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
                     tint = UnboundPrimary,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -750,7 +913,7 @@ private fun PlaylistCard(
         Text(
             text = playlist.title,
             fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Bold,
             color = OnSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

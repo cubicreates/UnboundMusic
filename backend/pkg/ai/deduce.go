@@ -9,15 +9,11 @@
 package ai
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
 )
@@ -37,8 +33,8 @@ var (
 	ytIDPattern = regexp.MustCompile(`[-_]([0-9A-Za-z_-]{11})(?:[-_]\d+k(?:bps)?)?(?:\s*[\(\[].*?[\)\]])?$`)
 )
 
-// DeduceTrackMetadata deduces Title, Artist, and Album from an audio file's path and filename.
-// It prioritizes the on-device SmolLM2 LLM if available, gracefully falling back to deterministic heuristic parsing.
+// DeduceTrackMetadata deduces Title, Artist, and Album from an audio file's path and filename
+// using lightning-fast deterministic heuristics with zero external subprocess dependencies.
 func (r *Runner) DeduceTrackMetadata(ctx context.Context, filePath string) (*models.TrackIdentificationResult, error) {
 	cleanPath := filepath.Clean(filePath)
 	baseName := filepath.Base(cleanPath)
@@ -52,89 +48,9 @@ func (r *Runner) DeduceTrackMetadata(ctx context.Context, filePath string) (*mod
 		ytID = match[1]
 	}
 
-	// 1. Try On-Device LLM if model and runner CLI are present
-	if r != nil && fileExists(r.llamaCliPath) && fileExists(r.modelPath) {
-		llmRes, err := r.deduceWithLLM(ctx, rawTitle, parentFolder)
-		if err == nil && llmRes != nil && llmRes.Title != "" {
-			llmRes.YouTubeID = ytID
-			return llmRes, nil
-		}
-	}
-
-	// 2. Deterministic Heuristic Fallback
 	heuristicRes := CleanAndDeduceHeuristic(rawTitle, parentFolder)
 	heuristicRes.YouTubeID = ytID
 	return heuristicRes, nil
-}
-
-func (r *Runner) deduceWithLLM(ctx context.Context, rawFilename, parentFolder string) (*models.TrackIdentificationResult, error) {
-	prompt := fmt.Sprintf(`You are an expert music metadata parser.
-Given an audio file name and its folder, extract and clean the real music Title, Artist, and Album.
-Remove scraper names (e.g. y2mate, snaptube), bitrates, video tags, and file hashes.
-Output ONLY raw JSON with no markdown:
-{"title": "Song Title", "artist": "Artist Name", "album": "Album or Empty"}
-
-Filename: %s
-Folder: %s`, rawFilename, parentFolder)
-
-	timeout := r.timeout
-	if timeout <= 0 {
-		timeout = 3500 * time.Millisecond
-	}
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(execCtx, r.llamaCliPath,
-		"-m", r.modelPath,
-		"-p", prompt,
-		"-n", "64",
-		"--temp", "0.1",
-		"-t", "4",
-		"--no-display-prompt",
-		"--log-disable",
-	)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return nil, err
-	}
-
-	jsonStr := extractJSON(stdout.String())
-	if jsonStr == "" {
-		return nil, fmt.Errorf("empty JSON output from LLM")
-	}
-
-	var parsed struct {
-		Title  string `json:"title"`
-		Artist string `json:"artist"`
-		Album  string `json:"album"`
-	}
-	if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
-		return nil, err
-	}
-
-	cleanTitle := strings.TrimSpace(parsed.Title)
-	cleanArtist := strings.TrimSpace(parsed.Artist)
-	if cleanTitle == "" || strings.EqualFold(cleanTitle, "unknown") {
-		return nil, fmt.Errorf("LLM produced insufficient title")
-	}
-
-	searchQuery := cleanTitle
-	if cleanArtist != "" && !strings.EqualFold(cleanArtist, "unknown") && !strings.EqualFold(cleanArtist, "various artists") {
-		searchQuery = fmt.Sprintf("%s - %s", cleanArtist, cleanTitle)
-	}
-
-	return &models.TrackIdentificationResult{
-		Title:       cleanTitle,
-		Artist:      cleanArtist,
-		Album:       strings.TrimSpace(parsed.Album),
-		SearchQuery: searchQuery,
-		Method:      "llm_semantic",
-		Confidence:  0.88,
-	}, nil
 }
 
 // CleanAndDeduceHeuristic performs heuristic string sanitization and splitting on track names.

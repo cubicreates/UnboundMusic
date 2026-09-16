@@ -10,6 +10,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -22,6 +23,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/account"
@@ -119,8 +121,12 @@ type Server struct {
 	radioGen     *ytmusic.RadioGenerator
 	algoEngine   *algorithm.Engine
 	neteaseClient *lyrics.NetEaseClient
-	udsServer    *http.Server
-	udsListener  net.Listener
+	udsServer      *http.Server
+	udsListener    net.Listener
+	ctx            context.Context
+	cancelCtx      context.CancelFunc
+	spoolCancelsMu sync.Mutex
+	spoolCancels   map[string]context.CancelFunc
 }
 
 // NewServer initializes all engine subsystems and HTTP routes.
@@ -227,12 +233,14 @@ func NewServer(cfg Config) (*Server, error) {
 		updater:      appUpdater,
 		provisioner:  provisioner,
 		indexer:      indexer,
-		downloader:   dlManager,
-		events:       eventBus,
-		radioGen:     radioGen,
-		algoEngine:   algorithm.NewEngine(repo, ytClient),
+		downloader:    dlManager,
+		events:        eventBus,
+		radioGen:      radioGen,
+		algoEngine:    algorithm.NewEngine(repo, ytClient),
 		neteaseClient: lyrics.NewNetEaseClient(),
+		spoolCancels:  make(map[string]context.CancelFunc),
 	}
+	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
@@ -289,6 +297,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/search", s.handleStorageSearch)
 	mux.HandleFunc("/api/v1/storage/scan", s.handleStorageScan)
 	mux.HandleFunc("/api/v1/storage/tracks", s.handleStorageTracks)
+	mux.HandleFunc("/api/v1/storage/ingest-batch", s.handleStorageIngestBatch)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/status", s.handleDownloadStatus)
 	mux.HandleFunc("/api/v1/download/active", s.handleDownloadActive)
@@ -385,6 +394,16 @@ func (s *Server) Start() error {
 
 // Shutdown cleanly closes active listeners and database connections.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.cancelCtx != nil {
+		s.cancelCtx()
+	}
+	s.spoolCancelsMu.Lock()
+	for _, cancelFn := range s.spoolCancels {
+		cancelFn()
+	}
+	s.spoolCancelsMu.Unlock()
+	time.Sleep(25 * time.Millisecond) // Allow background workers to release open file handles
+
 	_ = s.httpServer.Shutdown(ctx)
 	if s.udsServer != nil {
 		_ = s.udsServer.Shutdown(ctx)
@@ -531,7 +550,9 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 		if stream.DirectStreamURL == "" {
 			stream.DirectStreamURL = stream.StreamURL
 		}
-		if r.URL.Query().Get("proxy") == "true" {
+		// Default to proxy stream for robust lookahead ring buffering and dropout-free playback;
+		// allows ?direct=true to bypass the proxy if needed.
+		if r.URL.Query().Get("direct") != "true" {
 			stream.StreamURL = stream.ProxyStreamURL
 		}
 	}
@@ -1772,6 +1793,55 @@ func (s *Server) handleStorageTracks(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tracks": tracks,
+	})
+}
+
+// handleStorageIngestBatch ingests an array of MediaStore-indexed audio tracks directly into the SQLite database.
+func (s *Server) handleStorageIngestBatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	type IngestReq struct {
+		Tracks []*models.LocalTrack `json:"tracks"`
+	}
+
+	var req IngestReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid json payload: %v", err))
+		return
+	}
+
+	inserted := 0
+	for _, tr := range req.Tracks {
+		if tr == nil || tr.FilePath == "" {
+			continue
+		}
+		if tr.ID == "" {
+			tr.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(tr.FilePath)))[:16]
+		}
+		if tr.DateIndexed == 0 {
+			tr.DateIndexed = time.Now().Unix()
+		}
+		if tr.MTime == 0 {
+			tr.MTime = tr.DateIndexed
+		}
+		if tr.IdentificationMethod == "" {
+			tr.IdentificationMethod = "mediastore_hybrid"
+		}
+		if tr.Confidence == 0 {
+			tr.Confidence = 1.0
+		}
+		if err := s.repo.UpsertLocalTrack(r.Context(), tr); err == nil {
+			inserted++
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":   "success",
+		"ingested": inserted,
+		"total":    len(req.Tracks),
 	})
 }
 

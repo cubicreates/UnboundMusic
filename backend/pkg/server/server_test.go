@@ -370,6 +370,82 @@ func TestStorageScanAndTracksEndpoints(t *testing.T) {
 	}
 }
 
+// TestStorageIngestBatchEndpoint verifies batch ingestion of MediaStore-indexed audio tracks.
+func TestStorageIngestBatchEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_ingest.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Ingest mock tracks
+	body := `{
+		"tracks": [
+			{
+				"file_path": "/storage/emulated/0/Music/song1.mp3",
+				"title": "Song 1",
+				"artist": "Artist 1",
+				"album": "Album 1",
+				"duration_ms": 180000,
+				"file_size": 4096000,
+				"source_folder": "music",
+				"format": "mp3"
+			},
+			{
+				"file_path": "/storage/emulated/0/WhatsApp/Media/WhatsApp Audio/AUD-2024.opus",
+				"title": "Voice Note",
+				"artist": "WhatsApp",
+				"duration_ms": 45000,
+				"file_size": 512000,
+				"source_folder": "whatsapp",
+				"format": "opus"
+			}
+		]
+	}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/storage/ingest-batch", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleStorageIngestBatch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from storage/ingest-batch, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var res map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed decoding JSON response: %v", err)
+	}
+	if res["status"] != "success" {
+		t.Errorf("expected status 'success', got %v", res["status"])
+	}
+	if ingested, ok := res["ingested"].(float64); !ok || ingested != 2 {
+		t.Errorf("expected 2 ingested tracks, got %v", res["ingested"])
+	}
+
+	// Verify tracks can be retrieved via /api/v1/storage/tracks
+	reqTracks := httptest.NewRequest(http.MethodGet, "/api/v1/storage/tracks?source=all", nil)
+	wTracks := httptest.NewRecorder()
+	srv.handleStorageTracks(wTracks, reqTracks)
+
+	if wTracks.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from storage/tracks, got %d", wTracks.Code)
+	}
+	var tracksResult map[string]interface{}
+	_ = json.NewDecoder(wTracks.Body).Decode(&tracksResult)
+	tracksList, ok := tracksResult["tracks"].([]interface{})
+	if !ok || len(tracksList) != 2 {
+		t.Errorf("expected 2 tracks returned from database, got %d", len(tracksList))
+	}
+}
+
 // TestAccountStatusAndDisconnectEndpoints verifies /api/v1/account/status and /api/v1/account/disconnect.
 func TestAccountStatusAndDisconnectEndpoints(t *testing.T) {
 	tempDir := t.TempDir()

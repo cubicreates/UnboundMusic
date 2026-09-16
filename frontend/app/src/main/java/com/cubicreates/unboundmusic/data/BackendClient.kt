@@ -837,6 +837,35 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         }
     }
 
+    /** Ingests an array of MediaStore-indexed audio tracks directly into the Go SQLite database. */
+    suspend fun ingestMediaStoreTracks(tracks: List<LocalTrack>): Boolean = withContext(Dispatchers.IO) {
+        if (tracks.isEmpty()) return@withContext true
+        try {
+            val arr = org.json.JSONArray()
+            for (track in tracks) {
+                val obj = JSONObject().apply {
+                    put("id", track.id)
+                    put("file_path", track.filePath)
+                    put("title", track.title)
+                    put("artist", track.artist)
+                    put("album", track.album)
+                    put("duration_ms", track.durationMs)
+                    put("format", track.format)
+                    put("file_size", track.fileSize)
+                    put("source_folder", track.sourceFolder)
+                    put("cover_url", track.coverUrl)
+                    put("mtime", track.mtime)
+                }
+                arr.put(obj)
+            }
+            val payload = JSONObject().apply { put("tracks", arr) }
+            val (code, _) = post("/api/v1/storage/ingest-batch", payload.toString())
+            code == 200
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Fetches indexed local tracks filtered by source. */
     suspend fun getLocalTracks(source: String = "all"): List<LocalTrack> = withContext(Dispatchers.IO) {
         val (code, json) = get("/api/v1/storage/tracks?source=${URLEncoder.encode(source, "UTF-8")}")

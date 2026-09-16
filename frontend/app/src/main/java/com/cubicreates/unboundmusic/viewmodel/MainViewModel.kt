@@ -1927,6 +1927,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // 2. Discover device storage roots and dispatch to Go backend crawler (.nomedia bypass)
                 val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
                 client.scanStorage(deviceRoots)
+                if (mediaStoreTracks.isNotEmpty()) {
+                    client.ingestMediaStoreTracks(mediaStoreTracks)
+                }
 
                 // 3. Retrieve fully indexed tracks from Go SQLite database
                 val daemonTracks = client.getLocalTracks("all")

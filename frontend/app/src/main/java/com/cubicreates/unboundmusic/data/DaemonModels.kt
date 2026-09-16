@@ -48,11 +48,15 @@ data class LocalTrack(
     val mtime: Long = 0
 ) {
     fun toTrackItem(): TrackItem {
+        val stream = when {
+            filePath.startsWith("content://") || filePath.startsWith("file://") -> filePath
+            else -> "file://$filePath"
+        }
         return TrackItem(
             title = title,
             artist = artist,
             coverUrl = "",
-            streamUrl = "file://$filePath",
+            streamUrl = stream,
             id = id,
             album = album,
             durationMs = durationMs,

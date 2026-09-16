@@ -103,6 +103,7 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
+import java.io.File
 
 enum class LibrarySubView {
     HUB,
@@ -170,16 +171,25 @@ fun LibraryScreen(
         }
     }
 
-    // Dynamic extraction of audio folders from local indexed tracks
+    // Dynamic extraction of audio folders from local indexed tracks (including .nomedia folders)
     val audioFolders = remember(tracks) {
         val grouped = mutableMapOf<String, MutableList<TrackItem>>()
         tracks.forEach { track ->
             val folderName = when {
+                track.source.contains("WhatsApp Voice", ignoreCase = true) -> "WhatsApp Voice Notes"
                 track.source.contains("WhatsApp", ignoreCase = true) -> "WhatsApp Audio"
                 track.source.contains("Telegram", ignoreCase = true) -> "Telegram Audio"
                 track.source.contains("Download", ignoreCase = true) || track.source.contains("Unbound", ignoreCase = true) -> "Downloads"
                 track.source.contains("Music", ignoreCase = true) -> "Music"
                 track.source.isNotBlank() && !track.source.equals("youtube", ignoreCase = true) -> track.source
+                track.streamUrl.startsWith("file://") -> {
+                    try {
+                        val f = File(track.streamUrl.removePrefix("file://"))
+                        f.parentFile?.name ?: "Device Audio"
+                    } catch (_: Exception) {
+                        "Device Audio"
+                    }
+                }
                 else -> "Device Audio"
             }
             grouped.getOrPut(folderName) { mutableListOf() }.add(track)
@@ -187,7 +197,7 @@ fun LibraryScreen(
         grouped.map { (name, list) ->
             AudioFolder(
                 name = name,
-                pathDescription = "Internal Storage • ${list.size} audio files",
+                pathDescription = "Device Storage • ${list.size} audio files",
                 tracks = list
             )
         }.sortedByDescending { it.tracks.size }

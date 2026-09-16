@@ -28,6 +28,7 @@ import com.cubicreates.unboundmusic.data.DownloadStartRequest
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.LocalPlaylistStore
+import com.cubicreates.unboundmusic.data.LocalAudioScanner
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
@@ -671,36 +672,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // 2. Trigger storage crawl and load categorized library folders
+            // 2. Trigger VLC-style universal storage crawl (including .nomedia bypass)
             launch {
-                val scanPaths = listOf(
-                    "/storage/emulated/0/Download/",
-                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio/",
-                    "/storage/emulated/0/Telegram/Telegram Audio/",
-                    "/storage/emulated/0/Music/"
-                )
-                client.scanStorage(scanPaths)
-
-                val whatsapp = client.getLocalTracks("whatsapp")
-                val telegram = client.getLocalTracks("telegram")
-                val downloads = client.getLocalTracks("downloads")
-
-                _whatsappCount.value = whatsapp.size
-                _telegramCount.value = telegram.size
-                _downloadsCount.value = downloads.size
-
-                val folders = mutableMapOf<String, List<LocalTrack>>()
-                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
-                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
-                if (downloads.isNotEmpty()) folders["Downloads"] = downloads
-
-                _libraryFolders.value = folders
-
-                val allLocal = (whatsapp + telegram + downloads).map { it.toTrackItem() }
-                if (allLocal.isNotEmpty()) {
-                    _libraryTracks.value = allLocal
-                    refreshFavoritesList()
-                }
+                performUniversalAudioScan()
             }
         }
     }
@@ -1824,71 +1798,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Library ====================
 
-    fun rescanLocalStorage() {
+    /**
+     * Universal VLC-style audio discovery scanner across MediaStore and
+     * deep filesystem crawler deliberately bypassing .nomedia directories.
+     */
+    fun performUniversalAudioScan() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val canonicalRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                val unboundMusicDir = File(canonicalRoot, "Music")
-                if (unboundMusicDir.exists()) {
-                    client.storageIndex(unboundMusicDir.absolutePath)
+                // 1. Run dual-engine scan (MediaStore + Deep .nomedia Filesystem Crawler)
+                val scanResult = LocalAudioScanner.scanDeviceAudio(getApplication())
+
+                // 2. Also incorporate daemon tracks if available
+                val daemonTracks = try {
+                    val canonicalRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
+                    val unboundMusicDir = File(canonicalRoot, "Music")
+                    if (unboundMusicDir.exists()) {
+                        client.storageIndex(unboundMusicDir.absolutePath)
+                    }
+                    val unboundDownloads = client.getLocalTracks("Unbound Downloads")
+                    if (unboundDownloads.isNotEmpty()) {
+                        val dlIds = unboundDownloads.map { it.id }.toSet()
+                        _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
+                    }
+                    client.getLocalTracks("all")
+                } catch (_: Exception) {
+                    emptyList()
                 }
 
-                val publicMusic = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)?.absolutePath ?: "/storage/emulated/0/Music"
-                val publicDownloads = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)?.absolutePath ?: "/storage/emulated/0/Download"
-
-                val scanCandidates = listOf(
-                    unboundMusicDir.absolutePath,
-                    publicMusic,
-                    "/storage/emulated/0/Music",
-                    publicDownloads,
-                    "/storage/emulated/0/Download",
-                    "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio",
-                    "/storage/emulated/0/WhatsApp/Media/WhatsApp Audio",
-                    "/storage/emulated/0/Telegram/Telegram Audio",
-                    "/storage/emulated/0/Android/data/org.telegram.messenger/files/Telegram/Telegram Audio"
-                ).distinct()
-
-                val scanPaths = scanCandidates.filter { File(it).exists() }
-                if (scanPaths.isNotEmpty()) {
-                    client.scanStorage(scanPaths)
+                // 3. Merge discovered tracks with daemon tracks, deduplicating by normalized path
+                val combinedMap = LinkedHashMap<String, LocalTrack>()
+                for (track in scanResult.localTracks) {
+                    val key = track.filePath.lowercase(java.util.Locale.ROOT)
+                    combinedMap[key] = track
                 }
-
-                val allTracks = client.getLocalTracks("all")
-                val music = client.getLocalTracks("music")
-                val downloads = client.getLocalTracks("downloads")
-                val whatsapp = client.getLocalTracks("whatsapp")
-                val telegram = client.getLocalTracks("telegram")
-                val unboundDownloads = client.getLocalTracks("Unbound Downloads")
-
-                _whatsappCount.value = whatsapp.size
-                _telegramCount.value = telegram.size
-                _downloadsCount.value = downloads.size + unboundDownloads.size
-
-                val folders = mutableMapOf<String, List<LocalTrack>>()
-                if (music.isNotEmpty()) folders["Music"] = music
-                val combinedDownloads = downloads + unboundDownloads
-                if (combinedDownloads.isNotEmpty()) folders["Downloads"] = combinedDownloads
-                if (whatsapp.isNotEmpty()) folders["WhatsApp Audio"] = whatsapp
-                if (telegram.isNotEmpty()) folders["Telegram Audio"] = telegram
-
-                _libraryFolders.value = folders
-
-                if (allTracks.isNotEmpty()) {
-                    _libraryTracks.value = allTracks.map { it.toTrackItem() }
-                } else {
-                    val combined = (music + combinedDownloads + whatsapp + telegram).map { it.toTrackItem() }
-                    if (combined.isNotEmpty()) {
-                        _libraryTracks.value = combined
+                for (track in daemonTracks) {
+                    val key = track.filePath.lowercase(java.util.Locale.ROOT)
+                    if (!combinedMap.containsKey(key)) {
+                        combinedMap[key] = track
                     }
                 }
-                refreshFavoritesList()
 
-                val dlIds = unboundDownloads.map { it.id }.toSet()
-                _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
+                val allLocal = combinedMap.values.toList()
+
+                // 4. Update folders map
+                val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
+                for (track in allLocal) {
+                    val folderName = track.sourceFolder.ifBlank { "Device Audio" }
+                    updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
+                }
+                _libraryFolders.value = updatedFolders
+
+                // 5. Update counts
+                val waTracks = allLocal.filter {
+                    it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
+                    it.filePath.contains("WhatsApp", ignoreCase = true)
+                }
+                val tgTracks = allLocal.filter {
+                    it.sourceFolder.contains("Telegram", ignoreCase = true) ||
+                    it.filePath.contains("Telegram", ignoreCase = true)
+                }
+                val dlTracks = allLocal.filter {
+                    it.sourceFolder.contains("Download", ignoreCase = true) ||
+                    it.sourceFolder.contains("Unbound", ignoreCase = true) ||
+                    it.filePath.contains("Download", ignoreCase = true)
+                }
+
+                _whatsappCount.value = waTracks.size
+                _telegramCount.value = tgTracks.size
+                _downloadsCount.value = dlTracks.size
+
+                val allTrackItems = allLocal.map { it.toTrackItem() }
+                if (allTrackItems.isNotEmpty()) {
+                    _libraryTracks.value = allTrackItems
+                    refreshFavoritesList()
+                }
+
+                // 6. Provide discovered folders to Go daemon so its POSIX crawler also indexes them in SQLite
+                val discoveredFolders = updatedFolders.values
+                    .flatten()
+                    .mapNotNull { File(it.filePath).parentFile?.absolutePath }
+                    .distinct()
+                    .take(25)
+                if (discoveredFolders.isNotEmpty()) {
+                    try {
+                        client.scanStorage(discoveredFolders)
+                    } catch (_: Exception) {}
+                }
             } catch (e: Exception) {
-                Log.d(TAG, "Local storage scan note: ${e.message}")
+                Log.d(TAG, "Universal audio scan note: ${e.message}")
             }
         }
+    }
+
+    fun rescanLocalStorage() {
+        performUniversalAudioScan()
     }
 
     fun refreshLibrary() {

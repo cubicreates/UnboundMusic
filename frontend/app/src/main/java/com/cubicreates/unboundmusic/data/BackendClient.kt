@@ -859,7 +859,8 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                         fileSize = obj.optLong("file_size"),
                         sourceFolder = obj.optString("source_folder", "music"),
                         dateIndexed = obj.optLong("date_indexed"),
-                        mtime = obj.optLong("mtime")
+                        mtime = obj.optLong("mtime"),
+                        coverUrl = obj.optString("cover_url", "")
                     )
                 )
             }
@@ -1548,13 +1549,27 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                 val localPath = obj.optString("local_path", "")
                 val durMs = obj.optLong("duration_ms", 0L)
                 val stream = if (localPath.isNotBlank()) "file://$localPath" else obj.optString("stream_url", "")
+                val resolvedThumb = thumb.ifBlank {
+                    if (localPath.isNotBlank()) {
+                        val f = java.io.File(localPath)
+                        val coverFile = java.io.File("$localPath.cover.jpg")
+                        val altCover = java.io.File(f.parentFile, "${f.nameWithoutExtension}.cover.jpg")
+                        when {
+                            coverFile.exists() && coverFile.length() > 0 -> "file://${coverFile.absolutePath}"
+                            altCover.exists() && altCover.length() > 0 -> "file://${altCover.absolutePath}"
+                            else -> ""
+                        }
+                    } else ""
+                }.ifBlank {
+                    if (id.length == 11 && !id.startsWith("local_")) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else ""
+                }
                 list.add(
                     TrackItem(
                         id = id,
                         title = title,
                         artist = artist,
                         album = album,
-                        coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
+                        coverUrl = resolvedThumb,
                         streamUrl = stream,
                         durationMs = durMs,
                         source = "Unbound Downloads"

@@ -94,6 +94,7 @@ import com.cubicreates.unboundmusic.data.SleepTimerState
 import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.ui.components.DownloadButton
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -583,11 +584,12 @@ private fun SpotifyPlayerContent(
                 .background(SurfaceGlassHighest)
                 .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
         ) {
-            AsyncImage(
-                model = track.coverUrl.ifEmpty { DEFAULT_NOW_PLAYING_ART },
+            UnboundTrackThumbnail(
+                coverUrl = track.coverUrl,
                 contentDescription = track.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                shape = RoundedCornerShape(16.dp),
+                iconSize = 80.dp,
+                modifier = Modifier.fillMaxSize()
             )
 
             Box(
@@ -1206,11 +1208,12 @@ private fun AppleMusicPlayerContent(
                             .background(SurfaceGlassHighest)
                             .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
                     ) {
-                        AsyncImage(
-                            model = track.coverUrl.ifEmpty { DEFAULT_NOW_PLAYING_ART },
+                        UnboundTrackThumbnail(
+                            coverUrl = track.coverUrl,
                             contentDescription = track.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            shape = RoundedCornerShape(20.dp),
+                            iconSize = 72.dp,
+                            modifier = Modifier.fillMaxSize()
                         )
                     }
                 }
@@ -1557,11 +1560,12 @@ private fun M3ExpressivePlayerContent(
                 .background(SurfaceGlassHighest)
                 .border(1.5.dp, BorderGlass, RoundedCornerShape(28.dp))
         ) {
-            AsyncImage(
-                model = track.coverUrl.ifEmpty { DEFAULT_NOW_PLAYING_ART },
+            UnboundTrackThumbnail(
+                coverUrl = track.coverUrl,
                 contentDescription = track.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                shape = RoundedCornerShape(28.dp),
+                iconSize = 80.dp,
+                modifier = Modifier.fillMaxSize()
             )
         }
 

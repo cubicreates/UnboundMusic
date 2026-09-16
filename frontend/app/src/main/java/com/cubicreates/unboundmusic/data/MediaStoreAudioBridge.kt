@@ -42,6 +42,7 @@ object MediaStoreAudioBridge {
                 MediaStore.Audio.Media.TITLE,
                 MediaStore.Audio.Media.ARTIST,
                 MediaStore.Audio.Media.ALBUM,
+                MediaStore.Audio.Media.ALBUM_ID,
                 MediaStore.Audio.Media.DURATION,
                 MediaStore.Audio.Media.DATA,
                 MediaStore.Audio.Media.SIZE,
@@ -65,6 +66,7 @@ object MediaStoreAudioBridge {
                 val titleCol = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
                 val artistCol = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
                 val albumCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
                 val durCol = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
                 val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
                 val sizeCol = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
@@ -79,6 +81,7 @@ object MediaStoreAudioBridge {
                         val title = if (titleCol >= 0) cursor.getString(titleCol) ?: "" else ""
                         val artist = if (artistCol >= 0) cursor.getString(artistCol) ?: "Unknown Artist" else "Unknown Artist"
                         val album = if (albumCol >= 0) cursor.getString(albumCol) ?: "" else ""
+                        val albumId = if (albumIdCol >= 0) cursor.getLong(albumIdCol) else -1L
                         val duration = if (durCol >= 0) cursor.getLong(durCol) else 0L
                         val rawPath = if (dataCol >= 0) cursor.getString(dataCol) ?: "" else ""
                         val fileSize = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
@@ -96,6 +99,45 @@ object MediaStoreAudioBridge {
                         val sourceFolder = inferCategory(rawPath, bucketName)
                         val trackId = hashPath(canonicalKey)
 
+                        // 1. Resolve local companion artwork (.cover.jpg, folder.jpg, cover.jpg)
+                        var resolvedCover = ""
+                        if (rawPath.isNotBlank()) {
+                            try {
+                                val audioFile = File(rawPath)
+                                val directCover = File("$rawPath.cover.jpg")
+                                val baseCover = File(audioFile.parentFile, "${audioFile.nameWithoutExtension}.cover.jpg")
+                                when {
+                                    directCover.exists() && directCover.length() > 0 -> {
+                                        resolvedCover = "file://${directCover.absolutePath}"
+                                    }
+                                    baseCover.exists() && baseCover.length() > 0 -> {
+                                        resolvedCover = "file://${baseCover.absolutePath}"
+                                    }
+                                    else -> {
+                                        val parent = audioFile.parentFile
+                                        if (parent != null && parent.isDirectory) {
+                                            val names = listOf("cover.jpg", "folder.jpg", "album.jpg", "front.jpg", "cover.png")
+                                            for (candName in names) {
+                                                val candFile = File(parent, candName)
+                                                if (candFile.exists() && candFile.length() > 0) {
+                                                    resolvedCover = "file://${candFile.absolutePath}"
+                                                    break
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        // 2. Fallback to MediaStore system album art URI
+                        if (resolvedCover.isBlank() && albumId > 0) {
+                            resolvedCover = ContentUris.withAppendedId(
+                                Uri.parse("content://media/external/audio/albumart"),
+                                albumId
+                            ).toString()
+                        }
+
                         tracks.add(
                             LocalTrack(
                                 id = trackId,
@@ -110,7 +152,8 @@ object MediaStoreAudioBridge {
                                 fileSize = fileSize,
                                 sourceFolder = sourceFolder,
                                 dateIndexed = System.currentTimeMillis() / 1000,
-                                mtime = dateMod
+                                mtime = dateMod,
+                                coverUrl = resolvedCover
                             )
                         )
                     } catch (_: Exception) {}

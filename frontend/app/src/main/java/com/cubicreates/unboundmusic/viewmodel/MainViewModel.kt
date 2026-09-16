@@ -840,39 +840,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
      */
+    /**
+     * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
+     */
     fun playTrack(track: TrackItem) {
-        _currentTrack.value = track
+        val offlineMatch = findMatchingOfflineTrack(track)
+        val targetTrack = if (offlineMatch != null) {
+            track.copy(
+                streamUrl = offlineMatch.streamUrl,
+                coverUrl = offlineMatch.coverUrl.ifBlank { track.coverUrl }
+            )
+        } else {
+            track
+        }
+
+        _currentTrack.value = targetTrack
         saveCurrentPlaybackState(0L)
         try {
-            PlaybackStateStore.addRecentlyPlayed(getApplication(), track)
+            PlaybackStateStore.addRecentlyPlayed(getApplication(), targetTrack)
             _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
         } catch (_: Exception) {}
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
+
+        if (offlineMatch != null) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing offline downloaded version (0 MB data)", isLong = false)
+        } else {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
+        }
 
         // If track is not part of an existing multi-track queue, seed with this track and auto-hydrate YouTube automix
         val currentQ = _currentQueue.value
         val trackInQueue = currentQ.any {
-            (it.id.isNotBlank() && it.id == track.id) ||
-            (it.title.isNotBlank() && it.title.equals(track.title, ignoreCase = true))
+            (it.id.isNotBlank() && it.id == targetTrack.id) ||
+            (it.title.isNotBlank() && it.title.equals(targetTrack.title, ignoreCase = true))
         }
         if (currentQ.size <= 1 || !trackInQueue) {
-            val initialQ = listOf(track)
+            val initialQ = listOf(targetTrack)
             _currentQueue.value = initialQ
             serviceConnection.setQueue(initialQ)
-            fetchAutomixQueue(track)
+            fetchAutomixQueue(targetTrack)
         }
 
         // Immediately reset lyrics state and fetch for this specific track
-        loadLyricsForTrack(track)
+        loadLyricsForTrack(targetTrack)
         _rydVotes.value = null
         viewModelScope.launch(Dispatchers.IO) {
-            fetchRydVotes(track)
+            fetchRydVotes(targetTrack)
         }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val streamUrl = resolveStreamUrl(track)
-                val resolvedTrack = track.copy(streamUrl = streamUrl)
+                val streamUrl = resolveStreamUrl(targetTrack)
+                val resolvedTrack = targetTrack.copy(streamUrl = streamUrl)
                 withContext(Dispatchers.Main) {
                     _currentTrack.value = resolvedTrack
                 }
@@ -881,15 +899,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Play via Media3 service
                     serviceConnection.playTrack(resolvedTrack, streamUrl)
                 } else {
-                    Log.w(TAG, "Direct stream resolution empty for ${track.title}, using localhost proxy stream")
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream empty for '${track.title}', falling back to proxy")
-                    val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
-                        "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
-                    } else track.streamUrl
+                    Log.w(TAG, "Direct stream resolution empty for ${targetTrack.title}, using localhost proxy stream")
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream empty for '${targetTrack.title}', falling back to proxy")
+                    val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
+                        "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
+                    } else targetTrack.streamUrl
                     if (fallbackUrl.isNotBlank()) {
-                        serviceConnection.playTrack(track.copy(streamUrl = fallbackUrl), fallbackUrl)
+                        serviceConnection.playTrack(targetTrack.copy(streamUrl = fallbackUrl), fallbackUrl)
                     } else {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Error: No fallback URL for '${track.title}'")
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Error: No fallback URL for '${targetTrack.title}'")
                     }
                 }
 
@@ -900,14 +918,78 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error playing track: ${e.message}")
                 com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Play Track Exception:\n${e.message}")
-                val fallbackUrl = if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
-                    "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
-                } else track.streamUrl
+                val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
+                    "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
+                } else targetTrack.streamUrl
                 if (fallbackUrl.isNotBlank()) {
-                    serviceConnection.playTrack(track.copy(streamUrl = fallbackUrl), fallbackUrl)
+                    serviceConnection.playTrack(targetTrack.copy(streamUrl = fallbackUrl), fallbackUrl)
                 }
             }
         }
+    }
+
+    /**
+     * Searches downloaded tracks and local library tracks for a local matching version of the given track.
+     * Checks exact ID, partial ID, and fuzzy normalized (title + artist) match.
+     */
+    fun findMatchingOfflineTrack(track: TrackItem): TrackItem? {
+        val candidates = (_downloadedMusicTracks.value + _libraryTracks.value).distinctBy { it.id }
+        if (candidates.isEmpty()) return null
+
+        fun clean(s: String): String = s.lowercase(java.util.Locale.ROOT)
+            .replace(Regex("\\[.*?\\]|\\(.*?\\)"), "")
+            .replace(Regex("[^a-z0-9]"), "")
+
+        val targetTitleClean = clean(track.title)
+        val targetArtistClean = clean(track.artist)
+
+        // 1. Direct ID match
+        if (track.id.isNotBlank()) {
+            val byId = candidates.firstOrNull { cand ->
+                cand.streamUrl.isNotBlank() &&
+                (cand.streamUrl.startsWith("file://") || cand.streamUrl.startsWith("content://")) &&
+                (cand.id == track.id || cand.id == "local_dl_${track.id}" || cand.id.contains(track.id) || track.id.contains(cand.id))
+            }
+            if (byId != null && isLocalAudioPlayable(byId.streamUrl)) return byId
+        }
+
+        // 2. Normalized Title & Artist match
+        if (targetTitleClean.length >= 3) {
+            for (cand in candidates) {
+                if (!cand.streamUrl.startsWith("file://") && !cand.streamUrl.startsWith("content://")) continue
+                val candTitleClean = clean(cand.title)
+                val candArtistClean = clean(cand.artist)
+
+                val titleMatches = candTitleClean == targetTitleClean ||
+                        (candTitleClean.length >= 5 && targetTitleClean.length >= 5 &&
+                                (candTitleClean.contains(targetTitleClean) || targetTitleClean.contains(candTitleClean)))
+
+                if (titleMatches) {
+                    val artistMatches = targetArtistClean.isBlank() || candArtistClean.isBlank() ||
+                            candArtistClean == "unknownartist" || targetArtistClean == "unknownartist" ||
+                            candArtistClean == targetArtistClean ||
+                            candArtistClean.contains(targetArtistClean) || targetArtistClean.contains(candArtistClean)
+
+                    if (artistMatches && isLocalAudioPlayable(cand.streamUrl)) {
+                        return cand
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun isLocalAudioPlayable(streamUrl: String): Boolean {
+        return try {
+            when {
+                streamUrl.startsWith("file://") -> {
+                    val f = java.io.File(streamUrl.removePrefix("file://"))
+                    f.exists() && f.length() > 0
+                }
+                streamUrl.startsWith("content://") -> true
+                else -> false
+            }
+        } catch (_: Exception) { false }
     }
 
     /**
@@ -916,13 +998,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Retries up to 5 times if the daemon is cold-starting.
      */
     private suspend fun resolveStreamUrl(track: TrackItem): String {
-        // If the track already has a local file://, content://, localhost proxy audio stream, or valid http stream, use it directly
+        // 1. If the track already has a local file://, content://, localhost proxy audio stream, or valid http stream, use it directly
         if (track.streamUrl.startsWith("file://") ||
             track.streamUrl.startsWith("content://") ||
             (track.streamUrl.contains("127.0.0.1") && track.streamUrl.contains("/proxy/stream")) ||
             (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
             com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing direct URL for '${track.title}'", isLong = false)
             return track.streamUrl
+        }
+
+        // 2. Zero-Data Local Interception: Check if song is already downloaded or in local storage
+        val offlineMatch = findMatchingOfflineTrack(track)
+        if (offlineMatch != null && offlineMatch.streamUrl.isNotBlank()) {
+            Log.i(TAG, "Zero-Data Match: Redirecting search track '${track.title}' to offline '${offlineMatch.title}' -> ${offlineMatch.streamUrl}")
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                getApplication(),
+                "Playing offline downloaded version (0 MB data)",
+                isLong = false
+            )
+            return offlineMatch.streamUrl
         }
 
         // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)

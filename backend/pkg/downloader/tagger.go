@@ -355,6 +355,16 @@ func InjectMetadataAndIndex(
 		}
 	}
 
+	coverURL := ""
+	coverPath := task.LocalPath + ".cover.jpg"
+	if fi, err := os.Stat(coverPath); err == nil && fi.Size() > 0 {
+		coverURL = "file://" + filepath.ToSlash(coverPath)
+	} else if fi, err := os.Stat(targetFile + ".cover.jpg"); err == nil && fi.Size() > 0 {
+		coverURL = "file://" + filepath.ToSlash(targetFile + ".cover.jpg")
+	} else if task.ArtworkURL != "" {
+		coverURL = task.ArtworkURL
+	}
+
 	localTrack := &models.LocalTrack{
 		ID:           trackID,
 		FilePath:     task.LocalPath,
@@ -367,6 +377,7 @@ func InjectMetadataAndIndex(
 		SourceFolder: SourceFolderDownloads,
 		DateIndexed:  time.Now().Unix(),
 		MTime:        mtime,
+		CoverURL:     coverURL,
 	}
 
 	if repo != nil {

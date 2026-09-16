@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS local_tracks (
     file_size INTEGER NOT NULL DEFAULT 0,
     source_folder TEXT NOT NULL,
     date_indexed INTEGER NOT NULL,
-    mtime INTEGER NOT NULL
+    mtime INTEGER NOT NULL,
+    cover_url TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_local_tracks_source ON local_tracks(source_folder);

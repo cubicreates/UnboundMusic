@@ -188,11 +188,12 @@ private fun TrackCard(
                 .background(SurfaceGlassHighest)
                 .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
         ) {
-            AsyncImage(
-                model = track.coverUrl,
+            UnboundTrackThumbnail(
+                coverUrl = track.coverUrl,
                 contentDescription = track.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                shape = RoundedCornerShape(16.dp),
+                iconSize = 36.dp,
+                modifier = Modifier.fillMaxSize()
             )
         }
 

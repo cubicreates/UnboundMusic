@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -252,18 +253,20 @@ fun CustomPlaylistScreen(
                             .border(1.dp, BorderGlass, RoundedCornerShape(20.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (playlist.effectiveCoverUrl.isNotBlank()) {
+                        var headerError by remember(playlist.effectiveCoverUrl) { mutableStateOf(false) }
+                        if (playlist.effectiveCoverUrl.isNotBlank() && !headerError) {
                             AsyncImage(
                                 model = playlist.effectiveCoverUrl,
                                 contentDescription = playlist.title,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                onError = { headerError = true }
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.QueueMusic,
+                                imageVector = Icons.Default.MusicNote,
                                 contentDescription = null,
-                                tint = UnboundPrimary.copy(alpha = 0.6f),
+                                tint = UnboundPrimary.copy(alpha = 0.8f),
                                 modifier = Modifier.size(72.dp)
                             )
                         }
@@ -700,29 +703,13 @@ private fun CustomPlaylistTrackRow(
         Spacer(modifier = Modifier.width(6.dp))
 
         // Artwork Thumbnail
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(UnboundSurfaceContainerHigh),
-            contentAlignment = Alignment.Center
-        ) {
-            if (track.coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = track.coverUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.MusicNote,
-                    contentDescription = null,
-                    tint = UnboundPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
+        // Thumbnail
+        UnboundTrackThumbnail(
+            coverUrl = track.coverUrl,
+            contentDescription = track.title,
+            modifier = Modifier.size(42.dp),
+            iconSize = 20.dp
+        )
 
         Spacer(modifier = Modifier.width(12.dp))
 

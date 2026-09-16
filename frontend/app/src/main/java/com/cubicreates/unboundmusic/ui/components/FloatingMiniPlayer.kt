@@ -80,29 +80,13 @@ fun FloatingMiniPlayer(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF2E2E2E)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (coverUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = coverUrl,
-                            contentDescription = title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = UnboundPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
+                UnboundTrackThumbnail(
+                    coverUrl = coverUrl,
+                    contentDescription = title,
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    iconSize = 22.dp
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 

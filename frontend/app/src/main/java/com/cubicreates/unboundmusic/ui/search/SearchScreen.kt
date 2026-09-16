@@ -798,12 +798,14 @@ private fun SearchResultItem(
                     .background(Color(0xFF2A2A2A)),
                 contentAlignment = Alignment.Center
             ) {
-                if (track.coverUrl.isNotBlank()) {
+                var coverError by remember(track.coverUrl) { mutableStateOf(false) }
+                if (track.coverUrl.isNotBlank() && !coverError) {
                     AsyncImage(
                         model = track.coverUrl,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        onError = { coverError = true }
                     )
                 } else {
                     Icon(

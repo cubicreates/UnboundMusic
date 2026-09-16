@@ -796,17 +796,32 @@ func (m *Manager) ListDownloadedFiles() ([]models.Track, error) {
 				size = info.Size()
 			}
 
+			thumbURL := ""
+			candidateCovers := []string{
+				fullPath + ".cover.jpg",
+				strings.TrimSuffix(fullPath, ext) + ".cover.jpg",
+				filepath.Join(m.downloadDir, fullName+".jpg"),
+				filepath.Join(m.downloadDir, "cover.jpg"),
+			}
+			for _, cp := range candidateCovers {
+				if fi, err := os.Stat(cp); err == nil && fi.Size() > 0 {
+					thumbURL = "file://" + filepath.ToSlash(cp)
+					break
+				}
+			}
+
 			tracks = append(tracks, models.Track{
-				ID:          fmt.Sprintf("local_dl_%s", e.Name()),
-				Title:       title,
-				Artist:      artist,
-				Album:       SourceFolderDownloads,
-				LocalPath:   fullPath,
-				StreamURL:   "file://" + filepath.ToSlash(fullPath),
-				IsLocal:     true,
-				DurationMs:  (size / (160 * 128)) * 1000, // Estimated duration from bitrate
-				BitrateKbps: 160,
-				Codec:       strings.ToUpper(strings.TrimPrefix(ext, ".")),
+				ID:           fmt.Sprintf("local_dl_%s", e.Name()),
+				Title:        title,
+				Artist:       artist,
+				Album:        SourceFolderDownloads,
+				ThumbnailURL: thumbURL,
+				LocalPath:    fullPath,
+				StreamURL:    "file://" + filepath.ToSlash(fullPath),
+				IsLocal:      true,
+				DurationMs:   (size / (160 * 128)) * 1000, // Estimated duration from bitrate
+				BitrateKbps:  160,
+				Codec:        strings.ToUpper(strings.TrimPrefix(ext, ".")),
 			})
 		}
 	}

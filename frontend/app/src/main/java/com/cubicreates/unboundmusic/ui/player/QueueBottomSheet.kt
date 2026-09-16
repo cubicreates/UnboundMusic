@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -226,29 +227,13 @@ fun QueueBottomSheet(
                                 modifier = Modifier.width(22.dp)
                             )
 
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(UnboundSurfaceContainerHigh),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (track.coverUrl.isNotBlank()) {
-                                    AsyncImage(
-                                        model = track.coverUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = UnboundPrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                            UnboundTrackThumbnail(
+                                coverUrl = track.coverUrl,
+                                contentDescription = track.title,
+                                modifier = Modifier.size(38.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                iconSize = 20.dp
+                            )
 
                             Spacer(modifier = Modifier.width(10.dp))
 

@@ -163,3 +163,49 @@ func TestAnalyzeTrackMood(t *testing.T) {
 		t.Errorf("expected high energy score for DNA, got %f", res.EnergyScore)
 	}
 }
+
+// TestDeduceTrackMetadata verifies stripping downloader artifacts and extracting title/artist.
+func TestDeduceTrackMetadata(t *testing.T) {
+	runner := NewRunner("")
+	ctx := context.Background()
+
+	testCases := []struct {
+		filePath       string
+		expectedTitle  string
+		expectedArtist string
+		expectedYTID   string
+	}{
+		{
+			filePath:       "/storage/emulated/0/Download/y2mate.is - The Weeknd - Blinding Lights (Official Video)-4NRXx6U8ABQ-192k.mp3",
+			expectedTitle:  "Blinding Lights",
+			expectedArtist: "The Weeknd",
+			expectedYTID:   "4NRXx6U8ABQ",
+		},
+		{
+			filePath:       "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp Audio/AUD-20240915-WA0032_Travis_Scott_-_FEIN_(Remix).m4a",
+			expectedTitle:  "FEIN",
+			expectedArtist: "Travis Scott",
+		},
+		{
+			filePath:       "/storage/emulated/0/Download/Alan Walker - Faded.opus",
+			expectedTitle:  "Faded",
+			expectedArtist: "Alan Walker",
+		},
+	}
+
+	for _, tc := range testCases {
+		res, err := runner.DeduceTrackMetadata(ctx, tc.filePath)
+		if err != nil {
+			t.Fatalf("DeduceTrackMetadata failed for %s: %v", tc.filePath, err)
+		}
+		if !strings.Contains(strings.ToLower(res.Title), strings.ToLower(tc.expectedTitle)) {
+			t.Errorf("for %s expected title containing %q, got %q", tc.filePath, tc.expectedTitle, res.Title)
+		}
+		if tc.expectedArtist != "" && !strings.Contains(strings.ToLower(res.Artist), strings.ToLower(tc.expectedArtist)) {
+			t.Errorf("for %s expected artist containing %q, got %q", tc.filePath, tc.expectedArtist, res.Artist)
+		}
+		if tc.expectedYTID != "" && res.YouTubeID != tc.expectedYTID {
+			t.Errorf("for %s expected YouTube ID %q, got %q", tc.filePath, tc.expectedYTID, res.YouTubeID)
+		}
+	}
+}

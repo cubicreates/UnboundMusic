@@ -435,3 +435,18 @@ data class RydVoteData(
     }
 }
 
+/**
+ * Result of AcoustID + On-Device LLM acoustic fingerprinting.
+ */
+data class IdentifiedTrackDto(
+    val id: String,
+    val filePath: String,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val durationMs: Long,
+    val coverUrl: String,
+    val method: String,
+    val confidence: Double
+)
+

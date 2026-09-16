@@ -1576,6 +1576,28 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         post("/api/v1/fingerprint/identify", json)
     }
 
+    /** Identifies an untagged local audio file using the 3-tier AcoustID + On-Device LLM engine. */
+    suspend fun identifyTrack(filePath: String, fpcalcPath: String = ""): IdentifiedTrackDto? = withContext(Dispatchers.IO) {
+        val (code, json) = identifyFingerprint(filePath, fpcalcPath)
+        if (code !in 200..299 || json.isBlank()) return@withContext null
+        try {
+            val obj = JSONObject(json)
+            IdentifiedTrackDto(
+                id = obj.optString("id", filePath),
+                filePath = obj.optString("file_path", filePath),
+                title = obj.optString("title"),
+                artist = obj.optString("artist"),
+                album = obj.optString("album"),
+                durationMs = obj.optLong("duration_ms", 0L),
+                coverUrl = obj.optString("cover_url"),
+                method = obj.optString("identification_method", "acoustid"),
+                confidence = obj.optDouble("confidence", 0.0)
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     // ==================== Custom Playlists (SQLite-backed) ====================
 
     suspend fun getPlaylists(): List<CustomPlaylist> = withContext(Dispatchers.IO) {

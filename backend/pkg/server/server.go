@@ -2015,7 +2015,7 @@ func (s *Server) handleFingerprintIdentify(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	track, err := fingerprint.IngestUntaggedFile(r.Context(), s.repo, req.FpcalcPath, req.FilePath)
+	track, err := fingerprint.IngestUntaggedFileWithAI(r.Context(), s.repo, req.FpcalcPath, req.FilePath, s.aiRunner)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

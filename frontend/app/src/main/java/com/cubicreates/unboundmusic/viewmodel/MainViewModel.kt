@@ -1903,6 +1903,107 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateStorageMetrics()
     }
 
+    // ==================== Acoustic & On-Device AI Fingerprinting ====================
+
+    private val _isIdentifyingTrack = MutableStateFlow<String?>(null)
+    val isIdentifyingTrack: StateFlow<String?> = _isIdentifyingTrack.asStateFlow()
+
+    fun identifyTrack(track: TrackItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isIdentifyingTrack.value = track.id
+            try {
+                val targetPath = if (track.streamUrl.isNotBlank() && !track.streamUrl.startsWith("http")) {
+                    track.streamUrl
+                } else {
+                    track.id
+                }
+
+                val identified = client.identifyTrack(targetPath)
+                if (identified != null && identified.title.isNotBlank() && !identified.title.startsWith("Audio Recording")) {
+                    val updatedTrack = track.copy(
+                        title = identified.title,
+                        artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
+                        album = if (identified.album.isNotBlank()) identified.album else track.album,
+                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl
+                    )
+                    withContext(Dispatchers.Main) {
+                        _libraryTracks.value = _libraryTracks.value.map { if (it.id == track.id) updatedTrack else it }
+                        _favoriteTracks.value = _favoriteTracks.value.map { if (it.id == track.id) updatedTrack else it }
+                        if (_currentTrack.value.id == track.id) {
+                            _currentTrack.value = updatedTrack
+                        }
+                        val methodBadge = if (identified.method.contains("llm", ignoreCase = true) || identified.method.contains("ai", ignoreCase = true)) {
+                            "On-Device AI"
+                        } else if (identified.method.contains("acoustid", ignoreCase = true)) {
+                            "AcoustID"
+                        } else {
+                            "Heuristic AI"
+                        }
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Identified via $methodBadge: '${updatedTrack.artist} - ${updatedTrack.title}'",
+                            isLong = true
+                        )
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Could not acoustically identify track.",
+                            isLong = false
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to identify track ${track.title}: ${e.message}")
+            } finally {
+                _isIdentifyingTrack.value = null
+            }
+        }
+    }
+
+    fun batchIdentifyUnknownTracks() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val candidates = _libraryTracks.value.filter {
+                it.title.startsWith("AUD-", ignoreCase = true) ||
+                it.title.startsWith("PTT-", ignoreCase = true) ||
+                it.title.startsWith("voice_", ignoreCase = true) ||
+                it.artist.equals("Unknown Artist", ignoreCase = true) ||
+                it.artist.isBlank()
+            }
+            if (candidates.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "All audio tracks are already identified!", isLong = false)
+                }
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Identifying ${candidates.size} untagged tracks...", isLong = false)
+            }
+            var identifiedCount = 0
+            for (track in candidates.take(20)) {
+                val targetPath = if (track.streamUrl.isNotBlank() && !track.streamUrl.startsWith("http")) track.streamUrl else track.id
+                val identified = client.identifyTrack(targetPath)
+                if (identified != null && identified.title.isNotBlank() && !identified.title.startsWith("Audio Recording")) {
+                    val updated = track.copy(
+                        title = identified.title,
+                        artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
+                        album = if (identified.album.isNotBlank()) identified.album else track.album,
+                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl
+                    )
+                    identifiedCount++
+                    withContext(Dispatchers.Main) {
+                        _libraryTracks.value = _libraryTracks.value.map { if (it.id == track.id) updated else it }
+                    }
+                }
+                kotlinx.coroutines.delay(350)
+            }
+            withContext(Dispatchers.Main) {
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Identified $identifiedCount songs successfully!", isLong = true)
+            }
+        }
+    }
+
     // ==================== Phase 5: Offline Downloader Orchestration ====================
 
     private val recentlyCancelledIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()

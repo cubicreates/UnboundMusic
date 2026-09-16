@@ -200,17 +200,32 @@ type TrackItem struct {
 
 // LocalTrack represents an audio file discovered on local physical storage by the POSIX crawler.
 type LocalTrack struct {
-	ID           string `json:"id"`
-	FilePath     string `json:"file_path"`
-	Title        string `json:"title"`
-	Artist       string `json:"artist"`
-	Album        string `json:"album"`
-	DurationMs   int64  `json:"duration_ms"`
-	Format       string `json:"format"`        // "mp3", "flac", "m4a", "opus", "wav"
-	FileSize     int64  `json:"file_size"`
-	SourceFolder string `json:"source_folder"` // "downloads", "whatsapp", "telegram", "music"
-	DateIndexed  int64  `json:"date_indexed"`  // Unix timestamp in seconds
-	MTime        int64  `json:"mtime"`         // Unix timestamp in seconds of file modification
+	ID                   string  `json:"id"`
+	FilePath             string  `json:"file_path"`
+	Title                string  `json:"title"`
+	Artist               string  `json:"artist"`
+	Album                string  `json:"album"`
+	DurationMs           int64   `json:"duration_ms"`
+	Format               string  `json:"format"`        // "mp3", "flac", "m4a", "opus", "wav"
+	FileSize             int64   `json:"file_size"`
+	SourceFolder         string  `json:"source_folder"` // "downloads", "whatsapp", "telegram", "music"
+	DateIndexed          int64   `json:"date_indexed"`  // Unix timestamp in seconds
+	MTime                int64   `json:"mtime"`         // Unix timestamp in seconds of file modification
+	CoverURL             string  `json:"cover_url,omitempty"`
+	IdentificationMethod string  `json:"identification_method,omitempty"` // "acoustid", "llm_semantic", "heuristic", "local_unrecognized"
+	Confidence           float64 `json:"confidence,omitempty"`            // 0.0 to 1.0
+}
+
+// TrackIdentificationResult encapsulates metadata deduced by AcoustID or the On-Device LLM.
+type TrackIdentificationResult struct {
+	Title        string  `json:"title"`
+	Artist       string  `json:"artist"`
+	Album        string  `json:"album"`
+	CoverURL     string  `json:"cover_url,omitempty"`
+	SearchQuery  string  `json:"search_query,omitempty"`
+	Method       string  `json:"method"` // "acoustid", "llm_semantic", "heuristic"
+	Confidence   float64 `json:"confidence"`
+	YouTubeID    string  `json:"youtube_id,omitempty"`
 }
 
 // FingerprintRecord maps an acoustic waveform hash to MusicBrainz metadata.

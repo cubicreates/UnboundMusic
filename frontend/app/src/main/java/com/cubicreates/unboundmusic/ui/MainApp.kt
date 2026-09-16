@@ -465,7 +465,9 @@ fun MainApp(
                                     onOpenEqualizer = { showEqualizer = true },
                                     onOpenRingtoneCutter = { track -> ringtoneCutterTrack = track },
                                     onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
-                                    onStartShazam = { viewModel.startAmbientShazamRecognition() }
+                                    onStartShazam = { viewModel.startAmbientShazamRecognition() },
+                                    onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
+                                    onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
                                 )
                             }
                         }

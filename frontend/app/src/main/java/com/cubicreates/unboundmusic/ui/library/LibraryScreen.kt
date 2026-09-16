@@ -70,6 +70,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -155,7 +156,9 @@ fun LibraryScreen(
     onOpenRingtoneCutter: (TrackItem) -> Unit = {},
     onToggleFavorite: (TrackItem) -> Unit = {},
     onStartShazam: () -> Unit = {},
-    onShufflePlayAll: () -> Unit = {}
+    onShufflePlayAll: () -> Unit = {},
+    onIdentifyTrack: (TrackItem) -> Unit = {},
+    onBatchIdentify: () -> Unit = {}
 ) {
     var subView by remember { mutableStateOf(LibrarySubView.HUB) }
     var selectedFolder by remember { mutableStateOf<AudioFolder?>(null) }
@@ -266,7 +269,9 @@ fun LibraryScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenRingtoneCutter = onOpenRingtoneCutter,
                         onToggleFavorite = onToggleFavorite,
-                        onDeleteTrack = { onDeleteDownload(it.id) }
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
                     )
                 }
 
@@ -294,7 +299,9 @@ fun LibraryScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenRingtoneCutter = onOpenRingtoneCutter,
                         onToggleFavorite = onToggleFavorite,
-                        onDeleteTrack = { onDeleteDownload(it.id) }
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
                     )
                 }
 
@@ -310,7 +317,9 @@ fun LibraryScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenRingtoneCutter = onOpenRingtoneCutter,
                         onToggleFavorite = onToggleFavorite,
-                        onDeleteTrack = { onDeleteDownload(it.id) }
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
                     )
                 }
 
@@ -326,7 +335,9 @@ fun LibraryScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenRingtoneCutter = onOpenRingtoneCutter,
                         onToggleFavorite = onToggleFavorite,
-                        onDeleteTrack = { onDeleteDownload(it.id) }
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
                     )
                 }
 
@@ -342,7 +353,9 @@ fun LibraryScreen(
                         onAddToPlaylist = onAddToPlaylist,
                         onOpenRingtoneCutter = onOpenRingtoneCutter,
                         onToggleFavorite = onToggleFavorite,
-                        onDeleteTrack = { onDeleteDownload(it.id) }
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
                     )
                 }
             }
@@ -1083,9 +1096,22 @@ private fun LibraryTracksListView(
     onAddToPlaylist: (TrackItem) -> Unit,
     onOpenRingtoneCutter: (TrackItem) -> Unit,
     onToggleFavorite: (TrackItem) -> Unit,
-    onDeleteTrack: (TrackItem) -> Unit
+    onDeleteTrack: (TrackItem) -> Unit,
+    onIdentifyTrack: (TrackItem) -> Unit = {},
+    onBatchIdentify: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
+
+    val unknownCount = remember(tracks) {
+        tracks.count {
+            it.title.startsWith("AUD-", ignoreCase = true) ||
+            it.title.startsWith("PTT-", ignoreCase = true) ||
+            it.title.startsWith("WA", ignoreCase = true) ||
+            it.artist.isBlank() ||
+            it.artist.equals("Unknown Artist", ignoreCase = true) ||
+            it.title.contains("y2mate", ignoreCase = true)
+        }
+    }
 
     val filteredTracks = remember(tracks, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -1189,6 +1215,62 @@ private fun LibraryTracksListView(
             )
         }
 
+        // Smart Tagging / Identification Banner
+        if (unknownCount > 0) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = UnboundPrimary.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.3f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "$unknownCount Untagged Audio File${if (unknownCount > 1) "s" else ""}",
+                                color = OnSurface,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                            Text(
+                                text = "Identify titles & artists with AcoustID & AI",
+                                color = OnSurfaceVariant,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onBatchIdentify,
+                        colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("Fix All", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(4.dp))
 
         if (filteredTracks.isEmpty()) {
@@ -1220,7 +1302,8 @@ private fun LibraryTracksListView(
                         onAddToPlaylist = { onAddToPlaylist(track) },
                         onOpenRingtoneCutter = { onOpenRingtoneCutter(track) },
                         onToggleFavorite = { onToggleFavorite(track) },
-                        onDeleteTrack = { onDeleteTrack(track) }
+                        onDeleteTrack = { onDeleteTrack(track) },
+                        onIdentifyTrack = { onIdentifyTrack(track) }
                     )
                 }
             }
@@ -1239,7 +1322,8 @@ private fun LibraryTrackRow(
     onAddToPlaylist: () -> Unit,
     onOpenRingtoneCutter: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onDeleteTrack: () -> Unit
+    onDeleteTrack: () -> Unit,
+    onIdentifyTrack: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -1407,6 +1491,22 @@ private fun LibraryTrackRow(
                     onClick = {
                         showMenu = false
                         onToggleFavorite()
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = { Text("Identify Track (Acoustic + AI)", color = UnboundPrimary, fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = null,
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        showMenu = false
+                        onIdentifyTrack()
                     }
                 )
 

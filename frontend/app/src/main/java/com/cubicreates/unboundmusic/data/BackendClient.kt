@@ -867,6 +867,28 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         list
     }
 
+    /** Fetches indexed local folder summaries from Go daemon. */
+    suspend fun getLocalFolders(): List<LocalFolderDto> = withContext(Dispatchers.IO) {
+        val (code, json) = get("/api/v1/storage/folders")
+        if (code != 200 || json.isBlank()) return@withContext emptyList()
+        val list = mutableListOf<LocalFolderDto>()
+        try {
+            val root = JSONObject(json)
+            val arr = root.optJSONArray("folders") ?: return@withContext emptyList()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    LocalFolderDto(
+                        name = obj.optString("name"),
+                        count = obj.optInt("count"),
+                        path = obj.optString("path")
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        list
+    }
+
     /** Natural language Vibe AI Search. */
     suspend fun searchVibe(prompt: String): VibeSearchResponse = withContext(Dispatchers.IO) {
         val payload = JSONObject().apply { put("prompt", prompt) }

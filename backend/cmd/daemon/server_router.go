@@ -113,6 +113,7 @@ func (d *Daemon) Routes() http.Handler {
 	// Storage & Scanner Endpoints
 	mux.HandleFunc("/api/v1/storage/scan", d.HandleTriggerStorageScan)
 	mux.HandleFunc("/api/v1/storage/tracks", d.HandleGetLocalTracks)
+	mux.HandleFunc("/api/v1/storage/folders", d.HandleGetLocalFolders)
 
 	// Search Endpoints (Standard & 4-Stage Intelligent Cascade)
 	mux.HandleFunc("/api/v1/search", d.HandleSearch)

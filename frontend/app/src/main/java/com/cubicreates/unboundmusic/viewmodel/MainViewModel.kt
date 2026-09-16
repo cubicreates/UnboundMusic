@@ -28,7 +28,7 @@ import com.cubicreates.unboundmusic.data.DownloadStartRequest
 import com.cubicreates.unboundmusic.data.DownloadTaskDto
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.LocalPlaylistStore
-import com.cubicreates.unboundmusic.data.LocalAudioScanner
+import com.cubicreates.unboundmusic.data.MediaStoreAudioBridge
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
@@ -1799,48 +1799,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Library ====================
 
     /**
-     * Universal VLC-style audio discovery scanner across MediaStore and
-     * deep filesystem crawler deliberately bypassing .nomedia directories.
+     * Dual-Engine Hybrid Audio Scanner:
+     * 1. MediaStore query via Android OS bridge (Kotlin) for instant UI responsiveness.
+     * 2. Native Go daemon crawler (Go) for deep POSIX storage traversal, .nomedia bypass,
+     *    magic byte probing, ID3 tag extraction, and SQLite database indexing.
      */
     fun performUniversalAudioScan() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // 1. Run dual-engine scan (MediaStore + Deep .nomedia Filesystem Crawler)
-                val scanResult = LocalAudioScanner.scanDeviceAudio(getApplication())
-
-                // 2. Also incorporate daemon tracks if available
-                val daemonTracks = try {
-                    val canonicalRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                    val unboundMusicDir = File(canonicalRoot, "Music")
-                    if (unboundMusicDir.exists()) {
-                        client.storageIndex(unboundMusicDir.absolutePath)
-                    }
-                    val unboundDownloads = client.getLocalTracks("Unbound Downloads")
-                    if (unboundDownloads.isNotEmpty()) {
-                        val dlIds = unboundDownloads.map { it.id }.toSet()
-                        _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
-                    }
-                    client.getLocalTracks("all")
-                } catch (_: Exception) {
-                    emptyList()
+                // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness
+                val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
+                if (mediaStoreTracks.isNotEmpty() && _libraryTracks.value.isEmpty()) {
+                    _libraryTracks.value = mediaStoreTracks.map { it.toTrackItem() }
+                    refreshFavoritesList()
                 }
 
-                // 3. Merge discovered tracks with daemon tracks, deduplicating by normalized path
+                // 2. Discover device storage roots and dispatch to Go backend crawler (.nomedia bypass)
+                val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
+                client.scanStorage(deviceRoots)
+
+                // 3. Retrieve fully indexed tracks from Go SQLite database
+                val daemonTracks = client.getLocalTracks("all")
+                val unboundDownloads = client.getLocalTracks("Unbound Downloads")
+                if (unboundDownloads.isNotEmpty()) {
+                    val dlIds = unboundDownloads.map { it.id }.toSet()
+                    _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
+                }
+
+                // 4. Merge discovered tracks with daemon tracks, deduplicating by normalized path
                 val combinedMap = LinkedHashMap<String, LocalTrack>()
-                for (track in scanResult.localTracks) {
+                for (track in mediaStoreTracks) {
                     val key = track.filePath.lowercase(java.util.Locale.ROOT)
                     combinedMap[key] = track
                 }
                 for (track in daemonTracks) {
                     val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                    if (!combinedMap.containsKey(key)) {
-                        combinedMap[key] = track
-                    }
+                    combinedMap[key] = track
                 }
 
                 val allLocal = combinedMap.values.toList()
 
-                // 4. Update folders map
+                // 5. Update folders map
                 val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
                 for (track in allLocal) {
                     val folderName = track.sourceFolder.ifBlank { "Device Audio" }
@@ -1848,7 +1847,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 _libraryFolders.value = updatedFolders
 
-                // 5. Update counts
+                // 6. Update category counts
                 val waTracks = allLocal.filter {
                     it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
                     it.filePath.contains("WhatsApp", ignoreCase = true)
@@ -1871,18 +1870,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (allTrackItems.isNotEmpty()) {
                     _libraryTracks.value = allTrackItems
                     refreshFavoritesList()
-                }
-
-                // 6. Provide discovered folders to Go daemon so its POSIX crawler also indexes them in SQLite
-                val discoveredFolders = updatedFolders.values
-                    .flatten()
-                    .mapNotNull { File(it.filePath).parentFile?.absolutePath }
-                    .distinct()
-                    .take(25)
-                if (discoveredFolders.isNotEmpty()) {
-                    try {
-                        client.scanStorage(discoveredFolders)
-                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Universal audio scan note: ${e.message}")

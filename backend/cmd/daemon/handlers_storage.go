@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/models"
 	"github.com/cubicreates/unbound-engine/pkg/storage"
 )
@@ -37,9 +38,10 @@ func (d *Daemon) HandleTriggerStorageScan(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if len(req.Paths) == 0 {
-		d.writeError(w, http.StatusBadRequest, "paths array must not be empty")
-		return
+	// If no paths are provided or empty array passed, automatically crawl device audio roots (.nomedia included)
+	pathsToScan := req.Paths
+	if len(pathsToScan) == 0 {
+		pathsToScan = storage.GetDefaultStorageScanRoots()
 	}
 
 	// Protect against concurrent re-indexing collisions
@@ -55,7 +57,7 @@ func (d *Daemon) HandleTriggerStorageScan(w http.ResponseWriter, r *http.Request
 	totalNew := 0
 	totalUnchanged := 0
 
-	for _, p := range req.Paths {
+	for _, p := range pathsToScan {
 		trimmed := strings.TrimSpace(p)
 		if trimmed == "" {
 			continue
@@ -135,5 +137,35 @@ func (d *Daemon) HandleGetLocalTracks(w http.ResponseWriter, r *http.Request) {
 
 	d.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tracks": tracks,
+	})
+}
+
+// HandleGetLocalFolders retrieves indexed physical folder summaries from the local SQLite vault.
+// Route: GET /api/v1/storage/folders
+func (d *Daemon) HandleGetLocalFolders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		d.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if d.repo == nil {
+		d.writeJSON(w, http.StatusOK, map[string]interface{}{
+			"folders": []database.LocalFolderSummary{},
+		})
+		return
+	}
+
+	folders, err := d.repo.GetLocalFolders(r.Context())
+	if err != nil {
+		d.writeError(w, http.StatusInternalServerError, "failed to query local folders: "+err.Error())
+		return
+	}
+
+	if folders == nil {
+		folders = []database.LocalFolderSummary{}
+	}
+
+	d.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"folders": folders,
 	})
 }

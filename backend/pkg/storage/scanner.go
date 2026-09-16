@@ -115,28 +115,37 @@ func ScanDirectory(ctx context.Context, repo *database.Repository, targetPath, s
 			return nil
 		}
 
-		// 3. Identify audio format via magic bytes
+		// 3. Identify audio format via magic bytes, with audio extension fallback
 		format := DetectMagicBytes(header[:n])
 		if format == "" {
-			return nil
+			ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(path), "."))
+			switch ext {
+			case "mp3", "m4a", "aac", "flac", "opus", "wav", "ogg", "wma", "m4b", "oga":
+				format = ext
+			default:
+				return nil
+			}
 		}
 
 		report.AudioFilesFound++
 
-		// 4. Construct local track entity and index into SQLite
+		// 4. Construct local track entity with ID3 tags & dynamic folder categorization
 		trackID := fmt.Sprintf("%x", sha256.Sum256([]byte(path)))[:16]
 		baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+
+		category := InferFolderCategory(path, sourceFolder)
+		title, artist, album := ExtractID3Metadata(path, baseName, category)
 
 		localTrack := &models.LocalTrack{
 			ID:           trackID,
 			FilePath:     path,
-			Title:        baseName,
-			Artist:       "Unknown Artist",
-			Album:        sourceFolder,
+			Title:        title,
+			Artist:       artist,
+			Album:        album,
 			DurationMs:   0,
 			Format:       format,
 			FileSize:     fileSize,
-			SourceFolder: sourceFolder,
+			SourceFolder: category,
 			DateIndexed:  time.Now().Unix(),
 			MTime:        fileMTime,
 		}

@@ -111,6 +111,15 @@ data class StorageScanResponse(
 )
 
 /**
+ * Folder summary from GET /api/v1/storage/folders.
+ */
+data class LocalFolderDto(
+    val name: String,
+    val count: Int,
+    val path: String
+)
+
+/**
  * Response payload from POST /api/v1/radio/magic.
  */
 data class MagicRadioResult(

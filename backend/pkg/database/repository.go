@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -257,10 +258,10 @@ func (r *Repository) GetLocalTracksBySource(ctx context.Context, sourceFolder st
 	query := `
 	SELECT id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime
 	FROM local_tracks
-	WHERE source_folder = ?
+	WHERE LOWER(source_folder) = LOWER(?) OR LOWER(source_folder) LIKE '%' || LOWER(?) || '%'
 	ORDER BY title ASC;
 	`
-	rows, err := r.db.conn.QueryContext(ctx, query, sourceFolder)
+	rows, err := r.db.conn.QueryContext(ctx, query, sourceFolder, sourceFolder)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +280,40 @@ func (r *Repository) GetLocalTracksBySource(ctx context.Context, sourceFolder st
 		tracks = append(tracks, t)
 	}
 	return tracks, rows.Err()
+}
+
+// LocalFolderSummary aggregates track count and directory paths for indexed folders.
+type LocalFolderSummary struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+	Path  string `json:"path"`
+}
+
+// GetLocalFolders groups indexed tracks by their source folder category.
+func (r *Repository) GetLocalFolders(ctx context.Context) ([]LocalFolderSummary, error) {
+	query := `
+	SELECT source_folder, COUNT(*), MIN(file_path)
+	FROM local_tracks
+	GROUP BY source_folder
+	ORDER BY COUNT(*) DESC;
+	`
+	rows, err := r.db.conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var folders []LocalFolderSummary
+	for rows.Next() {
+		var f LocalFolderSummary
+		var samplePath string
+		if err := rows.Scan(&f.Name, &f.Count, &samplePath); err != nil {
+			return nil, err
+		}
+		f.Path = filepath.Dir(samplePath)
+		folders = append(folders, f)
+	}
+	return folders, rows.Err()
 }
 
 // GetAllLocalTracks returns all indexed physical tracks on the device.

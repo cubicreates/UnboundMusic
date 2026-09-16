@@ -258,10 +258,10 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	flusher, hasFlusher := w.(http.Flusher)
-	isFullDownload := (clientStart == 0 && (clientEnd < 0 || clientEnd >= totalSize-1))
+	shouldSpool := (clientStart == 0)
 	var partFile *os.File
 	partPath := cachedFile + ".part"
-	if isFullDownload {
+	if shouldSpool {
 		spoolingMu.Lock()
 		if !spoolingTracks[videoID] {
 			spoolingTracks[videoID] = true
@@ -414,7 +414,22 @@ func (s *Server) handleProxyStream(w http.ResponseWriter, r *http.Request) {
 
 // finishSpoolingInBackground continues downloading audio chunks into the .part file after the client disconnects or pauses.
 func (s *Server) finishSpoolingInBackground(videoID string, partFile *os.File, partPath, cachedFile, upstreamURL, ua string, curStart, totalSize int64, chunkSize int64) {
+	parentCtx := context.Background()
+	if s.ctx != nil {
+		parentCtx = s.ctx
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Minute)
+	defer cancel()
+
+	s.spoolCancelsMu.Lock()
+	s.spoolCancels[videoID] = cancel
+	s.spoolCancelsMu.Unlock()
+
 	defer func() {
+		s.spoolCancelsMu.Lock()
+		delete(s.spoolCancels, videoID)
+		s.spoolCancelsMu.Unlock()
+
 		if r := recover(); r != nil {
 			log.Printf("[BACKGROUND SPOOL PANIC]: %v", r)
 		}
@@ -428,8 +443,6 @@ func (s *Server) finishSpoolingInBackground(videoID string, partFile *os.File, p
 
 	client := &http.Client{Timeout: 45 * time.Second}
 	buf := make([]byte, 32*1024)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
 
 	for curStart < totalSize {
 		curEnd := curStart + chunkSize - 1

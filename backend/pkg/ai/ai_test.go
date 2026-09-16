@@ -191,6 +191,11 @@ func TestDeduceTrackMetadata(t *testing.T) {
 			expectedTitle:  "Faded",
 			expectedArtist: "Alan Walker",
 		},
+		{
+			filePath:       "/storage/emulated/0/WhatsApp/Media/WhatsApp Audio/AUD-20240915-WA0001.opus",
+			expectedTitle:  "WhatsApp Audio 2024-09-15 #0001",
+			expectedArtist: "WhatsApp Audio",
+		},
 	}
 
 	for _, tc := range testCases {

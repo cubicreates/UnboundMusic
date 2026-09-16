@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -83,8 +84,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -445,7 +448,7 @@ private fun LibraryHubView(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
-            .padding(top = 16.dp, bottom = 100.dp),
+            .padding(top = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // Top Header: Clean "Library" title with refresh button (NO 3-dots, NO search icon)
@@ -963,7 +966,6 @@ private fun LibraryFoldersListView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(bottom = 90.dp)
     ) {
         // Header
         Row(
@@ -1019,7 +1021,7 @@ private fun LibraryFoldersListView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(folders) { folder ->
@@ -1127,7 +1129,6 @@ private fun LibraryTracksListView(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(bottom = 90.dp)
     ) {
         // Header
         Row(
@@ -1175,43 +1176,59 @@ private fun LibraryTracksListView(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
         ) {
-            OutlinedTextField(
+            BasicTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Filter tracks or artist...", color = OnSurfaceVariant.copy(alpha = 0.6f), fontSize = 13.sp) },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = OnSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotBlank()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
-                                tint = OnSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                },
                 singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = UnboundPrimary,
-                    unfocusedBorderColor = BorderGlass,
-                    focusedContainerColor = SurfaceGlassHighest,
-                    unfocusedContainerColor = SurfaceGlassHighest,
-                    focusedTextColor = OnSurface,
-                    unfocusedTextColor = OnSurface
+                textStyle = TextStyle(
+                    color = OnSurface,
+                    fontSize = 14.sp
                 ),
-                shape = RoundedCornerShape(12.dp),
+                cursorBrush = SolidColor(UnboundPrimary),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(SurfaceGlassHighest)
+                    .border(1.dp, BorderGlass, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = OnSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Filter tracks or artist...",
+                                    color = OnSurfaceVariant.copy(alpha = 0.6f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                        if (searchQuery.isNotBlank()) {
+                            IconButton(
+                                onClick = { searchQuery = "" },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear",
+                                    tint = OnSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             )
         }
 
@@ -1290,7 +1307,7 @@ private fun LibraryTracksListView(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 items(filteredTracks, key = { it.id.ifBlank { "${it.title}_${it.durationMs}" } }) { track ->

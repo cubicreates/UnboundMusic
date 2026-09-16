@@ -1576,13 +1576,26 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         post("/api/v1/fingerprint/identify", json)
     }
 
-    /** Identifies an untagged local audio file using the 3-tier AcoustID + On-Device LLM engine. */
-    suspend fun identifyTrack(filePath: String, fpcalcPath: String = ""): IdentifiedTrackDto? = withContext(Dispatchers.IO) {
+    data class IdentifyTrackResult(
+        val track: IdentifiedTrackDto? = null,
+        val statusCode: Int = 0,
+        val errorMessage: String? = null
+    )
+
+    /** Identifies an untagged local audio file with rich status code and error reporting. */
+    suspend fun identifyTrackDetailed(filePath: String, fpcalcPath: String = ""): IdentifyTrackResult = withContext(Dispatchers.IO) {
         val (code, json) = identifyFingerprint(filePath, fpcalcPath)
-        if (code !in 200..299 || json.isBlank()) return@withContext null
+        if (code !in 200..299 || json.isBlank()) {
+            val err = try {
+                if (json.isNotBlank()) JSONObject(json).optString("error", json) else "Empty response"
+            } catch (_: Exception) {
+                json.ifBlank { "HTTP $code" }
+            }
+            return@withContext IdentifyTrackResult(statusCode = code, errorMessage = err)
+        }
         try {
             val obj = JSONObject(json)
-            IdentifiedTrackDto(
+            val dto = IdentifiedTrackDto(
                 id = obj.optString("id", filePath),
                 filePath = obj.optString("file_path", filePath),
                 title = obj.optString("title"),
@@ -1593,9 +1606,15 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                 method = obj.optString("identification_method", "acoustid"),
                 confidence = obj.optDouble("confidence", 0.0)
             )
-        } catch (_: Exception) {
-            null
+            IdentifyTrackResult(track = dto, statusCode = code)
+        } catch (e: Exception) {
+            IdentifyTrackResult(statusCode = code, errorMessage = "JSON Parse Error: ${e.message}")
         }
+    }
+
+    /** Identifies an untagged local audio file using the 3-tier AcoustID + On-Device LLM engine. */
+    suspend fun identifyTrack(filePath: String, fpcalcPath: String = ""): IdentifiedTrackDto? = withContext(Dispatchers.IO) {
+        identifyTrackDetailed(filePath, fpcalcPath).track
     }
 
     // ==================== Custom Playlists (SQLite-backed) ====================

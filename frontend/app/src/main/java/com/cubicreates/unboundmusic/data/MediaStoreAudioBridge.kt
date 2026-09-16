@@ -123,6 +123,25 @@ object MediaStoreAudioBridge {
     }
 
     /**
+     * Resolves an Android content:// URI to its underlying POSIX filesystem path via MediaStore _DATA.
+     */
+    fun resolveContentUriToPath(context: Context, contentUriString: String): String? {
+        if (!contentUriString.startsWith("content://")) return null
+        return try {
+            val uri = Uri.parse(contentUriString)
+            val projection = arrayOf(MediaStore.Audio.Media.DATA)
+            context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Discovers all physical storage root directories on the device to send to the Go crawler.
      */
     fun discoverDeviceStorageRoots(context: Context): List<String> {

@@ -10,8 +10,12 @@ package fingerprint
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -74,7 +78,11 @@ func IngestUntaggedFileWithAI(ctx context.Context, repo FingerprintRepo, fpcalcP
 		return nil, errors.New("audio file path must not be empty")
 	}
 
-	cleanPath := filepath.Clean(filePath)
+	cleanPath := strings.TrimPrefix(filePath, "file://")
+	if unescaped, err := url.PathUnescape(cleanPath); err == nil {
+		cleanPath = unescaped
+	}
+	cleanPath = filepath.Clean(cleanPath)
 
 	// Obtain or initialize local track record
 	track, err := repo.GetLocalTrackByPath(ctx, cleanPath)
@@ -121,68 +129,79 @@ func IngestUntaggedFileWithAI(ctx context.Context, repo FingerprintRepo, fpcalcP
 		return track, nil
 	}
 
-	// Step 2: Run fpcalc or in-process PCM filterbank
-	fpResult, err := GenerateFingerprint(ctx, fpcalcPath, cleanPath)
+	// Step 2: Run fpcalc or in-process PCM filterbank (non-fatal)
+	var fpResult *FingerprintResult
+	fpResult, err = GenerateFingerprint(ctx, fpcalcPath, cleanPath)
 	if err != nil {
-		return nil, fmt.Errorf("fingerprint generation failed: %w", err)
-	}
-
-	durationMs := int64(fpResult.Duration * 1000)
-	if durationMs > 0 {
-		track.DurationMs = durationMs
-	}
-
-	// Step 3: Check cache by acoustic hash
-	cachedByHash, err := repo.GetFingerprintByHash(ctx, fpResult.Fingerprint)
-	if err == nil && cachedByHash != nil && cachedByHash.Title != "" {
-		track.Title = cachedByHash.Title
-		track.Artist = cachedByHash.Artist
-		track.Album = cachedByHash.Album
-		track.IdentificationMethod = cachedByHash.Source
-		track.Confidence = 0.95
-		if cachedByHash.DurationMs > 0 {
-			track.DurationMs = cachedByHash.DurationMs
+		log.Printf("[Fingerprint] Acoustic fingerprinting skipped for %q: %v, falling back to AI deduction", cleanPath, err)
+	} else if fpResult != nil {
+		durationMs := int64(fpResult.Duration * 1000)
+		if durationMs > 0 {
+			track.DurationMs = durationMs
 		}
-		_ = repo.UpsertLocalTrack(ctx, track)
-		return track, nil
 	}
 
-	// Step 4: Tier 1 - Query AcoustID API
-	meta, err := LookupAcoustID(ctx, fpResult.Duration, fpResult.Fingerprint)
+	// Compute acoustic hash key (fallback to md5 of path if acoustic fingerprint was not generated)
+	var fpHash string
+	if fpResult != nil && fpResult.Fingerprint != "" {
+		fpHash = fpResult.Fingerprint
+	} else {
+		h := md5.Sum([]byte(cleanPath))
+		fpHash = hex.EncodeToString(h[:])
+	}
+
 	nowSec := time.Now().Unix()
 	todayStr := time.Now().Format("2006-01-02")
 
-	// Step 5: Score >= 0.70 -> AcoustID Match found
-	if err == nil && meta != nil && meta.Score >= MinConfidenceScore && meta.Title != "" {
-		track.Title = meta.Title
-		if meta.Artist != "" {
-			track.Artist = meta.Artist
-		}
-		track.Album = meta.Album
-		track.IdentificationMethod = "acoustid"
-		track.Confidence = meta.Score
-
-		if meta.RecordingID != "" {
-			track.CoverURL = fmt.Sprintf("https://coverartarchive.org/release/%s/front-250.jpg", meta.RecordingID)
-		}
-
-		fpRecord := &models.FingerprintRecord{
-			Hash:       fpResult.Fingerprint,
-			FilePath:   cleanPath,
-			Title:      meta.Title,
-			Artist:     meta.Artist,
-			Album:      meta.Album,
-			DurationMs: durationMs,
-			Source:     "acoustid",
-			UpdatedAt:  nowSec,
+	// Step 3 & 4: AcoustID query (if acoustic fingerprint was generated)
+	if fpResult != nil && fpResult.Fingerprint != "" {
+		cachedByHash, err := repo.GetFingerprintByHash(ctx, fpHash)
+		if err == nil && cachedByHash != nil && cachedByHash.Title != "" {
+			track.Title = cachedByHash.Title
+			track.Artist = cachedByHash.Artist
+			track.Album = cachedByHash.Album
+			track.IdentificationMethod = cachedByHash.Source
+			track.Confidence = 0.95
+			if cachedByHash.DurationMs > 0 {
+				track.DurationMs = cachedByHash.DurationMs
+			}
+			_ = repo.UpsertLocalTrack(ctx, track)
+			return track, nil
 		}
 
-		_ = repo.UpsertFingerprint(ctx, fpRecord)
-		_ = repo.UpsertLocalTrack(ctx, track)
-		return track, nil
+		// Tier 1: Query AcoustID API
+		meta, acoustErr := LookupAcoustID(ctx, fpResult.Duration, fpResult.Fingerprint)
+		if acoustErr == nil && meta != nil && meta.Score >= MinConfidenceScore && meta.Title != "" {
+			track.Title = meta.Title
+			if meta.Artist != "" {
+				track.Artist = meta.Artist
+			}
+			track.Album = meta.Album
+			track.IdentificationMethod = "acoustid"
+			track.Confidence = meta.Score
+
+			if meta.RecordingID != "" {
+				track.CoverURL = fmt.Sprintf("https://coverartarchive.org/release/%s/front-250.jpg", meta.RecordingID)
+			}
+
+			fpRecord := &models.FingerprintRecord{
+				Hash:       fpHash,
+				FilePath:   cleanPath,
+				Title:      meta.Title,
+				Artist:     meta.Artist,
+				Album:      meta.Album,
+				DurationMs: track.DurationMs,
+				Source:     "acoustid",
+				UpdatedAt:  nowSec,
+			}
+
+			_ = repo.UpsertFingerprint(ctx, fpRecord)
+			_ = repo.UpsertLocalTrack(ctx, track)
+			return track, nil
+		}
 	}
 
-	// Step 6: Tier 2 - On-Device LLM & Semantic Heuristic Fallback
+	// Step 5: Tier 2 - On-Device LLM & Semantic Heuristic Fallback
 	var aiRes *models.TrackIdentificationResult
 	if aiRunner != nil {
 		aiRes, _ = aiRunner.DeduceTrackMetadata(ctx, cleanPath)
@@ -210,12 +229,12 @@ func IngestUntaggedFileWithAI(ctx context.Context, repo FingerprintRepo, fpcalcP
 		}
 
 		fpRecord := &models.FingerprintRecord{
-			Hash:       fpResult.Fingerprint,
+			Hash:       fpHash,
 			FilePath:   cleanPath,
 			Title:      track.Title,
 			Artist:     track.Artist,
 			Album:      track.Album,
-			DurationMs: durationMs,
+			DurationMs: track.DurationMs,
 			Source:     aiRes.Method,
 			UpdatedAt:  nowSec,
 		}
@@ -225,22 +244,22 @@ func IngestUntaggedFileWithAI(ctx context.Context, repo FingerprintRepo, fpcalcP
 		return track, nil
 	}
 
-	// Step 7: Low confidence, generic recording, or offline -> Save fallback
+	// Step 6: Low confidence, generic recording, or offline -> Save fallback
 	fallbackTitle := fmt.Sprintf("Audio Recording - %s", todayStr)
 	fallbackArtist := "Local Device"
 
 	track.Title = fallbackTitle
 	track.Artist = fallbackArtist
 	track.IdentificationMethod = "local_unrecognized"
-	track.Confidence = 0.0
+	track.Confidence = 0.30
 
 	fpRecord := &models.FingerprintRecord{
-		Hash:       fpResult.Fingerprint,
+		Hash:       fpHash,
 		FilePath:   cleanPath,
 		Title:      fallbackTitle,
 		Artist:     fallbackArtist,
 		Album:      "",
-		DurationMs: durationMs,
+		DurationMs: track.DurationMs,
 		Source:     "local_unrecognized",
 		UpdatedAt:  nowSec,
 	}

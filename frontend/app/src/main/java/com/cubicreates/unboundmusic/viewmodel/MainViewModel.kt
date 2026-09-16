@@ -1908,18 +1908,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isIdentifyingTrack = MutableStateFlow<String?>(null)
     val isIdentifyingTrack: StateFlow<String?> = _isIdentifyingTrack.asStateFlow()
 
+    private fun resolveLocalFilePath(track: TrackItem): String {
+        val stream = track.streamUrl
+        if (stream.startsWith("file://")) {
+            val clean = stream.removePrefix("file://")
+            return try {
+                java.net.URLDecoder.decode(clean, "UTF-8")
+            } catch (_: Exception) {
+                clean
+            }
+        }
+        if (stream.startsWith("content://")) {
+            val resolved = MediaStoreAudioBridge.resolveContentUriToPath(getApplication(), stream)
+            if (!resolved.isNullOrBlank()) return resolved
+        }
+        if (stream.startsWith("/")) {
+            return stream
+        }
+        // Fallback: search in library folders for matching track ID
+        for (folderTracks in _libraryFolders.value.values) {
+            val match = folderTracks.firstOrNull { it.id == track.id }
+            if (match != null && match.filePath.isNotBlank()) {
+                val fp = match.filePath
+                return if (fp.startsWith("file://")) fp.removePrefix("file://") else fp
+            }
+        }
+        return stream.ifBlank { track.id }
+    }
+
     fun identifyTrack(track: TrackItem) {
+        if (_isIdentifyingTrack.value != null) return
+        _isIdentifyingTrack.value = track.id
         viewModelScope.launch(Dispatchers.IO) {
-            _isIdentifyingTrack.value = track.id
             try {
-                val targetPath = if (track.streamUrl.isNotBlank() && !track.streamUrl.startsWith("http")) {
-                    track.streamUrl
-                } else {
-                    track.id
+                val targetPath = resolveLocalFilePath(track)
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Identifying '${track.title}'...",
+                        isLong = false
+                    )
                 }
 
-                val identified = client.identifyTrack(targetPath)
-                if (identified != null && identified.title.isNotBlank() && !identified.title.startsWith("Audio Recording")) {
+                val result = client.identifyTrackDetailed(targetPath)
+                val identified = result.track
+                if (identified != null && identified.title.isNotBlank()) {
                     val updatedTrack = track.copy(
                         title = identified.title,
                         artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
@@ -1932,30 +1965,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         if (_currentTrack.value.id == track.id) {
                             _currentTrack.value = updatedTrack
                         }
-                        val methodBadge = if (identified.method.contains("llm", ignoreCase = true) || identified.method.contains("ai", ignoreCase = true)) {
-                            "On-Device AI"
-                        } else if (identified.method.contains("acoustid", ignoreCase = true)) {
-                            "AcoustID"
-                        } else {
-                            "Heuristic AI"
+                        val methodBadge = when {
+                            identified.method.contains("llm", ignoreCase = true) || identified.method.contains("ai", ignoreCase = true) -> "On-Device AI"
+                            identified.method.contains("acoustid", ignoreCase = true) -> "AcoustID"
+                            identified.method.contains("voice", ignoreCase = true) -> "Media Parser"
+                            else -> "Smart Heuristic"
                         }
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
-                            "Identified via $methodBadge: '${updatedTrack.artist} - ${updatedTrack.title}'",
+                            "Identified via $methodBadge (${(identified.confidence * 100).toInt()}%): '${updatedTrack.artist} - ${updatedTrack.title}'",
                             isLong = true
                         )
                     }
                 } else {
+                    val errDetail = result.errorMessage ?: "HTTP ${result.statusCode}: No match found"
                     withContext(Dispatchers.Main) {
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
-                            "Could not acoustically identify track.",
-                            isLong = false
+                            "Identification diagnostic: Could not identify track ($errDetail)",
+                            isLong = true
                         )
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to identify track ${track.title}: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Identification failed: ${e.message}",
+                        isLong = true
+                    )
+                }
             } finally {
                 _isIdentifyingTrack.value = null
             }
@@ -1968,8 +2008,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.title.startsWith("AUD-", ignoreCase = true) ||
                 it.title.startsWith("PTT-", ignoreCase = true) ||
                 it.title.startsWith("voice_", ignoreCase = true) ||
+                it.title.startsWith("WA", ignoreCase = true) ||
                 it.artist.equals("Unknown Artist", ignoreCase = true) ||
-                it.artist.isBlank()
+                it.artist.isBlank() ||
+                it.title.contains("y2mate", ignoreCase = true)
             }
             if (candidates.isEmpty()) {
                 withContext(Dispatchers.Main) {
@@ -1981,10 +2023,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Identifying ${candidates.size} untagged tracks...", isLong = false)
             }
             var identifiedCount = 0
-            for (track in candidates.take(20)) {
-                val targetPath = if (track.streamUrl.isNotBlank() && !track.streamUrl.startsWith("http")) track.streamUrl else track.id
-                val identified = client.identifyTrack(targetPath)
-                if (identified != null && identified.title.isNotBlank() && !identified.title.startsWith("Audio Recording")) {
+            var errorCount = 0
+            var lastError = ""
+            for (track in candidates) {
+                val targetPath = resolveLocalFilePath(track)
+                val result = client.identifyTrackDetailed(targetPath)
+                val identified = result.track
+                if (identified != null && identified.title.isNotBlank()) {
                     val updated = track.copy(
                         title = identified.title,
                         artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
@@ -1995,11 +2040,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     withContext(Dispatchers.Main) {
                         _libraryTracks.value = _libraryTracks.value.map { if (it.id == track.id) updated else it }
                     }
+                } else {
+                    errorCount++
+                    lastError = result.errorMessage ?: "HTTP ${result.statusCode}"
                 }
-                kotlinx.coroutines.delay(350)
+                kotlinx.coroutines.delay(250)
             }
             withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Identified $identifiedCount songs successfully!", isLong = true)
+                val msg = if (identifiedCount > 0) {
+                    "Identified $identifiedCount/${candidates.size} audio files!${if (errorCount > 0) " ($errorCount failed: $lastError)" else ""}"
+                } else {
+                    "Diagnostic: 0/${candidates.size} identified. Reason: $lastError"
+                }
+                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), msg, isLong = true)
             }
         }
     }

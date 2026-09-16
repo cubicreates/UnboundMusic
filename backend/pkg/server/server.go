@@ -302,6 +302,10 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/radio/magic", s.handleRadioMagic)
 	mux.HandleFunc("/api/v1/radio/next", s.handleRadioNext)
 	mux.HandleFunc("/api/v1/system/unpack-payload", s.handleUnpackPayload)
+	mux.HandleFunc("/api/v1/playlists", s.handlePlaylistsRouter)
+	mux.HandleFunc("/api/v1/playlists/", s.handlePlaylistsRouter)
+	mux.HandleFunc("/api/v1/favorites", s.handleFavoritesRouter)
+	mux.HandleFunc("/api/v1/favorites/", s.handleFavoritesRouter)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -2063,7 +2067,7 @@ func (s *Server) handleUnpackPayload(w http.ResponseWriter, r *http.Request) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

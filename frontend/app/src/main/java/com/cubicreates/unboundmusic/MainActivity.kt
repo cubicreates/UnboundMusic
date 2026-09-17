@@ -39,8 +39,38 @@ import com.cubicreates.unboundmusic.viewmodel.MainViewModel
  */
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        var instance: MainActivity? = null
+            private set
+    }
+
     private lateinit var serviceConnection: ServiceConnection
     private val mainViewModel: MainViewModel by viewModels()
+    private var pendingRecordAudioCallback: (() -> Unit)? = null
+
+    private val recordAudioLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pendingRecordAudioCallback?.invoke()
+        } else {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                this,
+                "Microphone permission is required to identify ambient music.",
+                isLong = false
+            )
+        }
+        pendingRecordAudioCallback = null
+    }
+
+    fun requestRecordAudio(onGranted: () -> Unit) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            onGranted()
+        } else {
+            pendingRecordAudioCallback = onGranted
+            recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
 
     private val permissionLauncher = registerForActivityResult(
@@ -61,6 +91,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         enableEdgeToEdge()
 
@@ -174,6 +205,13 @@ class MainActivity : ComponentActivity() {
         }
         if (audioGranted) {
             mainViewModel.rescanLocalStorage()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance === this) {
+            instance = null
         }
     }
 }

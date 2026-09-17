@@ -147,10 +147,10 @@ fun SearchScreen(
     onSearchHistoryCleared: () -> Unit = {},
     onPlayNextBatch: (List<TrackItem>) -> Unit = {},
     onAddToQueueBatch: (List<TrackItem>) -> Unit = {},
-    onDownloadBatch: (List<TrackItem>) -> Unit = {}
+    onDownloadBatch: (List<TrackItem>) -> Unit = {},
+    isListeningAudio: Boolean = false
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var isListening by remember { mutableStateOf(false) }
 
     Box(
         modifier = modifier
@@ -631,7 +631,6 @@ fun SearchScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(24.dp))
                                 .clickable {
-                                    isListening = !isListening
                                     onListenToSurroundings()
                                 },
                             shape = RoundedCornerShape(24.dp),
@@ -661,7 +660,7 @@ fun SearchScreen(
                                 Spacer(modifier = Modifier.width(10.dp))
 
                                 Text(
-                                    text = if (isListening) "Listening to Audio..." else "Listen to Surroundings",
+                                    text = if (isListeningAudio) "Listening to Audio..." else "Listen to Surroundings",
                                     color = UnboundPrimary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold

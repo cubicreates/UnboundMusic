@@ -1616,33 +1616,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startAmbientShazamRecognition() {
         if (_isListeningShazam.value) return
+        val activity = com.cubicreates.unboundmusic.MainActivity.instance
+        if (activity != null) {
+            activity.requestRecordAudio {
+                executeAmbientShazamCapture()
+            }
+        } else {
+            executeAmbientShazamCapture()
+        }
+    }
+
+    private fun executeAmbientShazamCapture() {
+        if (_isListeningShazam.value) return
         _isListeningShazam.value = true
         _recognizedMessage.value = "Listening to audio acoustics..."
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val testSamples = FloatArray(1024) { i ->
-                    (kotlin.math.sin(i * 0.1) * 0.8).toFloat()
+                val pcmData = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.recordPcm(4500)
+                if (pcmData == null || pcmData.isEmpty()) {
+                    _recognizedMessage.value = "Could not record ambient audio."
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Could not record ambient audio. Please check microphone permissions."
+                        )
+                    }
+                    return@launch
                 }
-                delay(1200)
-                val (code, resp) = client.recognizeAudioDsp(testSamples)
+                _recognizedMessage.value = "Analyzing acoustic fingerprint..."
+                val (code, resp) = client.identifyPcmAudio(pcmData)
                 if (code in 200..299 && resp.isNotBlank()) {
                     val json = JSONObject(resp)
                     val matched = json.optBoolean("matched", false)
                     val trackTitle = json.optString("title", json.optString("track_title", ""))
                     val artist = json.optString("artist", "")
                     if (matched && trackTitle.isNotBlank()) {
-                        _recognizedMessage.value = "Recognized: $trackTitle - $artist"
+                        val displayMsg = if (artist.isNotBlank()) "Recognized: $trackTitle - $artist" else "Recognized: $trackTitle"
+                        _recognizedMessage.value = displayMsg
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                displayMsg,
+                                isLong = true
+                            )
+                        }
                         // Search for the recognized track
-                        onSearchQueryChanged("$trackTitle $artist")
+                        onSearchQueryChanged("$trackTitle $artist".trim())
                     } else {
                         _recognizedMessage.value = "Could not recognize audio. Try again."
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "No acoustic match found. Try again closer to the speaker."
+                            )
+                        }
                     }
                 } else {
-                    _recognizedMessage.value = "Recognition service unavailable."
+                    _recognizedMessage.value = "Recognition service unavailable ($code)."
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Shazam service unavailable ($code)"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _recognizedMessage.value = "Recognition error: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Recognition error: ${e.message}"
+                    )
+                }
             } finally {
                 _isListeningShazam.value = false
             }

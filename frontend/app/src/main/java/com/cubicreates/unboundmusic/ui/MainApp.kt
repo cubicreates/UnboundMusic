@@ -191,6 +191,7 @@ fun MainApp(
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val reverbPreset by viewModel.reverbPreset.collectAsStateWithLifecycle()
+    val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
 
     val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
@@ -426,7 +427,8 @@ fun MainApp(
                                         isPlayerExpanded = true
                                     },
                                     onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) },
-                                    onAddToPlaylistSingle = { track -> viewModel.showAddToPlaylist(track) }
+                                    onAddToPlaylistSingle = { track -> viewModel.showAddToPlaylist(track) },
+                                    isListeningAudio = isListeningShazam
                                 )
                             }
                             NavigationTab.LIBRARY -> {

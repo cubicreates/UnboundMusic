@@ -388,6 +388,23 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     // ==================== SECTION 5: Shazam Recognition ====================
 
+    /** Identifies song from raw 16kHz 16-bit Mono PCM audio bytes via Go Shazam SigX engine. */
+    suspend fun identifyPcmAudio(pcmData: ByteArray): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val mediaType = "application/octet-stream".toMediaType()
+        val body = pcmData.toRequestBody(mediaType)
+        val req = Request.Builder()
+            .url("$baseUrl/api/v1/shazam/identify")
+            .post(body)
+            .build()
+        try {
+            httpClient.newCall(req).execute().use { resp ->
+                Pair(resp.code, resp.body?.string() ?: "")
+            }
+        } catch (e: Exception) {
+            Pair(-1, e.message ?: "Failed connecting to identification endpoint")
+        }
+    }
+
     /** Runs Shazam DSP spectral analysis on raw audio samples. */
     suspend fun recognizeAudioDsp(samples: FloatArray): Pair<Int, String> = withContext(Dispatchers.IO) {
         val jsonSamples = org.json.JSONArray()

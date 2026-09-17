@@ -11,8 +11,11 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"net"
@@ -268,6 +271,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/shazam/dsp", s.handleShazamDSP)
 	mux.HandleFunc("/api/v1/shazam/recognize", s.handleShazamRecognize)
 	mux.HandleFunc("/api/v1/shazam/file", s.handleShazamFile)
+	mux.HandleFunc("/api/v1/shazam/identify", s.handleShazamIdentify)
 	mux.HandleFunc("/api/v1/analytics/log", s.handleAnalyticsLog)
 	mux.HandleFunc("/api/v1/analytics/recap", s.handleAnalyticsRecap)
 	mux.HandleFunc("/api/v1/import/spotify", s.handleImportSpotify)
@@ -1116,6 +1120,125 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Fallback to offline result indicator
 		writeJSON(w, http.StatusOK, offlineRes)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleShazamIdentify handles end-to-end acoustic song recognition from raw 16kHz 16-bit mono PCM bytes
+// or JSON payload, extracts spectral constellation landmarks, generates SigX binary signatures, and queries Shazam.
+func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "POST method required")
+		return
+	}
+
+	contentType := r.Header.Get("Content-Type")
+	var samples []float32
+	sampleRate := 16000
+
+	if strings.Contains(contentType, "application/octet-stream") || strings.Contains(contentType, "audio/pcm") || strings.Contains(contentType, "raw") {
+		// Read raw 16-bit little-endian PCM bytes from request body
+		pcmBytes, err := io.ReadAll(r.Body)
+		if err != nil || len(pcmBytes) < 3200 { // at least 100ms
+			writeError(w, http.StatusBadRequest, "valid PCM audio stream required (minimum 100ms)")
+			return
+		}
+
+		numSamples := len(pcmBytes) / 2
+		samples = make([]float32, numSamples)
+		for i := 0; i < numSamples; i++ {
+			raw := int16(binary.LittleEndian.Uint16(pcmBytes[i*2 : i*2+2]))
+			samples[i] = float32(raw) / 32768.0
+		}
+	} else {
+		// Try JSON decode (supports samples array, pcm_base64, or signature_uri)
+		type IdentifyReq struct {
+			PCMBase64    string    `json:"pcm_base64"`
+			Samples      []float32 `json:"samples"`
+			SampleRate   int       `json:"sample_rate"`
+			SignatureURI string    `json:"signature_uri"`
+			DurationMs   int64     `json:"duration_ms"`
+		}
+		var req IdentifyReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "failed decoding request payload: "+err.Error())
+			return
+		}
+
+		if req.SampleRate > 0 {
+			sampleRate = req.SampleRate
+		}
+
+		if req.SignatureURI != "" {
+			dur := req.DurationMs
+			if dur <= 0 {
+				dur = 4000
+			}
+			sig := &shazam.SignaturePayload{
+				DurationMs: dur,
+				Base64URI:  req.SignatureURI,
+			}
+			res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, res)
+			return
+		}
+
+		if len(req.Samples) > 0 {
+			samples = req.Samples
+		} else if req.PCMBase64 != "" {
+			rawBytes, err := base64.StdEncoding.DecodeString(req.PCMBase64)
+			if err != nil || len(rawBytes) < 3200 {
+				writeError(w, http.StatusBadRequest, "invalid pcm_base64 payload")
+				return
+			}
+			numSamples := len(rawBytes) / 2
+			samples = make([]float32, numSamples)
+			for i := 0; i < numSamples; i++ {
+				raw := int16(binary.LittleEndian.Uint16(rawBytes[i*2 : i*2+2]))
+				samples[i] = float32(raw) / 32768.0
+			}
+		}
+	}
+
+	if len(samples) == 0 {
+		writeError(w, http.StatusBadRequest, "no valid audio samples extracted")
+		return
+	}
+
+	// 1. Extract spectrogram peak constellation map
+	cmap, err := shazam.ExtractConstellationMap(samples, sampleRate)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed extracting constellation map: "+err.Error())
+		return
+	}
+
+	// 2. Encode to Shazam binary signature
+	sig, err := shazam.EncodeConstellationToSignature(cmap)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed encoding signature: "+err.Error())
+		return
+	}
+
+	// 3. Query Shazam discovery gateway
+	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
+	if err != nil {
+		// Fallback: Check local SQLite offline vault
+		offlineRes, offErr := shazam.MatchOffline(r.Context(), s.repo, "")
+		if offErr == nil && offlineRes != nil && offlineRes.Matched {
+			writeJSON(w, http.StatusOK, offlineRes)
+			return
+		}
+		// Return friendly unrecognised result instead of 500 error
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 

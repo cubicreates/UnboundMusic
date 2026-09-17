@@ -169,13 +169,22 @@ func TestLiveProxyStream(t *testing.T) {
 	}
 	defer srv.Shutdown(context.Background())
 
-	// Test with a real video ID
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/stream?id=T6eK-2OQtew", nil)
-	req.Header.Set("Range", "bytes=0-1024")
-	w := httptest.NewRecorder()
-	srv.handleProxyStream(w, req)
+	// Test with a real video ID (with retry for transient CDN network timeouts)
+	var resp *http.Response
+	var w *httptest.ResponseRecorder
+	for attempt := 0; attempt < 3; attempt++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/proxy/stream?id=T6eK-2OQtew", nil)
+		req.Header.Set("Range", "bytes=0-1024")
+		w = httptest.NewRecorder()
+		srv.handleProxyStream(w, req)
 
-	resp := w.Result()
+		resp = w.Result()
+		if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
 	t.Logf("Live proxy stream response: status=%d, headers=%v, bodyLen=%d", resp.StatusCode, resp.Header, w.Body.Len())
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		t.Errorf("expected 200 or 206 from proxy, got %d: %s", resp.StatusCode, w.Body.String())
@@ -231,5 +240,91 @@ func TestProxyStreamNoTimeout(t *testing.T) {
 	}
 	if srv.httpServer.ReadTimeout < 30*time.Second {
 		t.Errorf("expected ReadTimeout >= 30s, got %v", srv.httpServer.ReadTimeout)
+	}
+}
+
+// TestAudioCachePruning verifies bounded LRU eviction down to 80% hysteresis target,
+// strictly protecting actively spooling tracks and in-progress .part files.
+func TestAudioCachePruning(t *testing.T) {
+	tempDir := t.TempDir()
+	srv, err := NewServer(Config{
+		Port:           45789,
+		DatabasePath:   filepath.Join(tempDir, "test_prune.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	})
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	cacheDir := filepath.Join(tempDir, "cache_audio")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatalf("failed to create cacheDir: %v", err)
+	}
+
+	now := time.Now()
+	files := []struct {
+		name   string
+		age    time.Duration
+		isPart bool
+	}{
+		{"vid1.opus", 5 * time.Minute, false},
+		{"vid2.opus", 4 * time.Minute, false},
+		{"vid3.opus", 3 * time.Minute, false},
+		{"vid4.opus", 2 * time.Minute, false},
+		{"vid5.opus", 1 * time.Minute, false},
+		{"vid6.part", 10 * time.Minute, true},
+	}
+
+	for _, f := range files {
+		path := filepath.Join(cacheDir, f.name)
+		data := make([]byte, 2000)
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			t.Fatalf("failed writing %s: %v", f.name, err)
+		}
+		modT := now.Add(-f.age)
+		_ = os.Chtimes(path, modT, modT)
+	}
+
+	// Register vid1 as actively spooling (must be protected from LRU deletion)
+	spoolingMu.Lock()
+	spoolingTracks["vid1"] = true
+	spoolingMu.Unlock()
+	defer func() {
+		spoolingMu.Lock()
+		delete(spoolingTracks, "vid1")
+		spoolingMu.Unlock()
+	}()
+
+	// Prune with ceiling of 6000 bytes (80% target = 4800 bytes)
+	srv.pruneAudioCacheWithLimit(cacheDir, 6000)
+
+	// vid1.opus must be preserved because it is actively spooling
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid1.opus")); os.IsNotExist(err) {
+		t.Errorf("expected active spooling track vid1.opus to be preserved, but it was deleted")
+	}
+
+	// vid6.part must be preserved because it is an in-progress .part file
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid6.part")); os.IsNotExist(err) {
+		t.Errorf("expected in-progress vid6.part to be preserved, but it was deleted")
+	}
+
+	// vid2.opus (the oldest unspooled) should have been deleted
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid2.opus")); !os.IsNotExist(err) {
+		t.Errorf("expected oldest unspooled vid2.opus to be deleted")
+	}
+
+	// vid3.opus should have been deleted to reach target 4800 bytes
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid3.opus")); !os.IsNotExist(err) {
+		t.Errorf("expected second oldest unspooled vid3.opus to be deleted to reach 80%% target")
+	}
+
+	// vid4.opus and vid5.opus should be preserved
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid4.opus")); os.IsNotExist(err) {
+		t.Errorf("expected vid4.opus to be preserved within quota")
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "vid5.opus")); os.IsNotExist(err) {
+		t.Errorf("expected vid5.opus to be preserved within quota")
 	}
 }

@@ -1,0 +1,29 @@
+name: "Innertube Stream Canary"
+
+# Headless diagnostic probe verifying YouTube stream extraction and proxy resolution.
+# Zero APKs are built, zero releases are created, zero tags are pushed, and zero assets are uploaded.
+on:
+  schedule:
+    - cron: '0 4 * * *' # Runs daily at 04:00 UTC
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  probe:
+    name: "Headless Stream Extraction Probe"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: backend/go.sum
+
+      - name: Execute Live Stream Proxy Verification
+        working-directory: backend
+        run: |
+          go test -v -timeout 90s -run TestLiveProxyStream ./pkg/server

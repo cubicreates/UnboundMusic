@@ -25,3 +25,15 @@ func TestConfigureMemoryCeiling(t *testing.T) {
 	// Verify TrimEngineMemory executes without panic
 	TrimEngineMemory()
 }
+
+func TestTrimEngineMemory(t *testing.T) {
+	// Allocate dummy heap memory
+	dummy := make([]byte, 10*1024*1024)
+	for i := range dummy {
+		dummy[i] = 1
+	}
+	dummy = nil
+
+	// Verify TrimEngineMemory sweeps GC and frees OS memory without error
+	TrimEngineMemory()
+}

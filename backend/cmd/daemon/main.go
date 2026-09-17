@@ -23,10 +23,14 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/database"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
+	"github.com/cubicreates/unbound-engine/pkg/server"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
 func main() {
+	// Establish bounded heap ceiling and aggressive GC cycle for dual-GC harmony
+	server.ConfigureMemoryCeiling()
+
 	port := flag.Int("port", 45731, "Port for localhost HTTP REST/IPC daemon")
 	dataDir := flag.String("data-dir", "", "Base directory for SQLite database and cached assets")
 	modelsPath := flag.String("models-dir", "", "Path to unpacked GGUF / ONNX edge AI model directory")

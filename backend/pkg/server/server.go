@@ -135,6 +135,9 @@ func NewServer(cfg Config) (*Server, error) {
 		cfg.Port = 45731
 	}
 
+	// Enforce 128 MB heap ceiling and aggressive GC cycle for dual-GC harmony with ART VM
+	ConfigureMemoryCeiling()
+
 	// Initialize Storage Provisioner to ensure Unbound/.backend/ structure
 	provisioner := storage.NewProvisioner(cfg.LibraryRoot, cfg.AppStorageRoot)
 	tree, _ := provisioner.ProvisionLayout()

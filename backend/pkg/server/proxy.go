@@ -33,7 +33,7 @@ var (
 )
 
 const (
-	MaxAudioCacheSizeBytes = int64(1024 * 1024 * 1024) // 1 GB audio cache quota
+	MaxAudioCacheSizeBytes = int64(750 * 1024 * 1024) // 750 MB audio cache quota ceiling
 )
 
 // getAudioCacheDir resolves or creates the canonical audio cache directory.
@@ -599,8 +599,14 @@ func StreamWithLookahead(ctx context.Context, dst io.Writer, src io.Reader, chun
 	return totalWritten, nil
 }
 
-// pruneAudioCacheIfNeeded enforces the 1 GB cache size ceiling by removing least recently modified files.
+// pruneAudioCacheIfNeeded enforces the audio cache size ceiling (750 MB) by removing least recently modified files
+// down to 80% (600 MB) hysteresis threshold, while strictly protecting in-progress .part files and active spooling tracks.
 func (s *Server) pruneAudioCacheIfNeeded(dir string) {
+	s.pruneAudioCacheWithLimit(dir, MaxAudioCacheSizeBytes)
+}
+
+// pruneAudioCacheWithLimit performs bounded LRU eviction down to 80% hysteresis target for a specified byte ceiling.
+func (s *Server) pruneAudioCacheWithLimit(dir string, maxBytes int64) {
 	proxyCacheMu.Lock()
 	defer proxyCacheMu.Unlock()
 
@@ -608,6 +614,13 @@ func (s *Server) pruneAudioCacheIfNeeded(dir string) {
 	if err != nil {
 		return
 	}
+
+	spoolingMu.Lock()
+	activeSpools := make(map[string]bool, len(spoolingTracks))
+	for k, v := range spoolingTracks {
+		activeSpools[k] = v
+	}
+	spoolingMu.Unlock()
 
 	var totalSize int64
 	type fileItem struct {
@@ -621,6 +634,12 @@ func (s *Server) pruneAudioCacheIfNeeded(dir string) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".opus") {
 			continue
 		}
+		// Safety rule: strictly protect active spooling tracks
+		videoID := strings.TrimSuffix(e.Name(), ".opus")
+		if activeSpools[videoID] {
+			continue
+		}
+
 		info, err := e.Info()
 		if err != nil {
 			continue
@@ -633,11 +652,14 @@ func (s *Server) pruneAudioCacheIfNeeded(dir string) {
 		})
 	}
 
-	if totalSize <= MaxAudioCacheSizeBytes {
+	if totalSize <= maxBytes {
 		return
 	}
 
-	// Sort oldest first
+	// 20% hysteresis target (80% of ceiling quota)
+	targetQuota := int64(float64(maxBytes) * 0.80)
+
+	// Sort oldest first (LRU by modification time)
 	for i := 0; i < len(files)-1; i++ {
 		for j := i + 1; j < len(files); j++ {
 			if files[i].modTime.After(files[j].modTime) {
@@ -649,7 +671,7 @@ func (s *Server) pruneAudioCacheIfNeeded(dir string) {
 	for _, f := range files {
 		_ = os.Remove(f.path)
 		totalSize -= f.size
-		if totalSize <= MaxAudioCacheSizeBytes {
+		if totalSize <= targetQuota {
 			break
 		}
 	}

@@ -44,6 +44,9 @@ class UnboundApplication : Application() {
 
         Coil.setImageLoader(imageLoader)
 
+        // Configure global appContext for BackendClient telemetry & in-app alerting
+        com.cubicreates.unboundmusic.data.BackendClient.appContext = this
+
         // Automatically deploy canonical Unbound folder and purge any legacy public files
         com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
     }

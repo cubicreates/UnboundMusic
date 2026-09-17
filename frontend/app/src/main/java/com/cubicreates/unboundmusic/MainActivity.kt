@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
             com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
             mainViewModel.rescanLocalStorage()
         }
+        promptBatteryOptimizationIfNeeded()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -134,6 +136,31 @@ class MainActivity : ComponentActivity() {
         } else {
             com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
             mainViewModel.rescanLocalStorage()
+            promptBatteryOptimizationIfNeeded()
+        }
+    }
+
+    private fun promptBatteryOptimizationIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                val prefs = getSharedPreferences("unbound_prefs", MODE_PRIVATE)
+                val alreadyPrompted = prefs.getBoolean("battery_optimization_prompted", false)
+                if (!alreadyPrompted) {
+                    prefs.edit().putBoolean("battery_optimization_prompted", true).apply()
+                    try {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = Uri.parse("package:$packageName")
+                        }
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            startActivity(intent)
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
         }
     }
 

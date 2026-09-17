@@ -472,6 +472,48 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Background Playback & OEM Doze Exemption
+            SettingsSectionHeader(title = "BACKGROUND PLAYBACK & DOZE")
+
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val powerManager = remember(context) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+                } else null
+            }
+            val isIgnoringBatteryOpt = remember(powerManager) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M && powerManager != null) {
+                    powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                } else true
+            }
+
+            SettingsActionTile(
+                icon = Icons.Default.Bedtime,
+                title = "Unrestricted Background Playback",
+                subtitle = if (isIgnoringBatteryOpt) {
+                    "Exempted • Continuous audio playback active across OEM Doze"
+                } else {
+                    "Restricted • Tap to exempt from OEM battery optimization"
+                },
+                onClick = {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        try {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = android.net.Uri.parse("package:${context.packageName}")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            try {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                context.startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // Backup & Restore
             SettingsSectionHeader(title = "BACKUP & RESTORE")
 

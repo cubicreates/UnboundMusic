@@ -228,6 +228,9 @@ class UnboundPlaybackService : MediaSessionService() {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 Log.i(TAG, "onIsPlayingChanged: isPlaying=$isPlaying")
+                if (isPlaying) {
+                    com.cubicreates.unboundmusic.data.BackendClient.recordProxyStreamStatus(200, applicationContext)
+                }
             }
 
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -372,6 +375,10 @@ class UnboundPlaybackService : MediaSessionService() {
         val info = extractDetailedErrorInfo(originalError)
         val errCode = if (info.statusCode != null) "HTTP_${info.statusCode}" else info.errorCodeName
         val errMsg = info.summary
+
+        if (info.statusCode == 502 || (currentUri.contains("proxy/stream") && info.statusCode != null)) {
+            com.cubicreates.unboundmusic.data.BackendClient.recordProxyStreamStatus(info.statusCode ?: 502, applicationContext)
+        }
 
         if (mediaId == lastFailedMediaId) {
             Log.w(TAG, "Stream fallback already attempted for $mediaId, halting to avoid loop.")

@@ -31,6 +31,9 @@ android {
         compose = true
         buildConfig = false
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {

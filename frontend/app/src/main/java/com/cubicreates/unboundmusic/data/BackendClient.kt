@@ -10,7 +10,12 @@
 
 package com.cubicreates.unboundmusic.data
 
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.ConnectionPool
@@ -24,6 +29,7 @@ import java.io.File
 import java.net.InetAddress
 import java.net.Socket
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 
@@ -85,6 +91,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     }
 
     companion object {
+        private const val TAG = "BackendClient"
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         val sharedOkHttpClient: OkHttpClient by lazy {
@@ -94,6 +101,67 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                 .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
                 .retryOnConnectionFailure(true)
                 .build()
+        }
+
+        @Volatile
+        var appContext: Context? = null
+
+        private val stream502Timestamps = ConcurrentLinkedQueue<Long>()
+        @Volatile
+        private var last502ToastTimestamp: Long = 0L
+
+        val recent502Count: Int
+            get() = stream502Timestamps.size
+
+        fun resetTelemetryForTesting() {
+            stream502Timestamps.clear()
+            last502ToastTimestamp = 0L
+        }
+
+        /**
+         * Logs and tracks consecutive HTTP 502 errors from /api/v1/proxy/stream.
+         * If 3 consecutive requests fail with 502 within a 60-second window,
+         * triggers an in-app toast notifying the user:
+         * "Streaming source temporarily adapting. Local offline tracks remain accessible."
+         */
+        fun recordProxyStreamStatus(statusCode: Int, context: Context? = null) {
+            val targetContext = context ?: appContext
+            if (statusCode == 502) {
+                val now = System.currentTimeMillis()
+                stream502Timestamps.add(now)
+
+                // Purge entries older than 60 seconds (rolling 60s window)
+                while (true) {
+                    val oldest = stream502Timestamps.peek() ?: break
+                    if (now - oldest > 60_000L) {
+                        stream502Timestamps.poll()
+                    } else {
+                        break
+                    }
+                }
+
+                Log.w(TAG, "Recorded HTTP 502 from /api/v1/proxy/stream. Recent 502 count in 60s window: ${stream502Timestamps.size}")
+
+                if (stream502Timestamps.size >= 3) {
+                    // Debounce toast notifications (minimum 30s interval)
+                    if (now - last502ToastTimestamp > 30_000L) {
+                        last502ToastTimestamp = now
+                        stream502Timestamps.clear()
+                        targetContext?.let { ctx ->
+                            Handler(Looper.getMainLooper()).post {
+                                UnboundToast.show(
+                                    ctx.applicationContext,
+                                    "Streaming source temporarily adapting. Local offline tracks remain accessible.",
+                                    isLong = true
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if (statusCode in 200..299) {
+                // A successful stream resets the consecutive error streak
+                stream502Timestamps.clear()
+            }
         }
     }
 
@@ -1909,6 +1977,9 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                 }
                 httpClient.newCall(reqBuilder.build()).execute().use { response ->
                     val respBody = response.body?.string() ?: ""
+                    if (path.contains("proxy/stream")) {
+                        recordProxyStreamStatus(response.code)
+                    }
                     return Pair(response.code, respBody)
                 }
             } catch (e: Exception) {
@@ -1928,6 +1999,9 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                         }
                         fallbackClient.newCall(reqBuilder.build()).execute().use { response ->
                             val respBody = response.body?.string() ?: ""
+                            if (path.contains("proxy/stream")) {
+                                recordProxyStreamStatus(response.code)
+                            }
                             return Pair(response.code, respBody)
                         }
                     } catch (fbErr: Exception) {

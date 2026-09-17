@@ -1,5 +1,9 @@
 # Production Maintenance, Memory Hardening & Canary Playbook
 
+> [Documentation Hub](file:///d:/Github/MyMusic/docs/README.md) > **Production Maintenance & Canary Playbook**
+>
+> *Related Guides: [ARCHITECTURE.md](file:///d:/Github/MyMusic/docs/ARCHITECTURE.md) | [DEVELOPER_GUIDE.md](file:///d:/Github/MyMusic/docs/DEVELOPER_GUIDE.md) | [AUDIO_ENGINE_AND_DSP.md](file:///d:/Github/MyMusic/docs/AUDIO_ENGINE_AND_DSP.md)*
+
 This document defines the production hardening architecture, runtime memory boundaries, storage ring-buffer hygiene, and continuous stream verification for Unbound Music.
 
 ---

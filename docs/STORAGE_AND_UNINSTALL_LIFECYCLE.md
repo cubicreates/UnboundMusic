@@ -1,5 +1,9 @@
 # Unbound Music: Storage Architecture, Hidden Engine Machinery & Uninstall Lifecycle
 
+> [Documentation Hub](file:///d:/Github/MyMusic/docs/README.md) > **Storage & Uninstall Lifecycle**
+>
+> *Related Guides: [ARCHITECTURE.md](file:///d:/Github/MyMusic/docs/ARCHITECTURE.md) | [MOBILE_ARCHITECTURE.md](file:///d:/Github/MyMusic/docs/MOBILE_ARCHITECTURE.md) | [API_REFERENCE.md](file:///d:/Github/MyMusic/docs/API_REFERENCE.md)*
+
 This document provides a comprehensive technical guide to Unbound Music's filesystem architecture, on-device AI model explosion, Android Scoped Storage compliance, and the automatic uninstallation lifecycle.
 
 ---

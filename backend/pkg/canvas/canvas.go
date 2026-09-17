@@ -92,7 +92,6 @@ func (c *Client) GetCanvas(ctx context.Context, title, artist string) (*CanvasRe
 								Title          string `json:"title"`
 								SongArtImage   string `json:"song_art_image_url"`
 								HeaderImage    string `json:"header_image_url"`
-								ArtistAvatar   string `json:"primary_artist,omitempty"`
 								PrimaryArtist  struct {
 									ImageURL string `json:"image_url"`
 								} `json:"primary_artist"`

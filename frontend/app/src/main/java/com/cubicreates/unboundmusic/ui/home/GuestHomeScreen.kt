@@ -184,10 +184,16 @@ fun GuestHomeScreen(
                 onVibeSubmit = onVibeSubmit
             )
 
+            val isVibeLoadingNow = isVibeLoading || vibeState is VibeSearchUiState.Loading
+
             // Vibe AI Status / Offline Intelligence Card
             VibeAIStatusCard(
                 isOfflineReady = true,
-                statusText = if (isVibeActive) "Vibe AI: \"${(vibeState as VibeSearchUiState.Success).vibeResult.originalPrompt}\" active" else "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
+                statusText = when {
+                    isVibeLoadingNow -> "Vibe AI: Analyzing prompt & curating tracks..."
+                    isVibeActive -> "Vibe AI: \"${(vibeState as VibeSearchUiState.Success).vibeResult.originalPrompt}\" active"
+                    else -> "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
+                }
             )
 
             // Quick Picks Grid (dynamically replaced by Vibe Search or Billboard Top Tracks)
@@ -195,8 +201,19 @@ fun GuestHomeScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 val vibePrompt = (vibeState as? VibeSearchUiState.Success)?.vibeResult?.originalPrompt
                 QuickPicksSection(
-                    title = if (isVibeActive) "Vibe: \"$vibePrompt\"" else if (selectedMood.equals("All", ignoreCase = true)) "Trending Quick Picks" else "$selectedMood Picks",
-                    subtitle = if (isVibeActive) "Curated Vibe Tracks (${quickPicksTracks.size})" else if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
+                    title = when {
+                        isVibeActive -> "Vibe: \"$vibePrompt\""
+                        isVibeLoadingNow -> "Tuning Vibe Radio..."
+                        selectedMood.equals("All", ignoreCase = true) -> "Trending Quick Picks"
+                        else -> "$selectedMood Picks"
+                    },
+                    subtitle = when {
+                        isVibeActive -> "Curated Vibe Tracks (${quickPicksTracks.size})"
+                        isVibeLoadingNow -> "Synthesizing and fetching tracks for your mood..."
+                        selectedMood.equals("All", ignoreCase = true) -> "Start a radio or continuous mix"
+                        isMoodLoading -> "Fetching $selectedMood soundtrack..."
+                        else -> "Curated $selectedMood soundtrack"
+                    },
                     tracks = quickPicksTracks,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,

@@ -78,13 +78,90 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		res.EnergyLevel = "HIGH"
 		res.SuggestedBPM = 128
 	} else if strings.Contains(lower, "chill") || strings.Contains(lower, "sleep") || strings.Contains(lower, "slow") ||
-		strings.Contains(lower, "study") || strings.Contains(lower, "relax") || strings.Contains(lower, "rainy") {
+		strings.Contains(lower, "study") || strings.Contains(lower, "relax") || strings.Contains(lower, "rainy") ||
+		strings.Contains(lower, "sad") || strings.Contains(lower, "melancholy") || strings.Contains(lower, "crying") {
 		res.EnergyLevel = "CHILL"
 		res.SuggestedBPM = 85
 	}
 
-	// 4. Tokenize search keywords
-	res.SearchKeywords = strings.Fields(trimmed)
+	// 4. Clean conversational stop words
+	stopWords := map[string]bool{
+		"hey": true, "hello": true, "hi": true, "please": true, "can": true, "could": true,
+		"you": true, "put": true, "on": true, "play": true, "some": true, "music": true,
+		"songs": true, "song": true, "tracks": true, "track": true, "tunes": true, "tune": true,
+		"i": true, "want": true, "need": true, "am": true, "im": true, "i'm": true,
+		"feeling": true, "feel": true, "feels": true, "vibe": true, "vibes": true, "mood": true,
+		"something": true, "for": true, "me": true, "give": true, "listen": true, "to": true,
+		"audio": true, "like": true, "with": true, "a": true, "an": true, "the": true,
+		"of": true, "and": true, "or": true, "in": true, "at": true, "about": true,
+	}
+
+	rawTokens := strings.Fields(lower)
+	var cleanTokens []string
+	for _, tok := range rawTokens {
+		cleaned := strings.Trim(tok, `.,!?;:"'()[]{}`)
+		if cleaned != "" && !stopWords[cleaned] {
+			cleanTokens = append(cleanTokens, cleaned)
+		}
+	}
+
+	cleanQuery := strings.Join(cleanTokens, " ")
+
+	// 5. Synthesize high-yield targeted music search queries
+	var searchQueries []string
+
+	// Primary synthesized query based on recognized mood / genre
+	if len(res.MoodTags) > 0 {
+		switch res.MoodTags[0] {
+		case "Melancholic":
+			if cleanQuery != "" && cleanQuery != "sad" {
+				searchQueries = append(searchQueries, cleanQuery+" sad songs")
+			} else {
+				searchQueries = append(searchQueries, "sad songs", "melancholy acoustic songs")
+			}
+		case "Aggressive":
+			if strings.Contains(lower, "phonk") {
+				searchQueries = append(searchQueries, "gym phonk workout", "aggressive drift phonk")
+			} else if len(res.TargetGenres) > 0 {
+				searchQueries = append(searchQueries, res.TargetGenres[0]+" gym workout hype")
+			} else {
+				searchQueries = append(searchQueries, "workout gym motivation music")
+			}
+		case "Euphoric":
+			searchQueries = append(searchQueries, "upbeat feel good happy songs", "dance party hits")
+		case "Chill":
+			if strings.Contains(lower, "sleep") || strings.Contains(lower, "bedtime") {
+				searchQueries = append(searchQueries, "deep sleep relaxing ambient music")
+			} else if strings.Contains(lower, "study") || strings.Contains(lower, "focus") || strings.Contains(lower, "coding") {
+				searchQueries = append(searchQueries, "study beats lofi focus music")
+			} else {
+				searchQueries = append(searchQueries, "lofi chill beats to relax")
+			}
+		case "Romantic":
+			searchQueries = append(searchQueries, "romantic love songs", "slow acoustic romance")
+		}
+	}
+
+	// If clean query has specific keywords preserved, prioritize or append
+	if cleanQuery != "" {
+		if len(searchQueries) == 0 {
+			searchQueries = append(searchQueries, cleanQuery)
+		} else {
+			searchQueries = append(searchQueries, cleanQuery)
+		}
+	}
+
+	// Always ensure raw keywords exist for token fallback
+	for _, tok := range cleanTokens {
+		searchQueries = append(searchQueries, tok)
+	}
+
+	// Absolute fallback if everything was stripped
+	if len(searchQueries) == 0 {
+		searchQueries = strings.Fields(trimmed)
+	}
+
+	res.SearchKeywords = searchQueries
 
 	return res, nil
 }

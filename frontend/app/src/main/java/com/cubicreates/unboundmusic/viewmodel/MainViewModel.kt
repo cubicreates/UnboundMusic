@@ -682,7 +682,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Natural Language Vibe AI query runner.
      */
-    fun submitVibeQuery(query: String) {
+    fun submitVibeQuery(query: String, autoPlay: Boolean = false) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -692,11 +692,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _vibeSearchResult.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
                 if (res.radioTracks.isNotEmpty()) {
                     _searchResults.value = res.radioTracks
+                    if (autoPlay) {
+                        val first = res.radioTracks.first()
+                        playTrackWithQueue(first, res.radioTracks)
+                        val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "Tuning into $moodTag: ${first.title}",
+                                isLong = true
+                            )
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
             }
         }
+    }
+
+    /**
+     * Auto-plays conversational natural language prompts directly into playback queue.
+     */
+    fun playVibePrompt(prompt: String) {
+        submitVibeQuery(prompt, autoPlay = true)
     }
 
 

@@ -56,6 +56,7 @@ import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.MoodsSection
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.VibePromptBar
 import com.cubicreates.unboundmusic.ui.components.defaultMoods
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
@@ -89,7 +90,9 @@ fun GuestHomeScreen(
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
     onMoodFilterSelect: (String) -> Unit = {},
-    onStartRadio: (TrackItem) -> Unit = {}
+    onStartRadio: (TrackItem) -> Unit = {},
+    isVibeLoading: Boolean = false,
+    onVibeSubmit: (String) -> Unit = {}
 ) {
     val hour = remember {
         java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -165,6 +168,14 @@ fun GuestHomeScreen(
                     letterSpacing = 1.2.sp
                 )
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Conversational Natural Language Vibe Bar
+            VibePromptBar(
+                isLoading = isVibeLoading,
+                onVibeSubmit = onVibeSubmit
+            )
 
             // Quick Picks Grid (from Billboard/Top tracks)
             if (quickPicksTracks.isNotEmpty()) {

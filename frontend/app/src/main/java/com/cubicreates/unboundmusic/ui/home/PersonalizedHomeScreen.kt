@@ -61,6 +61,7 @@ import com.cubicreates.unboundmusic.ui.components.MoodsSection
 import com.cubicreates.unboundmusic.ui.components.defaultMoods
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.VibePromptBar
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
@@ -107,7 +108,9 @@ fun PersonalizedHomeScreen(
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
     onMoodFilterSelect: (String) -> Unit = {},
-    onStartRadio: (TrackItem) -> Unit = {}
+    onStartRadio: (TrackItem) -> Unit = {},
+    isVibeLoading: Boolean = false,
+    onVibeSubmit: (String) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -186,7 +189,16 @@ fun PersonalizedHomeScreen(
                     onProfileClick = onProfileClick,
                     onSyncClick = onSyncClick
                 )
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // Conversational Natural Language Vibe Bar
+            item(key = "vibe_prompt_bar") {
+                VibePromptBar(
+                    isLoading = isVibeLoading,
+                    onVibeSubmit = onVibeSubmit
+                )
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
             // 2. 4-Row Snapping Quick Picks Grid (if tracks exist)

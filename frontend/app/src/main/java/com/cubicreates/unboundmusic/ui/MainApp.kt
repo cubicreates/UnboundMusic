@@ -69,6 +69,7 @@ import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
 import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.GenreItemDto
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.account.YouTubeDeviceAuthSheet
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
@@ -383,7 +384,11 @@ fun MainApp(
                                     selectedMood = selectedHomeMood,
                                     moodTracks = moodTracks,
                                     isMoodLoading = isMoodLoading,
-                                    onMoodFilterSelect = { viewModel.selectHomeMood(it) }
+                                    onMoodFilterSelect = { viewModel.selectHomeMood(it) },
+                                    isVibeLoading = vibeSearchResult is VibeSearchUiState.Loading,
+                                    onVibeSubmit = { prompt ->
+                                        viewModel.playVibePrompt(prompt)
+                                    }
                                 )
                             }
                             NavigationTab.SEARCH -> {

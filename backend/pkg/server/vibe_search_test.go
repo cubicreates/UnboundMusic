@@ -1,0 +1,69 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"testing"
+)
+
+func TestHandleVibeSearchConversational(t *testing.T) {
+	tempDir := t.TempDir()
+	srv, err := NewServer(Config{
+		Port:           45792,
+		DatabasePath:   filepath.Join(tempDir, "test_vibe.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	})
+	if err != nil {
+		t.Fatalf("failed initializing server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+	defer srv.db.Close()
+
+	payload := map[string]string{
+		"prompt": "Hey I am feeling Sad play some music",
+	}
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/search/vibe", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	srv.handleVibeSearch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got: %d (%s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		VibeResult struct {
+			MoodTags       []string `json:"mood_tags"`
+			EnergyLevel    string   `json:"energy_level"`
+			SearchKeywords []string `json:"search_keywords"`
+		} `json:"vibe_result"`
+		RadioTracks []any `json:"radio_tracks"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed decoding vibe search response: %v", err)
+	}
+
+	foundMelancholic := false
+	for _, m := range resp.VibeResult.MoodTags {
+		if m == "Melancholic" {
+			foundMelancholic = true
+			break
+		}
+	}
+	if !foundMelancholic {
+		t.Errorf("expected Melancholic mood tag, got: %v", resp.VibeResult.MoodTags)
+	}
+
+	if len(resp.VibeResult.SearchKeywords) == 0 || resp.VibeResult.SearchKeywords[0] != "sad songs" {
+		t.Errorf("expected 'sad songs' as first search keyword, got: %v", resp.VibeResult.SearchKeywords)
+	}
+}

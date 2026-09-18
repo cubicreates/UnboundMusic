@@ -57,7 +57,9 @@ fun HomeScreen(
     moodTracks: List<TrackItem> = emptyList(),
     isMoodLoading: Boolean = false,
     onMoodFilterSelect: (String) -> Unit = {},
-    onStartRadio: (TrackItem) -> Unit = {}
+    onStartRadio: (TrackItem) -> Unit = {},
+    isVibeLoading: Boolean = false,
+    onVibeSubmit: (String) -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -94,7 +96,9 @@ fun HomeScreen(
                 moodTracks = moodTracks,
                 isMoodLoading = isMoodLoading,
                 onMoodFilterSelect = onMoodFilterSelect,
-                onStartRadio = onStartRadio
+                onStartRadio = onStartRadio,
+                isVibeLoading = isVibeLoading,
+                onVibeSubmit = onVibeSubmit
             )
         } else {
             GuestHomeScreen(
@@ -117,7 +121,9 @@ fun HomeScreen(
                 moodTracks = moodTracks,
                 isMoodLoading = isMoodLoading,
                 onMoodFilterSelect = onMoodFilterSelect,
-                onStartRadio = onStartRadio
+                onStartRadio = onStartRadio,
+                isVibeLoading = isVibeLoading,
+                onVibeSubmit = onVibeSubmit
             )
         }
     }

@@ -50,6 +50,35 @@ func TestParseVibeQuery(t *testing.T) {
 	}
 }
 
+// TestConversationalVibeQuery tests conversational natural language input stripping pleasantries and mapping to mood.
+func TestConversationalVibeQuery(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	res, err := runner.ParseVibeQuery(ctx, "Hey I am feeling Sad play some music")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+
+	foundMelancholic := false
+	for _, m := range res.MoodTags {
+		if m == "Melancholic" {
+			foundMelancholic = true
+		}
+	}
+	if !foundMelancholic {
+		t.Errorf("expected Melancholic mood tag, got: %v", res.MoodTags)
+	}
+
+	if res.EnergyLevel != "CHILL" {
+		t.Errorf("expected CHILL energy level for sad mood, got: %s", res.EnergyLevel)
+	}
+
+	if len(res.SearchKeywords) == 0 || res.SearchKeywords[0] != "sad songs" {
+		t.Errorf("expected 'sad songs' as primary search query, got: %v", res.SearchKeywords)
+	}
+}
+
 // TestHeuristicFallbackParser validates that "gym phonk workout" returns INTENSE energy and BPM > 130 without binary.
 func TestHeuristicFallbackParser(t *testing.T) {
 	runner := NewRunner("", "")

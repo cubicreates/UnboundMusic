@@ -259,6 +259,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/peers", s.handlePeers)
 	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
 	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
+	mux.HandleFunc("/api/v1/search/vibe", s.handleVibeSearch)
 	mux.HandleFunc("/api/v1/vector/similarity", s.handleVectorSimilarity)
 	mux.HandleFunc("/api/v1/autoeq/search", s.handleAutoEqSearch)
 	mux.HandleFunc("/api/v1/autoeq/preset", s.handleAutoEqPreset)
@@ -812,6 +813,97 @@ func (s *Server) handleAIMood(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// handleVibeSearch parses a natural language vibe prompt and resolves matching radio tracks.
+// Route: POST /api/v1/search/vibe
+func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	type VibeSearchRequestBody struct {
+		Prompt string `json:"prompt"`
+	}
+
+	var req VibeSearchRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		writeError(w, http.StatusBadRequest, "prompt cannot be empty")
+		return
+	}
+
+	vibeResult, err := s.aiRunner.ParseVibeQuery(r.Context(), prompt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to parse vibe prompt: "+err.Error())
+		return
+	}
+
+	var radioTracks []models.TrackItem
+
+	if len(vibeResult.SearchKeywords) > 0 && s.ytClient != nil {
+		searchQuery := vibeResult.SearchKeywords[0]
+		tracks, searchErr := s.ytClient.Search(r.Context(), searchQuery)
+		if searchErr == nil && len(tracks) > 0 {
+			for _, t := range tracks {
+				radioTracks = append(radioTracks, models.TrackItem{
+					ID:         t.ID,
+					Title:      t.Title,
+					Artist:     t.Artist,
+					Artists:    []string{t.Artist},
+					Album:      t.Album,
+					DurationMs: t.DurationMs,
+					Thumbnail:  t.ThumbnailURL,
+					Source:     "youtube",
+				})
+			}
+		}
+	}
+
+	// Fallback to regional explore charts if online search yields zero tracks or is offline
+	if len(radioTracks) == 0 && s.ytExploreEng != nil {
+		fallback, _ := s.ytExploreEng.FetchRegionalCharts(r.Context(), "US", "en")
+		if len(fallback) > 0 {
+			if len(fallback) > 10 {
+				radioTracks = fallback[:10]
+			} else {
+				radioTracks = fallback
+			}
+		}
+	} else if len(radioTracks) == 0 && s.exploreEng != nil {
+		charts, chartErr := s.exploreEng.GetTopCharts(r.Context(), "US")
+		if chartErr == nil && len(charts) > 0 {
+			limit := 10
+			if len(charts) < limit {
+				limit = len(charts)
+			}
+			for i := 0; i < limit; i++ {
+				c := charts[i]
+				radioTracks = append(radioTracks, models.TrackItem{
+					ID:        c.TrackID,
+					Title:     c.Title,
+					Artist:    c.Artist,
+					Thumbnail: c.ThumbnailURL,
+					Source:    "youtube",
+				})
+			}
+		}
+	}
+
+	if radioTracks == nil {
+		radioTracks = []models.TrackItem{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"vibe_result":  vibeResult,
+		"radio_tracks": radioTracks,
+	})
 }
 
 // handleVectorSimilarity calculates cosine similarity and Euclidean distance across 128-dimensional embedding vectors.

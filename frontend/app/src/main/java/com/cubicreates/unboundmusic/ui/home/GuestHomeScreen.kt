@@ -52,10 +52,12 @@ import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.MoodsSection
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.VibeAIStatusCard
 import com.cubicreates.unboundmusic.ui.components.VibePromptBar
 import com.cubicreates.unboundmusic.ui.components.defaultMoods
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
@@ -92,7 +94,9 @@ fun GuestHomeScreen(
     onMoodFilterSelect: (String) -> Unit = {},
     onStartRadio: (TrackItem) -> Unit = {},
     isVibeLoading: Boolean = false,
-    onVibeSubmit: (String) -> Unit = {}
+    vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
+    onVibeSubmit: (String) -> Unit = {},
+    onClearVibe: () -> Unit = {}
 ) {
     val hour = remember {
         java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -106,8 +110,11 @@ fun GuestHomeScreen(
         }
     }
 
-    val quickPicksTracks = remember(tracks, selectedMood, moodTracks) {
-        if (selectedMood.equals("All", ignoreCase = true)) {
+    val isVibeActive = vibeState is VibeSearchUiState.Success && vibeState.radioTracks.isNotEmpty()
+    val quickPicksTracks = remember(tracks, selectedMood, moodTracks, vibeState) {
+        if (isVibeActive) {
+            (vibeState as VibeSearchUiState.Success).radioTracks
+        } else if (selectedMood.equals("All", ignoreCase = true)) {
             tracks.take(16)
         } else {
             if (moodTracks.isNotEmpty()) {
@@ -177,12 +184,19 @@ fun GuestHomeScreen(
                 onVibeSubmit = onVibeSubmit
             )
 
-            // Quick Picks Grid (from Billboard/Top tracks)
+            // Vibe AI Status / Offline Intelligence Card
+            VibeAIStatusCard(
+                isOfflineReady = true,
+                statusText = if (isVibeActive) "Vibe AI: \"${(vibeState as VibeSearchUiState.Success).vibeResult.originalPrompt}\" active" else "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
+            )
+
+            // Quick Picks Grid (dynamically replaced by Vibe Search or Billboard Top Tracks)
             if (quickPicksTracks.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
+                val vibePrompt = (vibeState as? VibeSearchUiState.Success)?.vibeResult?.originalPrompt
                 QuickPicksSection(
-                    title = if (selectedMood.equals("All", ignoreCase = true)) "Trending Quick Picks" else "$selectedMood Picks",
-                    subtitle = if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
+                    title = if (isVibeActive) "Vibe: \"$vibePrompt\"" else if (selectedMood.equals("All", ignoreCase = true)) "Trending Quick Picks" else "$selectedMood Picks",
+                    subtitle = if (isVibeActive) "Curated Vibe Tracks (${quickPicksTracks.size})" else if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
                     tracks = quickPicksTracks,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,
@@ -190,7 +204,8 @@ fun GuestHomeScreen(
                     onPlayNext = onPlayNext,
                     onAddToQueue = onAddToQueue,
                     onDownload = onDownload,
-                    onStartRadio = onStartRadio
+                    onStartRadio = onStartRadio,
+                    onReset = if (isVibeActive) onClearVibe else null
                 )
             }
 

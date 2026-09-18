@@ -846,22 +846,34 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var radioTracks []models.TrackItem
+	seenIDs := make(map[string]bool)
 
 	if len(vibeResult.SearchKeywords) > 0 && s.ytClient != nil {
-		searchQuery := vibeResult.SearchKeywords[0]
-		tracks, searchErr := s.ytClient.Search(r.Context(), searchQuery)
-		if searchErr == nil && len(tracks) > 0 {
-			for _, t := range tracks {
-				radioTracks = append(radioTracks, models.TrackItem{
-					ID:         t.ID,
-					Title:      t.Title,
-					Artist:     t.Artist,
-					Artists:    []string{t.Artist},
-					Album:      t.Album,
-					DurationMs: t.DurationMs,
-					Thumbnail:  t.ThumbnailURL,
-					Source:     "youtube",
-				})
+		queriesToSearch := vibeResult.SearchKeywords
+		if len(queriesToSearch) > 3 {
+			queriesToSearch = queriesToSearch[:3]
+		}
+		for _, searchQuery := range queriesToSearch {
+			if len(radioTracks) >= 20 {
+				break
+			}
+			tracks, searchErr := s.ytClient.Search(r.Context(), searchQuery)
+			if searchErr == nil && len(tracks) > 0 {
+				for _, t := range tracks {
+					if !seenIDs[t.ID] {
+						seenIDs[t.ID] = true
+						radioTracks = append(radioTracks, models.TrackItem{
+							ID:         t.ID,
+							Title:      t.Title,
+							Artist:     t.Artist,
+							Artists:    []string{t.Artist},
+							Album:      t.Album,
+							DurationMs: t.DurationMs,
+							Thumbnail:  t.ThumbnailURL,
+							Source:     "youtube",
+						})
+					}
+				}
 			}
 		}
 	}

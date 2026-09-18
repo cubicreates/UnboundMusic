@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ElectricBolt
 import androidx.compose.material.icons.filled.MoreVert
@@ -91,7 +92,8 @@ fun QuickPicksSection(
     onPlayNext: (TrackItem) -> Unit = {},
     onAddToQueue: (TrackItem) -> Unit = {},
     onDownload: (TrackItem) -> Unit = {},
-    onStartRadio: (TrackItem) -> Unit = {}
+    onStartRadio: (TrackItem) -> Unit = {},
+    onReset: (() -> Unit)? = null
 ) {
     if (tracks.isEmpty()) return
 
@@ -116,7 +118,7 @@ fun QuickPicksSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f, fill = false)) {
                 if (subtitle.isNotBlank()) {
                     Text(
                         text = subtitle.uppercase(),
@@ -131,37 +133,70 @@ fun QuickPicksSection(
                     text = title,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = OnSurface
+                    color = OnSurface,
+                    maxLines = 1
                 )
             }
 
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = UnboundPrimary.copy(alpha = 0.15f),
-                border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.35f)),
-                modifier = Modifier.clickable {
-                    if (tracks.isNotEmpty()) {
-                        onTrackSelect(tracks.first(), tracks.shuffled())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onReset != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = androidx.compose.ui.graphics.Color(0xFF2A2A2A),
+                        border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFF444444)),
+                        modifier = Modifier
+                            .clickable { onReset() }
+                            .padding(end = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Reset",
+                                tint = OnSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Reset",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OnSurfaceVariant
+                            )
+                        }
                     }
                 }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = UnboundPrimary.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.35f)),
+                    modifier = Modifier.clickable {
+                        if (tracks.isNotEmpty()) {
+                            onTrackSelect(tracks.first(), tracks.shuffled())
+                        }
+                    }
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Start Station",
-                        tint = UnboundPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Radio",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = UnboundPrimary
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Start Station",
+                            tint = UnboundPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Radio",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary
+                        )
+                    }
                 }
             }
         }

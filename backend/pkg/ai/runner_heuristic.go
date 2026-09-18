@@ -52,11 +52,13 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 
 	// 2. Identify Mood & Vibe Tags
 	moodKeywords := map[string][]string{
-		"Aggressive":  {"aggressive", "hard", "angry", "rage", "intense", "gym", "hype", "heavy", "deadlift", "workout"},
-		"Melancholic": {"sad", "depressed", "melancholy", "heartbreak", "crying", "dark", "gloomy"},
-		"Euphoric":    {"happy", "uplifting", "party", "celebrate", "summer", "joy", "bright"},
-		"Chill":       {"chill", "relaxed", "calm", "mellow", "vibe", "peaceful", "laid back"},
-		"Romantic":    {"romantic", "love", "sensual", "date night", "affection"},
+		"Triumphant":   {"victory", "victorious", "win", "winning", "won", "champion", "champions", "triumph", "triumphant", "conquer", "hero", "glory", "unstoppable"},
+		"Motivational": {"motivation", "motivational", "inspire", "inspiring", "ambition", "determined"},
+		"Aggressive":    {"aggressive", "hard", "angry", "rage", "intense", "gym", "hype", "heavy", "deadlift", "workout"},
+		"Melancholic":   {"sad", "depressed", "melancholy", "heartbreak", "crying", "dark", "gloomy"},
+		"Euphoric":      {"happy", "uplifting", "party", "celebrate", "summer", "joy", "bright"},
+		"Chill":         {"chill", "relaxed", "calm", "mellow", "vibe", "peaceful", "laid back"},
+		"Romantic":      {"romantic", "love", "sensual", "date night", "affection"},
 	}
 
 	for mood, keywords := range moodKeywords {
@@ -74,6 +76,10 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		strings.Contains(lower, "deadlift") || strings.Contains(lower, "hard") {
 		res.EnergyLevel = "INTENSE"
 		res.SuggestedBPM = 145
+	} else if strings.Contains(lower, "victory") || strings.Contains(lower, "win") || strings.Contains(lower, "champion") ||
+		strings.Contains(lower, "triumph") || strings.Contains(lower, "conquer") {
+		res.EnergyLevel = "HIGH"
+		res.SuggestedBPM = 135
 	} else if strings.Contains(lower, "party") || strings.Contains(lower, "dance") || strings.Contains(lower, "run") {
 		res.EnergyLevel = "HIGH"
 		res.SuggestedBPM = 128
@@ -113,6 +119,22 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 	// Primary synthesized query based on recognized mood / genre
 	if len(res.MoodTags) > 0 {
 		switch res.MoodTags[0] {
+		case "Triumphant":
+			searchQueries = append(searchQueries,
+				"epic victory anthems",
+				"stadium rock hype motivation",
+				"we are the champions queen",
+				"eye of the tiger survivor",
+				"hall of fame the script",
+				"remember the name fort minor",
+			)
+		case "Motivational":
+			searchQueries = append(searchQueries,
+				"motivation workout anthems",
+				"inspiring epic cinematic music",
+				"till i collapse eminem",
+				"stronger kanye west",
+			)
 		case "Melancholic":
 			if cleanQuery != "" && cleanQuery != "sad" {
 				searchQueries = append(searchQueries, cleanQuery+" sad songs")

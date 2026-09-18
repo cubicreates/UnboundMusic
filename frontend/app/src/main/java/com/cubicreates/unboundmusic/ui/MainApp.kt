@@ -386,8 +386,12 @@ fun MainApp(
                                     isMoodLoading = isMoodLoading,
                                     onMoodFilterSelect = { viewModel.selectHomeMood(it) },
                                     isVibeLoading = vibeSearchResult is VibeSearchUiState.Loading,
+                                    vibeState = vibeSearchResult,
                                     onVibeSubmit = { prompt ->
-                                        viewModel.playVibePrompt(prompt)
+                                         viewModel.playVibePrompt(prompt)
+                                    },
+                                    onClearVibe = {
+                                        viewModel.clearVibeQuery()
                                     }
                                 )
                             }

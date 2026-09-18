@@ -89,6 +89,7 @@ data class QuickVibeChip(
 )
 
 private val quickVibeChips = listOf(
+    QuickVibeChip("Victory", "Victory Songs", "🏆"),
     QuickVibeChip("Sadness", "Hey I am feeling Sad play some music", "🌧"),
     QuickVibeChip("Gym Hype", "Heavy workout gym motivation music", "⚡"),
     QuickVibeChip("Night Drive", "Late night highway drive synthwave", "🌙"),
@@ -96,6 +97,48 @@ private val quickVibeChips = listOf(
     QuickVibeChip("Deep Focus", "Study beats deep focus music", "🧠"),
     QuickVibeChip("Party", "Upbeat feel good dance party hits", "🎉")
 )
+
+@Composable
+fun VibeAIStatusCard(
+    modifier: Modifier = Modifier,
+    isOfflineReady: Boolean = true,
+    statusText: String = "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF141414),
+        border = BorderStroke(1.dp, Color(0xFF2A2A2A)),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (isOfflineReady) Color(0xFF00E676) else UnboundPrimary)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = null,
+                tint = UnboundPrimary,
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = statusText,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = OnSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 fun VibePromptBar(

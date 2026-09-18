@@ -18,6 +18,7 @@ import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.GenreItemDto
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
@@ -59,7 +60,9 @@ fun HomeScreen(
     onMoodFilterSelect: (String) -> Unit = {},
     onStartRadio: (TrackItem) -> Unit = {},
     isVibeLoading: Boolean = false,
-    onVibeSubmit: (String) -> Unit = {}
+    vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
+    onVibeSubmit: (String) -> Unit = {},
+    onClearVibe: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -98,7 +101,9 @@ fun HomeScreen(
                 onMoodFilterSelect = onMoodFilterSelect,
                 onStartRadio = onStartRadio,
                 isVibeLoading = isVibeLoading,
-                onVibeSubmit = onVibeSubmit
+                vibeState = vibeState,
+                onVibeSubmit = onVibeSubmit,
+                onClearVibe = onClearVibe
             )
         } else {
             GuestHomeScreen(
@@ -123,7 +128,9 @@ fun HomeScreen(
                 onMoodFilterSelect = onMoodFilterSelect,
                 onStartRadio = onStartRadio,
                 isVibeLoading = isVibeLoading,
-                onVibeSubmit = onVibeSubmit
+                vibeState = vibeState,
+                onVibeSubmit = onVibeSubmit,
+                onClearVibe = onClearVibe
             )
         }
     }

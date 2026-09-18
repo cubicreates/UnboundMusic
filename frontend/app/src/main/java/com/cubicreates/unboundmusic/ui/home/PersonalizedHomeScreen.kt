@@ -56,11 +56,13 @@ import com.cubicreates.unboundmusic.data.DaypartingState
 import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.SmartShelfDto
+import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.MoodsSection
 import com.cubicreates.unboundmusic.ui.components.defaultMoods
 import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.VibeAIStatusCard
 import com.cubicreates.unboundmusic.ui.components.VibePromptBar
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -110,14 +112,19 @@ fun PersonalizedHomeScreen(
     onMoodFilterSelect: (String) -> Unit = {},
     onStartRadio: (TrackItem) -> Unit = {},
     isVibeLoading: Boolean = false,
-    onVibeSubmit: (String) -> Unit = {}
+    vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
+    onVibeSubmit: (String) -> Unit = {},
+    onClearVibe: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
-    // Quick picks tracks: smart shelf named "Quick picks" or "Quick" or first 16 synced tracks, or loaded mood tracks
+    // Quick picks tracks: dynamically replaced by Vibe Search or smart shelf named "Quick picks" / synced tracks
     val quickPicksShelf = smartShelves.find { it.title.contains("quick", ignoreCase = true) }
-    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood, moodTracks) {
-        if (selectedMood.equals("All", ignoreCase = true)) {
+    val isVibeActive = vibeState is VibeSearchUiState.Success && vibeState.radioTracks.isNotEmpty()
+    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood, moodTracks, vibeState) {
+        if (isVibeActive) {
+            (vibeState as VibeSearchUiState.Success).radioTracks
+        } else if (selectedMood.equals("All", ignoreCase = true)) {
             quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
         } else {
             if (moodTracks.isNotEmpty()) {
@@ -138,7 +145,7 @@ fun PersonalizedHomeScreen(
     }
 
     LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore && !isLoadingMore && syncedTracks.isNotEmpty()) {
+        if (shouldLoadMore && !isLoadingMore) {
             onLoadMore()
         }
     }
@@ -170,13 +177,13 @@ fun PersonalizedHomeScreen(
                 .fillMaxSize()
                 .padding(top = 8.dp, bottom = 24.dp)
         ) {
-            // 0. Mood/Moment Filter Pills
-            item(key = "mood_filter_pills") {
+            // 0. Situational Mood Filter Chips Row
+            item(key = "mood_chips") {
                 MoodFilterChipsRow(
                     selectedMood = selectedMood,
                     onMoodSelected = onMoodFilterSelect
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
             }
 
             // 1. Personalized Google Welcome Card
@@ -198,15 +205,25 @@ fun PersonalizedHomeScreen(
                     isLoading = isVibeLoading,
                     onVibeSubmit = onVibeSubmit
                 )
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Vibe AI Status / Offline Intelligence Card
+            item(key = "vibe_status_card") {
+                VibeAIStatusCard(
+                    isOfflineReady = true,
+                    statusText = if (isVibeActive) "Vibe AI: \"${(vibeState as VibeSearchUiState.Success).vibeResult.originalPrompt}\" active" else "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
+                )
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            // 2. 4-Row Snapping Quick Picks Grid (if tracks exist)
+            // 2. 4-Row Snapping Quick Picks Grid (dynamically replaced by Vibe Search or user shelf)
             if (quickPicksTracks.isNotEmpty()) {
                 item(key = "quick_picks_grid") {
+                    val vibePrompt = (vibeState as? VibeSearchUiState.Success)?.vibeResult?.originalPrompt
                     QuickPicksSection(
-                        title = if (selectedMood.equals("All", ignoreCase = true)) "Quick Picks" else "$selectedMood Picks",
-                        subtitle = if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
+                        title = if (isVibeActive) "Vibe: \"$vibePrompt\"" else if (selectedMood.equals("All", ignoreCase = true)) "Quick Picks" else "$selectedMood Picks",
+                        subtitle = if (isVibeActive) "Curated Vibe Tracks (${quickPicksTracks.size})" else if (selectedMood.equals("All", ignoreCase = true)) "Start a radio or continuous mix" else if (isMoodLoading) "Fetching $selectedMood soundtrack..." else "Curated $selectedMood soundtrack",
                         tracks = quickPicksTracks,
                         currentTrackId = currentTrackId,
                         isPlaying = isPlaying,
@@ -214,7 +231,8 @@ fun PersonalizedHomeScreen(
                         onPlayNext = onPlayNext,
                         onAddToQueue = onAddToQueue,
                         onDownload = onDownload,
-                        onStartRadio = onStartRadio
+                        onStartRadio = onStartRadio,
+                        onReset = if (isVibeActive) onClearVibe else null
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }

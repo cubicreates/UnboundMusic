@@ -79,6 +79,43 @@ func TestConversationalVibeQuery(t *testing.T) {
 	}
 }
 
+// TestVictorySongsSemanticQuery validates that "Victory Songs" triggers Triumphant mood and anthem queries.
+func TestVictorySongsSemanticQuery(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	res, err := runner.ParseVibeQuery(ctx, "Victory Songs")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+
+	foundTriumphant := false
+	for _, m := range res.MoodTags {
+		if m == "Triumphant" {
+			foundTriumphant = true
+			break
+		}
+	}
+	if !foundTriumphant {
+		t.Errorf("expected Triumphant mood tag for 'Victory Songs', got: %v", res.MoodTags)
+	}
+
+	if res.EnergyLevel != "HIGH" {
+		t.Errorf("expected HIGH energy level, got: %s", res.EnergyLevel)
+	}
+
+	foundAnthems := false
+	for _, kw := range res.SearchKeywords {
+		if strings.Contains(kw, "anthem") || strings.Contains(kw, "queen") || strings.Contains(kw, "survivor") {
+			foundAnthems = true
+			break
+		}
+	}
+	if !foundAnthems {
+		t.Errorf("expected anthem or iconic champion seeds in search keywords, got: %v", res.SearchKeywords)
+	}
+}
+
 // TestHeuristicFallbackParser validates that "gym phonk workout" returns INTENSE energy and BPM > 130 without binary.
 func TestHeuristicFallbackParser(t *testing.T) {
 	runner := NewRunner("", "")

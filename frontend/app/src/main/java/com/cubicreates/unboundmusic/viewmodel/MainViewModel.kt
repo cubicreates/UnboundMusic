@@ -718,6 +718,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         submitVibeQuery(prompt, autoPlay = true)
     }
 
+    /**
+     * Resets the active Vibe Prompt search result back to default Trending picks.
+     */
+    fun clearVibeQuery() {
+        _vibeSearchResult.value = VibeSearchUiState.Idle
+    }
+
 
     /**
      * Fetches mood radio tracks for a selected capsule and starts playback.

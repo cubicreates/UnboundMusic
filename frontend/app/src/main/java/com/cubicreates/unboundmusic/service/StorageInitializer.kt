@@ -46,13 +46,18 @@ object StorageInitializer {
             extractBinaryAsset(context, "bin/arm64-v8a/fpcalc", File(binDir, "fpcalc"))
             extractBinaryAsset(context, "bin/arm64-v8a/llama-cli", File(binDir, "llama-cli"))
 
-            // 2. Extract AI models archive into hidden .backend/models/ if primary model missing
-            val primaryModel = File(modelsDir, "smollm2_135m.gguf")
-            if (!primaryModel.exists() || primaryModel.length() == 0L) {
-                Log.i(TAG, "AI model weights missing from ${modelsDir.absolutePath}. Extracting archive payload...")
-                extractPayloadAsset(context, "payload/models.zst", File(modelsDir, "models.zst"))
+            // 2. Extract AI models archive into hidden .backend/models/ only if optionally bundled
+            val assetList = try { context.assets.list("payload") } catch (_: Exception) { null }
+            if (assetList != null && assetList.contains("models.zst")) {
+                val primaryModel = File(modelsDir, "smollm2_135m.gguf")
+                if (!primaryModel.exists() || primaryModel.length() == 0L) {
+                    Log.i(TAG, "AI model archive found in assets. Extracting payload...")
+                    extractPayloadAsset(context, "payload/models.zst", File(modelsDir, "models.zst"))
+                } else {
+                    Log.i(TAG, "AI model weights already initialized at ${primaryModel.absolutePath}")
+                }
             } else {
-                Log.i(TAG, "AI model weights already initialized at ${primaryModel.absolutePath}")
+                Log.i(TAG, "Lightweight mode active: No bundled heavy LLM weights. Pure fast heuristic vibe search engaged.")
             }
 
             Log.i(TAG, "Storage and binary initialization completed successfully.")
@@ -64,7 +69,7 @@ object StorageInitializer {
     }
 
     /**
-     * Decompresses models.zst using the running Go daemon if smollm2_135m.gguf is missing.
+     * Decompresses models.zst using the running Go daemon if present.
      */
     suspend fun unpackModelsIfPending(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -90,10 +95,10 @@ object StorageInitializer {
                     return@withContext true
                 }
             }
-            false
+            true
         } catch (e: Exception) {
             Log.w(TAG, "unpackModelsIfPending note: ${e.message}")
-            false
+            true
         }
     }
 

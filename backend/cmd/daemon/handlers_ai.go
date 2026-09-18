@@ -51,20 +51,28 @@ func (d *Daemon) HandleVibeSearch(w http.ResponseWriter, r *http.Request) {
 	var radioTracks []models.TrackItem
 
 	if len(vibeResult.SearchKeywords) > 0 && d.ytClient != nil {
-		searchQuery := vibeResult.SearchKeywords[0]
-		tracks, searchErr := d.ytClient.Search(r.Context(), searchQuery)
-		if searchErr == nil && len(tracks) > 0 {
-			for _, t := range tracks {
-				radioTracks = append(radioTracks, models.TrackItem{
-					ID:         t.ID,
-					Title:      t.Title,
-					Artist:     t.Artist,
-					Artists:    []string{t.Artist},
-					Album:      t.Album,
-					DurationMs: t.DurationMs,
-					Thumbnail:  t.ThumbnailURL,
-					Source:     "youtube",
-				})
+		queriesToSearch := vibeResult.SearchKeywords
+		if len(queriesToSearch) > 3 {
+			queriesToSearch = queriesToSearch[:3]
+		}
+		for _, searchQuery := range queriesToSearch {
+			tracks, searchErr := d.ytClient.Search(r.Context(), searchQuery)
+			if searchErr == nil && len(tracks) > 0 {
+				for _, t := range tracks {
+					radioTracks = append(radioTracks, models.TrackItem{
+						ID:         t.ID,
+						Title:      t.Title,
+						Artist:     t.Artist,
+						Artists:    []string{t.Artist},
+						Album:      t.Album,
+						DurationMs: t.DurationMs,
+						Thumbnail:  t.ThumbnailURL,
+						Source:     "youtube",
+					})
+				}
+			}
+			if len(radioTracks) >= 8 {
+				break
 			}
 		}
 	}

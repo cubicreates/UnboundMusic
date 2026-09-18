@@ -52,12 +52,12 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 
 	// 2. Identify Mood & Vibe Tags
 	moodKeywords := map[string][]string{
-		"Triumphant":   {"victory", "victorious", "win", "winning", "won", "champion", "champions", "triumph", "triumphant", "conquer", "hero", "glory", "unstoppable"},
+		"Triumphant":   {"victory", "victorious", "victorius", "win", "winning", "won", "champion", "champions", "triumph", "triumphant", "conquer", "hero", "glory", "unstoppable"},
 		"Motivational": {"motivation", "motivational", "inspire", "inspiring", "ambition", "determined"},
 		"Aggressive":    {"aggressive", "hard", "angry", "rage", "intense", "gym", "hype", "heavy", "deadlift", "workout"},
-		"Melancholic":   {"sad", "depressed", "melancholy", "heartbreak", "crying", "dark", "gloomy"},
+		"Melancholic":   {"sad", "depressed", "melancholy", "heartbreak", "crying", "dark", "gloomy", "lonely"},
 		"Euphoric":      {"happy", "uplifting", "party", "celebrate", "summer", "joy", "bright"},
-		"Chill":         {"chill", "relaxed", "calm", "mellow", "vibe", "peaceful", "laid back"},
+		"Chill":         {"chill", "relaxed", "calm", "mellow", "vibe", "peaceful", "laid back", "sleep", "sleepy", "sleeping", "slepp", "slepy", "bedtime", "nap", "drowsy", "tired", "rest"},
 		"Romantic":      {"romantic", "love", "sensual", "date night", "affection"},
 	}
 
@@ -83,7 +83,8 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 	} else if strings.Contains(lower, "party") || strings.Contains(lower, "dance") || strings.Contains(lower, "run") {
 		res.EnergyLevel = "HIGH"
 		res.SuggestedBPM = 128
-	} else if strings.Contains(lower, "chill") || strings.Contains(lower, "sleep") || strings.Contains(lower, "slow") ||
+	} else if strings.Contains(lower, "chill") || strings.Contains(lower, "sleep") || strings.Contains(lower, "slepp") ||
+		strings.Contains(lower, "slepy") || strings.Contains(lower, "tired") || strings.Contains(lower, "slow") ||
 		strings.Contains(lower, "study") || strings.Contains(lower, "relax") || strings.Contains(lower, "rainy") ||
 		strings.Contains(lower, "sad") || strings.Contains(lower, "melancholy") || strings.Contains(lower, "crying") {
 		res.EnergyLevel = "CHILL"
@@ -152,8 +153,12 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		case "Euphoric":
 			searchQueries = append(searchQueries, "upbeat feel good happy songs", "dance party hits")
 		case "Chill":
-			if strings.Contains(lower, "sleep") || strings.Contains(lower, "bedtime") {
-				searchQueries = append(searchQueries, "deep sleep relaxing ambient music")
+			if strings.Contains(lower, "sleep") || strings.Contains(lower, "slepp") || strings.Contains(lower, "slepy") || strings.Contains(lower, "bedtime") || strings.Contains(lower, "tired") {
+				searchQueries = append(searchQueries,
+					"deep sleep relaxing ambient music",
+					"sleep music calming delta waves",
+					"peaceful ambient sleep sounds",
+				)
 			} else if strings.Contains(lower, "study") || strings.Contains(lower, "focus") || strings.Contains(lower, "coding") {
 				searchQueries = append(searchQueries, "study beats lofi focus music")
 			} else {
@@ -162,15 +167,30 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		case "Romantic":
 			searchQueries = append(searchQueries, "romantic love songs", "slow acoustic romance")
 		}
+	} else if len(res.TargetGenres) > 0 {
+		switch res.TargetGenres[0] {
+		case "Lo-Fi / Chill":
+			searchQueries = append(searchQueries, "lofi chill beats to relax")
+		case "Hip-Hop / Rap":
+			searchQueries = append(searchQueries, "top hip hop rap hits")
+		case "Rock / Metal":
+			searchQueries = append(searchQueries, "rock classics greatest hits")
+		case "Pop":
+			searchQueries = append(searchQueries, "top pop music hits")
+		case "Electronic":
+			searchQueries = append(searchQueries, "electronic dance music hits")
+		case "Classical":
+			searchQueries = append(searchQueries, "peaceful classical piano music")
+		case "Phonk":
+			searchQueries = append(searchQueries, "drift phonk bass boost")
+		case "R&B / Soul":
+			searchQueries = append(searchQueries, "smooth rnb slow jams")
+		}
 	}
 
 	// If clean query has specific keywords preserved, prioritize or append
 	if cleanQuery != "" {
-		if len(searchQueries) == 0 {
-			searchQueries = append(searchQueries, cleanQuery)
-		} else {
-			searchQueries = append(searchQueries, cleanQuery)
-		}
+		searchQueries = append(searchQueries, cleanQuery)
 	}
 
 	// Always ensure raw keywords exist for token fallback
@@ -183,7 +203,19 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		searchQueries = strings.Fields(trimmed)
 	}
 
-	res.SearchKeywords = searchQueries
+	// Deduplicate search queries while preserving priority order
+	seenQuery := make(map[string]bool)
+	var dedupedQueries []string
+	for _, q := range searchQueries {
+		trimmedQ := strings.TrimSpace(q)
+		lowerQ := strings.ToLower(trimmedQ)
+		if trimmedQ != "" && !seenQuery[lowerQ] {
+			seenQuery[lowerQ] = true
+			dedupedQueries = append(dedupedQueries, trimmedQ)
+		}
+	}
+
+	res.SearchKeywords = dedupedQueries
 
 	return res, nil
 }

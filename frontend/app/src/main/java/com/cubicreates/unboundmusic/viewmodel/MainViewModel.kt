@@ -706,6 +706,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "submitVibeQuery error: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Vibe Search: ${e.message ?: "Failed"}",
+                        isLong = true
+                    )
+                }
                 _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
             }
         }

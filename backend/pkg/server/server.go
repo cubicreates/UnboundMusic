@@ -854,9 +854,6 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 			queriesToSearch = queriesToSearch[:3]
 		}
 		for _, searchQuery := range queriesToSearch {
-			if len(radioTracks) >= 20 {
-				break
-			}
 			tracks, searchErr := s.ytClient.Search(r.Context(), searchQuery)
 			if searchErr == nil && len(tracks) > 0 {
 				for _, t := range tracks {
@@ -874,6 +871,9 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 						})
 					}
 				}
+			}
+			if len(radioTracks) >= 8 {
+				break
 			}
 		}
 	}

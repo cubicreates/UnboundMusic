@@ -116,6 +116,36 @@ func TestVictorySongsSemanticQuery(t *testing.T) {
 	}
 }
 
+// TestSleepySongsSemanticQuery validates that "I am feeling sleppy play me some sleepy music" triggers Chill mood and sleep seeds.
+func TestSleepySongsSemanticQuery(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	res, err := runner.ParseVibeQuery(ctx, "I am feeling sleppy play me some sleepy music")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+
+	foundChill := false
+	for _, m := range res.MoodTags {
+		if m == "Chill" {
+			foundChill = true
+			break
+		}
+	}
+	if !foundChill {
+		t.Errorf("expected Chill mood tag for 'sleppy', got: %v", res.MoodTags)
+	}
+
+	if res.EnergyLevel != "CHILL" {
+		t.Errorf("expected CHILL energy level, got: %s", res.EnergyLevel)
+	}
+
+	if len(res.SearchKeywords) == 0 || !strings.Contains(res.SearchKeywords[0], "sleep") {
+		t.Errorf("expected sleep relaxing ambient music query as primary, got: %v", res.SearchKeywords)
+	}
+}
+
 // TestHeuristicFallbackParser validates that "gym phonk workout" returns INTENSE energy and BPM > 130 without binary.
 func TestHeuristicFallbackParser(t *testing.T) {
 	runner := NewRunner("", "")

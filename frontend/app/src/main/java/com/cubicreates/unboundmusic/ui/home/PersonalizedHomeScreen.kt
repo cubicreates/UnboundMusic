@@ -244,6 +244,7 @@ fun PersonalizedHomeScreen(
                         tracks = quickPicksTracks,
                         currentTrackId = currentTrackId,
                         isPlaying = isPlaying,
+                        isLoading = isVibeLoadingNow,
                         onTrackSelect = onTrackSelect,
                         onPlayNext = onPlayNext,
                         onAddToQueue = onAddToQueue,

@@ -60,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -87,6 +88,7 @@ fun QuickPicksSection(
     tracks: List<TrackItem>,
     currentTrackId: String = "",
     isPlaying: Boolean = false,
+    isLoading: Boolean = false,
     modifier: Modifier = Modifier,
     onTrackSelect: (TrackItem, List<TrackItem>) -> Unit,
     onPlayNext: (TrackItem) -> Unit = {},
@@ -129,13 +131,23 @@ fun QuickPicksSection(
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = title,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface,
-                    maxLines = 1
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface,
+                        maxLines = 1
+                    )
+                    if (isLoading) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = UnboundPrimary
+                        )
+                    }
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -210,7 +222,8 @@ fun QuickPicksSection(
             flingBehavior = snapper,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(264.dp),
+                .height(264.dp)
+                .alpha(if (isLoading) 0.38f else 1f),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)

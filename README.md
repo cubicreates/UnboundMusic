@@ -50,51 +50,58 @@
 
 ```mermaid
 graph TB
-    subgraph Android ART VM [Android ART Runtime - In-Process Single PID]
-        UI[Jetpack Compose Material 3 UI]
-        VM[MVI/MVVM ViewModels & StateFlow]
-        SVC[UnboundPlaybackService\n(MediaSessionService + ExoPlayer)]
-        AP[Custom AudioProcessor Chain\n(10-Band Biquad EQ -> Crossfade -> SleepFade)]
-        DM[DaemonManager.kt\n(Native JNI Lifecycle Bridge)]
-        BC[BackendClient.kt\n(OkHttp UDS / HTTP Client)]
+    subgraph Android_ART_VM ["Android ART Runtime - In-Process Single PID"]
+        UI["Jetpack Compose Material 3 UI"]
+        VM["MVI/MVVM ViewModels & StateFlow"]
+        SVC["UnboundPlaybackService<br/>(MediaSessionService + ExoPlayer)"]
+        AP["Custom AudioProcessor Chain<br/>(10-Band Biquad EQ &rarr; Crossfade &rarr; SleepFade)"]
+        DM["DaemonManager.kt<br/>(Native JNI Lifecycle Bridge)"]
+        BC["BackendClient.kt<br/>(OkHttp UDS / HTTP Client)"]
 
         UI --> VM
         VM --> SVC
         SVC --> AP
         VM --> BC
-        DM -.->|System.loadLibrary| JNI[JNI Export Layer\n(cmd/android/main.go)]
+        DM -.->|"System.loadLibrary"| JNI["JNI Export Layer<br/>(cmd/android/main.go)"]
     end
 
-    subgraph Native Boundary [libunbound_engine.so (C-Shared Library)]
-        JNI -->|CGo Bridge| INIT[Engine Initialization & Memory Ceilings]
+    subgraph Native_Boundary ["libunbound_engine.so (C-Shared Library)"]
+        JNI -->|"CGo Bridge"| INIT["Engine Initialization & Memory Ceilings"]
     end
 
-    subgraph Embedded Go Daemon [Embedded Go Runtime]
-        INIT --> SRV[HTTP/UDS Engine Server\n(pkg/server)]
+    subgraph Embedded_Go_Daemon ["Embedded Go Runtime"]
+        INIT --> SRV["HTTP/UDS Engine Server<br/>(pkg/server)"]
         
-        subgraph Subsystems
-            YT[YouTube Scraper & Rolling Cipher\n(pkg/ytmusic)]
-            GEN[Genius / LRCLIB Uncensored Lyrics\n(pkg/genius, pkg/lyrics)]
-            DSP[Audio DSP & Forced Aligner\n(pkg/dsp, pkg/aligner)]
-            SHZ[Shazam 16kHz Recognizer\n(pkg/shazam)]
-            ROUT[Zero-Data Router & Stream Proxy\n(pkg/router)]
-            VEC[Vector RAG & Recommender\n(pkg/vector, pkg/recommender)]
-            AUTO[AutoEq 4,000+ Database\n(pkg/autoeq)]
-            P2P[P2P UDP Mesh Sync :45732\n(pkg/p2p)]
+        subgraph Subsystems ["Engine Subsystems"]
+            YT["YouTube Scraper & Rolling Cipher<br/>(pkg/ytmusic)"]
+            GEN["Genius / LRCLIB Uncensored Lyrics<br/>(pkg/genius, pkg/lyrics)"]
+            DSP["Audio DSP & Forced Aligner<br/>(pkg/dsp, pkg/aligner)"]
+            SHZ["Shazam 16kHz Recognizer<br/>(pkg/shazam)"]
+            ROUT["Zero-Data Router & Stream Proxy<br/>(pkg/router)"]
+            VEC["Vector RAG & Recommender<br/>(pkg/vector, pkg/recommender)"]
+            AUTO["AutoEq 4,000+ Database<br/>(pkg/autoeq)"]
+            P2P["P2P UDP Mesh Sync :45732<br/>(pkg/p2p)"]
         end
 
-        SRV --> YT & GEN & DSP & SHZ & ROUT & VEC & AUTO & P2P
-        DB[(SQLite WAL Database\nmodernc.org/sqlite)]
+        SRV --> YT
+        SRV --> GEN
+        SRV --> DSP
+        SRV --> SHZ
+        SRV --> ROUT
+        SRV --> VEC
+        SRV --> AUTO
+        SRV --> P2P
+        DB[("SQLite WAL Database<br/>modernc.org/sqlite")]
         SRV --> DB
     end
 
-    BC -->|UDS: daemon.sock (< 120µs)| SRV
-    ROUT -->|Local Hit: file://| SVC
-    ROUT -->|Proxy Stream: http://127.0.0.1:45731| SVC
+    BC -->|"UDS: daemon.sock (&lt; 120µs)"| SRV
+    ROUT -->|"Local Hit: file://"| SVC
+    ROUT -->|"Proxy Stream: http://127.0.0.1:45731"| SVC
 
-    subgraph Storage [Android Scoped Storage]
-        PUB[/storage/emulated/0/Download/Unbound/\n(User-Facing Audio & Downloads)]
-        PRIV[/storage/emulated/0/Android/data/.../.backend/\n(SQLite DB, Models, Caches, Socket)]
+    subgraph Storage_Layer ["Android Scoped Storage"]
+        PUB["/storage/emulated/0/Download/Unbound/<br/>(User-Facing Audio & Downloads)"]
+        PRIV["/storage/emulated/0/Android/data/.../.backend/<br/>(SQLite DB, Models, Caches, Socket)"]
     end
 
     DB --> PRIV

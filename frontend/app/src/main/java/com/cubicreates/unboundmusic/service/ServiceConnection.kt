@@ -288,11 +288,19 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun setQueue(tracks: List<TrackItem>) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { setQueue(tracks) }
+            return
+        }
         originalQueue = tracks.toMutableList()
         syncState()
     }
 
     fun setPlaybackMode(mode: PlaybackMode) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { setPlaybackMode(mode) }
+            return
+        }
         currentMode = mode
         val ctrl = controller ?: return
         when (mode) {
@@ -406,6 +414,10 @@ class ServiceConnection private constructor(private val context: Context) {
     // --- Queue Management ---
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { moveQueueItem(fromIndex, toIndex) }
+            return
+        }
         val ctrl = controller ?: return
         if (fromIndex in 0 until ctrl.mediaItemCount && toIndex in 0 until ctrl.mediaItemCount && fromIndex != toIndex) {
             ctrl.moveMediaItem(fromIndex, toIndex)
@@ -418,6 +430,10 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun removeQueueItem(index: Int) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { removeQueueItem(index) }
+            return
+        }
         val ctrl = controller ?: return
         if (index in 0 until ctrl.mediaItemCount) {
             ctrl.removeMediaItem(index)
@@ -429,6 +445,10 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun insertNext(track: TrackItem) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { insertNext(track) }
+            return
+        }
         val ctrl = controller ?: return
         val url = if (track.streamUrl.isNotBlank() && !track.streamUrl.contains("/api/v1/stream?")) {
             track.streamUrl
@@ -460,6 +480,10 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun addToQueue(track: TrackItem) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { addToQueue(track) }
+            return
+        }
         val ctrl = controller ?: return
         val url = if (track.streamUrl.isNotBlank() && !track.streamUrl.contains("/api/v1/stream?")) {
             track.streamUrl
@@ -488,6 +512,10 @@ class ServiceConnection private constructor(private val context: Context) {
     // --- State Sync ---
 
     private fun syncState() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { syncState() }
+            return
+        }
         val ctrl = controller ?: return
         val metadata = ctrl.mediaMetadata
         val duration = ctrl.duration.coerceAtLeast(0)
@@ -535,6 +563,10 @@ class ServiceConnection private constructor(private val context: Context) {
     }
 
     fun updatePosition() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { updatePosition() }
+            return
+        }
         val ctrl = controller ?: return
         if (!ctrl.isPlaying && !ctrl.isLoading) return
 

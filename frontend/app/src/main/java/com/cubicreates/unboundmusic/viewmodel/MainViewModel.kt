@@ -11,6 +11,7 @@
 package com.cubicreates.unboundmusic.viewmodel
 
 import android.app.Application
+import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -689,14 +690,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _vibeSearchResult.value = VibeSearchUiState.Loading
             try {
                 val res = client.searchVibe(trimmed)
-                _vibeSearchResult.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
-                if (res.radioTracks.isNotEmpty()) {
-                    _searchResults.value = res.radioTracks
-                    if (autoPlay) {
-                        val first = res.radioTracks.first()
-                        playTrackWithQueue(first, res.radioTracks)
-                        val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
-                        withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main) {
+                    _vibeSearchResult.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
+                    if (res.radioTracks.isNotEmpty()) {
+                        _searchResults.value = res.radioTracks
+                        if (autoPlay) {
+                            val first = res.radioTracks.first()
+                            playTrackWithQueue(first, res.radioTracks)
+                            val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
                             com.cubicreates.unboundmusic.util.UnboundToast.show(
                                 getApplication(),
                                 "Tuning into $moodTag: ${first.title}",
@@ -713,8 +714,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "Vibe Search: ${e.message ?: "Failed"}",
                         isLong = true
                     )
+                    _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
                 }
-                _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
             }
         }
     }
@@ -878,6 +879,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
      */
     fun playTrack(track: TrackItem) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            viewModelScope.launch(Dispatchers.Main) {
+                playTrack(track)
+            }
+            return
+        }
         val offlineMatch = findMatchingOfflineTrack(track)
         val targetTrack = if (offlineMatch != null) {
             track.copy(
@@ -1175,6 +1182,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Plays a selected track within a playlist context, populating the queue so Next/Previous work.
      */
     fun playTrackWithQueue(track: TrackItem, queue: List<TrackItem>) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            viewModelScope.launch(Dispatchers.Main) {
+                playTrackWithQueue(track, queue)
+            }
+            return
+        }
         if (queue.size > 1) {
             _currentQueue.value = queue
             serviceConnection.setQueue(queue)

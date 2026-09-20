@@ -1011,7 +1011,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             put("region", region)
             put("language", language)
         }
-        val (code, json) = post("/api/v1/search/vibe", payload.toString())
+        val (code, json) = post(
+            "/api/v1/search/vibe",
+            payload.toString(),
+            headers = mapOf("X-Unbound-Region" to region)
+        )
         if (code != 200 || json.isBlank()) {
             throw RuntimeException("Vibe search returned HTTP $code: $json")
         }
@@ -1975,11 +1979,12 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     // ==================== HTTP Transport (High-Performance Pooled OkHttp) ====================
 
-    private val fallbackClient: OkHttpClient by lazy {
-        sharedOkHttpClient
-    }
-
-    private fun executeWithRetry(path: String, method: String, jsonBody: String? = null): Pair<Int, String> {
+    private fun executeWithRetry(
+        path: String,
+        method: String,
+        jsonBody: String? = null,
+        headers: Map<String, String> = emptyMap()
+    ): Pair<Int, String> {
         val maxAttempts = 3
         var attempt = 0
         var lastError = "Network error"
@@ -1988,6 +1993,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             attempt++
             try {
                 val reqBuilder = Request.Builder().url("$baseUrl$path")
+                headers.forEach { (k, v) -> reqBuilder.header(k, v) }
                 val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
                 when (method.uppercase()) {
                     "POST" -> reqBuilder.post(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
@@ -2010,6 +2016,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                     try {
                         val fallbackUrl = "http://127.0.0.1:45731$path"
                         val reqBuilder = Request.Builder().url(fallbackUrl)
+                        headers.forEach { (k, v) -> reqBuilder.header(k, v) }
                         val body = jsonBody?.toRequestBody(JSON_MEDIA_TYPE)
                         when (method.uppercase()) {
                             "POST" -> reqBuilder.post(body ?: "".toRequestBody(JSON_MEDIA_TYPE))
@@ -2046,7 +2053,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     private fun get(path: String): Pair<Int, String> = executeWithRetry(path, "GET")
 
-    private fun post(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, "POST", jsonBody = jsonBody)
+    private fun post(
+        path: String,
+        jsonBody: String,
+        headers: Map<String, String> = emptyMap()
+    ): Pair<Int, String> = executeWithRetry(path, "POST", jsonBody = jsonBody, headers = headers)
 
     private fun put(path: String, jsonBody: String): Pair<Int, String> = executeWithRetry(path, "PUT", jsonBody = jsonBody)
 

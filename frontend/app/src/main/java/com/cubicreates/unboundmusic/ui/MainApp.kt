@@ -157,7 +157,8 @@ fun MainApp(
     val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
-    val vibeSearchResult by viewModel.vibeSearchResult.collectAsStateWithLifecycle()
+    val homeVibeState by viewModel.homeVibeState.collectAsStateWithLifecycle()
+    val searchVibeState by viewModel.searchVibeState.collectAsStateWithLifecycle()
     val equalizerCurve by viewModel.equalizerCurve.collectAsStateWithLifecycle()
     val autoEqResults by viewModel.autoEqResults.collectAsStateWithLifecycle()
     val isSearchingAutoEq by viewModel.isSearchingAutoEq.collectAsStateWithLifecycle()
@@ -385,13 +386,13 @@ fun MainApp(
                                     moodTracks = moodTracks,
                                     isMoodLoading = isMoodLoading,
                                     onMoodFilterSelect = { viewModel.selectHomeMood(it) },
-                                    isVibeLoading = vibeSearchResult is VibeSearchUiState.Loading,
-                                    vibeState = vibeSearchResult,
+                                    isVibeLoading = homeVibeState is VibeSearchUiState.Loading,
+                                    vibeState = homeVibeState,
                                     onVibeSubmit = { prompt ->
-                                         viewModel.playVibePrompt(prompt)
+                                         viewModel.submitHomeVibeQuery(prompt)
                                     },
                                     onClearVibe = {
-                                        viewModel.clearVibeQuery()
+                                        viewModel.clearHomeVibeQuery()
                                     }
                                 )
                             }
@@ -399,7 +400,7 @@ fun MainApp(
                                 SearchScreen(
                                     searchResults = searchResults,
                                     isSearching = isSearching,
-                                    vibeState = vibeSearchResult,
+                                    vibeState = searchVibeState,
                                     selectedCategory = searchCategory,
                                     chartTracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
                                     searchSuggestions = searchSuggestions,
@@ -411,9 +412,9 @@ fun MainApp(
                                     onSearchSubmit = { viewModel.submitSearch(it) },
                                     onSearchHistoryItemRemoved = { viewModel.removeSearchHistoryItem(it) },
                                     onSearchHistoryCleared = { viewModel.clearSearchHistory() },
-                                    onVibeSubmit = { viewModel.submitVibeQuery(it) },
+                                    onVibeSubmit = { viewModel.submitSearchVibeQuery(it) },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
-                                    onVibeTagClick = { tag -> viewModel.submitVibeQuery(tag.removePrefix("#")) },
+                                    onVibeTagClick = { tag -> viewModel.submitSearchVibeQuery(tag.removePrefix("#")) },
                                     onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },
                                     onTrackSelect = { track, queue ->
                                         viewModel.playTrackWithQueue(track, queue)

@@ -413,6 +413,7 @@ fun MainApp(
                                     onSearchHistoryItemRemoved = { viewModel.removeSearchHistoryItem(it) },
                                     onSearchHistoryCleared = { viewModel.clearSearchHistory() },
                                     onVibeSubmit = { viewModel.submitSearchVibeQuery(it) },
+                                    onClearVibe = { viewModel.clearSearchVibeQuery() },
                                     onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
                                     onVibeTagClick = { tag -> viewModel.submitSearchVibeQuery(tag.removePrefix("#")) },
                                     onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },

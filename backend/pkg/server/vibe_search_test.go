@@ -139,3 +139,50 @@ func TestHandleVibeSearchRegionalVictory(t *testing.T) {
 		t.Errorf("expected Indian victory anthems like Chak De India in search keywords, got: %v", resp.VibeResult.SearchKeywords)
 	}
 }
+
+func TestHandleVibeSearchHeaderRegionFallback(t *testing.T) {
+	tempDir := t.TempDir()
+	srv, err := NewServer(Config{
+		Port:           45794,
+		DatabasePath:   filepath.Join(tempDir, "test_vibe_header.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	})
+	if err != nil {
+		t.Fatalf("failed initializing server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+	defer srv.db.Close()
+
+	payload := map[string]string{
+		"prompt": "Victory Songs",
+	}
+	body, _ := json.Marshal(payload)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/search/vibe", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Unbound-Region", "IN")
+	w := httptest.NewRecorder()
+
+	srv.handleVibeSearch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got: %d (%s)", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		VibeResult struct {
+			Region         string   `json:"region"`
+			SearchKeywords []string `json:"search_keywords"`
+		} `json:"vibe_result"`
+	}
+
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed decoding vibe search response: %v", err)
+	}
+
+	if resp.VibeResult.Region != "IN" {
+		t.Errorf("expected Region IN from header fallback, got: %s", resp.VibeResult.Region)
+	}
+}
+

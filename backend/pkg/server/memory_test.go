@@ -36,4 +36,9 @@ func TestTrimEngineMemory(t *testing.T) {
 
 	// Verify TrimEngineMemory sweeps GC and frees OS memory without error
 	TrimEngineMemory()
+
+	alloc := GetHeapUsageBytes()
+	if alloc == 0 {
+		t.Errorf("expected positive allocated heap bytes, got 0")
+	}
 }

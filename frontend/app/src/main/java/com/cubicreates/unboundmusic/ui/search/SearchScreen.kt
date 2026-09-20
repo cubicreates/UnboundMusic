@@ -148,7 +148,8 @@ fun SearchScreen(
     onPlayNextBatch: (List<TrackItem>) -> Unit = {},
     onAddToQueueBatch: (List<TrackItem>) -> Unit = {},
     onDownloadBatch: (List<TrackItem>) -> Unit = {},
-    isListeningAudio: Boolean = false
+    isListeningAudio: Boolean = false,
+    onClearVibe: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -341,18 +342,35 @@ fun SearchScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            // BPM Badge
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = UnboundPrimary.copy(alpha = 0.15f)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(
-                                    text = "${vr.suggestedBpm} BPM",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = UnboundPrimary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                                // BPM Badge
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = UnboundPrimary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "${vr.suggestedBpm} BPM",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = UnboundPrimary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = onClearVibe,
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear Vibe",
+                                        tint = OnSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         }
 

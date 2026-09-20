@@ -41,7 +41,7 @@
 | **Lyrics & Phonetics** | **Genius FOSS + Forced Aligner** | 100% uncensored chronological Genius scraper with NetEase / LRCLIB fallback, RMS vocal energy windowing, and phonetic interpolation for kinetic word-level glowing sync. |
 | **Zero-Data Router** | **Acoustic Landmark Interception** | Intercepts remote stream queries and transparently serves matching local files from storage, consuming **0 MB cellular data**. |
 | **Lookahead Stream Proxy** | **30s Ring Buffer with LRU Eviction** | Pre-buffers ~30 seconds ahead to eliminate carrier dropouts; automatic LRU disk eviction when cache exceeds 750 MB (evicts to 600 MB / 80%). |
-| **On-Device Edge AI** | **Zstd-19 Explosion & Vector RAG** | Bundles compressed `models.zst` (~118 MB) containing SmolLM2-135M GGUF SLM and MiniLM ONNX embeddings; 128-dimensional cosine vector similarity executing in $< 550\,\mu\text{s}$. |
+| **On-Device Edge AI & Cultural Vibe** | **Zstd-19 Explosion & Cultural Seed Synthesis** | Bundles compressed `models.zst` (~118 MB) containing SmolLM2-135M GGUF SLM and MiniLM ONNX embeddings; 128-dimensional cosine vector similarity executing in $< 550\,\mu\text{s}$. Regional geolocation awareness (India, Western, etc.) resolves authentic cultural anthems and mood seeds while completely decoupling Home Vibe and Discover Screen states. |
 | **Storage Architecture** | **Two-Folder Scoped Storage** | User media stored in `Download/Unbound/` (visible in Files app); engine machinery sequestered in `Android/data/.../.backend/`. **Android OS completely purges `.backend/` on uninstall (zero orphan files)**. |
 
 ---

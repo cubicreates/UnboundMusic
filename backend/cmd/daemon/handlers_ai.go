@@ -18,7 +18,9 @@ import (
 
 // VibeSearchRequestBody represents the incoming natural language query payload.
 type VibeSearchRequestBody struct {
-	Prompt string `json:"prompt"`
+	Prompt   string `json:"prompt"`
+	Region   string `json:"region"`
+	Language string `json:"language"`
 }
 
 // HandleVibeSearch parses a vibe prompt into structured tags and resolves matching radio tracks.
@@ -41,7 +43,16 @@ func (d *Daemon) HandleVibeSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vibeResult, err := d.aiRunner.ParseVibeQuery(r.Context(), prompt)
+	region := strings.ToUpper(strings.TrimSpace(req.Region))
+	if region == "" {
+		region = "IN"
+	}
+	language := strings.ToLower(strings.TrimSpace(req.Language))
+	if language == "" {
+		language = "en"
+	}
+
+	vibeResult, err := d.aiRunner.ParseVibeQuery(r.Context(), prompt, region)
 	if err != nil {
 		d.writeError(w, http.StatusInternalServerError, "failed to parse vibe prompt: "+err.Error())
 		return
@@ -79,7 +90,7 @@ func (d *Daemon) HandleVibeSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Fallback to explore charts if search yields zero tracks or is offline
 	if len(radioTracks) == 0 && d.exploreEng != nil {
-		fallback, _ := d.exploreEng.FetchRegionalCharts(r.Context(), "US", "en")
+		fallback, _ := d.exploreEng.FetchRegionalCharts(r.Context(), region, language)
 		if len(fallback) > 0 {
 			if len(fallback) > 10 {
 				radioTracks = fallback[:10]

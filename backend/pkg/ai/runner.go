@@ -11,6 +11,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -88,7 +89,11 @@ func (r *Runner) ParseVibeQuery(ctx context.Context, prompt string, regions ...s
 		return nil, fmt.Errorf("prompt cannot be empty")
 	}
 
-	return r.parseVibeQueryHeuristic(trimmed, regions...)
+	res, err := r.parseVibeQueryHeuristic(trimmed, regions...)
+	if err == nil && res != nil {
+		log.Printf("[VIBE AI] Parsed prompt '%s' (region: %s) -> %v (seeds: %d)", trimmed, res.Region, res.MoodTags, len(res.SearchKeywords))
+	}
+	return res, err
 }
 
 // AnalyzeTrackMood calculates emotional valence and energy attributes for a track using

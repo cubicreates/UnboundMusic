@@ -31,3 +31,10 @@ func TrimEngineMemory() {
 	runtime.GC()
 	debug.FreeOSMemory()
 }
+
+// GetHeapUsageBytes returns the currently allocated heap bytes from runtime memory statistics.
+func GetHeapUsageBytes() uint64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m.Alloc
+}

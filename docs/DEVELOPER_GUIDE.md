@@ -166,3 +166,13 @@ Unbound Music provides automated integration test scripts in the `test/` directo
 * **SafeGoroutines**: Never start an untracked, naked `go func()`. Always use `server.SafeGo(name, func)` to prevent unhandled panics from terminating the host process.
 * **Memory Limits**: All new subsystems allocating large byte slices (DSP, FFT, audio decoding) must respect the 128 MiB soft heap ceiling and recycle buffers where possible.
 * **WAL Mode SQLite**: Never disable SQLite WAL mode or execute long-running blocking transactions that tie up the single writer thread.
+
+### 6.3 Regional Vibe AI & Decoupled State Guidelines
+* **Screen State Independence**: Vibe search state on the Home Screen (`homeVibeState`) must never leak into or mutate `_searchResults` or `searchVibeState`. Always verify that Home prompt queries leave the Discover / Search screen unperturbed.
+* **Culturally Aware Seeds**: When testing natural language prompts (such as "Victory Songs" or "Sad songs"), verify that regional seeds (e.g. Indian anthems like *Chak De India*, *Zinda*, *Lakshya* for `IN`) are queried instead of raw literal text strings.
+* **Automated Verification**:
+  ```powershell
+  cd backend
+  go test ./pkg/ai/... -run "TestParseVibeQuery|TestRegionalVibeSeeds"
+  go test ./pkg/server/... -run "TestHandleVibeSearch"
+  ```

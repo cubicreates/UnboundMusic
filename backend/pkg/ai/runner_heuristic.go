@@ -176,14 +176,16 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string, regions ...string) (*mod
 		}
 	}
 
-	// Filter out generic phrases so we don't query literal "victory songs" which returns royalty-free noise
+	// Filter out generic phrases and single words so we don't query literal "victory" or "victory songs" which returns junk tracks
 	genericVibePhrases := map[string]bool{
-		"victory songs": true, "victory song": true, "victory music": true, "victorious songs": true,
-		"sleep songs": true, "sleepy songs": true, "sleepy music": true, "sleeping songs": true,
-		"sad songs": true, "sad music": true, "gym songs": true, "gym music": true,
-		"workout songs": true, "workout music": true, "party songs": true, "party music": true,
-		"chill songs": true, "chill music": true, "study songs": true, "study music": true,
-		"love songs": true, "romantic songs": true,
+		"victory": true, "victorious": true, "victory songs": true, "victory song": true, "victory music": true, "victorious songs": true,
+		"sleep": true, "sleepy": true, "sleeping": true, "sleep songs": true, "sleepy songs": true, "sleepy music": true, "sleeping songs": true,
+		"sad": true, "sadness": true, "sad songs": true, "sad music": true,
+		"gym": true, "workout": true, "gym songs": true, "gym music": true, "workout songs": true, "workout music": true,
+		"party": true, "party songs": true, "party music": true,
+		"chill": true, "chill songs": true, "chill music": true,
+		"study": true, "study songs": true, "study music": true,
+		"love": true, "love songs": true, "romantic songs": true,
 	}
 
 	// If clean query has specific artist/title keywords preserved (not generic mood phrase), append it

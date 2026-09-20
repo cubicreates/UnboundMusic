@@ -31,6 +31,10 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 
 // SafeGo executes a background task in an isolated goroutine with panic recovery.
 func SafeGo(name string, fn func()) {
+	if fn == nil {
+		log.Printf("[ENGINE GOROUTINE RECOVERY] SafeGo called with nil function for task %q", name)
+		return
+	}
 	go func() {
 		defer func() {
 			if rErr := recover(); rErr != nil {

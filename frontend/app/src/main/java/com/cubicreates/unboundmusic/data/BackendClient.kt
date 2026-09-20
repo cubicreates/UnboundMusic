@@ -2026,7 +2026,7 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                             }
                             else -> reqBuilder.get()
                         }
-                        fallbackClient.newCall(reqBuilder.build()).execute().use { response ->
+                        sharedOkHttpClient.newCall(reqBuilder.build()).execute().use { response ->
                             val respBody = response.body?.string() ?: ""
                             if (path.contains("proxy/stream")) {
                                 recordProxyStreamStatus(response.code)

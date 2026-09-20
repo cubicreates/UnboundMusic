@@ -434,8 +434,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
     val libraryFolders: StateFlow<Map<String, List<LocalTrack>>> = _libraryFolders.asStateFlow()
 
-    private val _vibeSearchResult = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
-    val vibeSearchResult: StateFlow<VibeSearchUiState> = _vibeSearchResult.asStateFlow()
+    private val _homeVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
+    val homeVibeState: StateFlow<VibeSearchUiState> = _homeVibeState.asStateFlow()
+
+    private val _searchVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
+    val searchVibeState: StateFlow<VibeSearchUiState> = _searchVibeState.asStateFlow()
+
+    // Backward-compatibility bridge
+    val vibeSearchResult: StateFlow<VibeSearchUiState> get() = _homeVibeState
 
     // ==================== Startup & Telemetry State ====================
 
@@ -616,7 +622,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _startupPhase.value = "CACHE_HYDRATE"
             _startupProgress.value = 0.88f
             StorageInitializer.unpackModelsIfPending(getApplication())
-            initializeColdStart("US", "en")
+            val userCountry = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+            val userLanguage = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
+            initializeColdStart(userCountry, userLanguage)
             loadHomeFeed()
             refreshLibrary()
             val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
@@ -630,7 +638,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             checkAccountStatus()
             loadAppSettings()
             loadCustomEqPresets()
-            loadMoodsAndGenres()
+            loadMoodsAndGenres(userCountry, userLanguage)
             delay(300)
 
             _startupPhase.value = "READY"
@@ -650,14 +658,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 2. Fetches regional charts and 24-hour time-aware mood capsules concurrently.
      * 3. Scans local storage directories and indexes WhatsApp, Telegram, and Downloads audio.
      */
-    fun initializeColdStart(countryCode: String = "US", languageCode: String = "en") {
+    fun initializeColdStart(countryCode: String? = null, languageCode: String? = null) {
+        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val actualLanguage = if (!languageCode.isNullOrBlank()) languageCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
         viewModelScope.launch(Dispatchers.IO) {
             // First-boot asset unpacker
             StorageInitializer.initialize(getApplication())
 
             // 1. Fetch explore charts & mood capsules concurrently
             launch {
-                val charts = client.getCharts(countryCode, languageCode)
+                val charts = client.getCharts(actualCountry, actualLanguage)
                 if (charts.isNotEmpty()) {
                     _regionalCharts.value = charts
                     _chartTracks.value = charts
@@ -681,57 +691,93 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Natural Language Vibe AI query runner.
+     * Natural Language Home Vibe AI query runner.
+     * Crucial: Does NOT modify _searchResults to prevent hijacking the Discover / Search screen!
      */
-    fun submitVibeQuery(query: String, autoPlay: Boolean = false) {
+    fun submitHomeVibeQuery(query: String, autoPlay: Boolean = true) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return
+        val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
         viewModelScope.launch(Dispatchers.IO) {
-            _vibeSearchResult.value = VibeSearchUiState.Loading
+            _homeVibeState.value = VibeSearchUiState.Loading
             try {
-                val res = client.searchVibe(trimmed)
+                val res = client.searchVibe(trimmed, region = country, language = lang)
                 withContext(Dispatchers.Main) {
-                    _vibeSearchResult.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
-                    if (res.radioTracks.isNotEmpty()) {
-                        _searchResults.value = res.radioTracks
-                        if (autoPlay) {
-                            val first = res.radioTracks.first()
-                            playTrackWithQueue(first, res.radioTracks)
-                            val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "Tuning into $moodTag: ${first.title}",
-                                isLong = true
-                            )
-                        }
+                    _homeVibeState.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
+                    // Intentionally leave _searchResults untouched so SearchScreen remains independent
+                    if (res.radioTracks.isNotEmpty() && autoPlay) {
+                        val first = res.radioTracks.first()
+                        playTrackWithQueue(first, res.radioTracks)
+                        val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Tuning into $moodTag: ${first.title}",
+                            isLong = true
+                        )
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "submitVibeQuery error: ${e.message}", e)
+                Log.e(TAG, "submitHomeVibeQuery error: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     com.cubicreates.unboundmusic.util.UnboundToast.show(
                         getApplication(),
                         "Vibe Search: ${e.message ?: "Failed"}",
                         isLong = true
                     )
-                    _vibeSearchResult.value = VibeSearchUiState.Error(e.message ?: "Search failed")
+                    _homeVibeState.value = VibeSearchUiState.Error(e.message ?: "Search failed")
                 }
             }
         }
     }
 
-    /**
-     * Auto-plays conversational natural language prompts directly into playback queue.
-     */
-    fun playVibePrompt(prompt: String) {
-        submitVibeQuery(prompt, autoPlay = true)
+    fun clearHomeVibeQuery() {
+        _homeVibeState.value = VibeSearchUiState.Idle
     }
 
     /**
-     * Resets the active Vibe Prompt search result back to default Trending picks.
+     * Natural Language Search / Discover Screen Vibe AI query runner.
+     * Isolated exclusively to the Search Screen.
      */
+    fun submitSearchVibeQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return
+        val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
+        viewModelScope.launch(Dispatchers.IO) {
+            _searchVibeState.value = VibeSearchUiState.Loading
+            try {
+                val res = client.searchVibe(trimmed, region = country, language = lang)
+                withContext(Dispatchers.Main) {
+                    _searchVibeState.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
+                    if (res.radioTracks.isNotEmpty()) {
+                        _searchResults.value = res.radioTracks
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "submitSearchVibeQuery error: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    _searchVibeState.value = VibeSearchUiState.Error(e.message ?: "Search failed")
+                }
+            }
+        }
+    }
+
+    fun clearSearchVibeQuery() {
+        _searchVibeState.value = VibeSearchUiState.Idle
+    }
+
+    /** Backward-compatibility wrappers */
+    fun submitVibeQuery(query: String, autoPlay: Boolean = false) {
+        submitHomeVibeQuery(query, autoPlay = autoPlay)
+    }
+
+    fun playVibePrompt(prompt: String) {
+        submitHomeVibeQuery(prompt, autoPlay = true)
+    }
+
     fun clearVibeQuery() {
-        _vibeSearchResult.value = VibeSearchUiState.Idle
+        clearHomeVibeQuery()
     }
 
 
@@ -3521,10 +3567,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Phase 4: Genre & Mood Boards Actions ====================
 
-    fun loadMoodsAndGenres(countryCode: String = "US", langCode: String = "en") {
+    fun loadMoodsAndGenres(countryCode: String? = null, langCode: String? = null) {
+        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val actualLang = if (!langCode.isNullOrBlank()) langCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val (code, resp) = client.getMoodsAndGenres(countryCode, langCode)
+                val (code, resp) = client.getMoodsAndGenres(actualCountry, actualLang)
                 if (code in 200..299 && resp.isNotBlank()) {
                     val sections = client.parseMoodsAndGenres(resp)
                     if (sections.isNotEmpty()) {
@@ -3537,13 +3585,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun loadGenreDetail(params: String, title: String, countryCode: String = "US", langCode: String = "en") {
+    fun loadGenreDetail(params: String, title: String, countryCode: String? = null, langCode: String? = null) {
+        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val actualLang = if (!langCode.isNullOrBlank()) langCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
         _selectedGenreTitle.value = title
         _isLoadingGenreDetail.value = true
         _activeGenreShelves.value = emptyList()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val (code, resp) = client.getGenreDetail(params, title, countryCode, langCode)
+                val (code, resp) = client.getGenreDetail(params, title, actualCountry, actualLang)
                 if (code in 200..299 && resp.isNotBlank()) {
                     val shelves = client.parseGenreDetail(resp)
                     _activeGenreShelves.value = shelves

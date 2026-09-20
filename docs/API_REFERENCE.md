@@ -213,6 +213,39 @@ Natural language semantic vibe parser running deterministic prompt parsing or th
     "arousal": 0.62,
     "suggested_tracks": [...]
   }
+### `POST /api/v1/search/vibe`
+Production single-shot natural language vibe query endpoint powered by Edge AI and culturally-aware regional seed synthesis.
+* **Request Body**:
+  ```json
+  {
+    "prompt": "Victory Songs",
+    "region": "IN",
+    "language": "en"
+  }
+  ```
+* **Response `200 OK`**:
+  ```json
+  {
+    "vibe_result": {
+      "original_prompt": "Victory Songs",
+      "target_genres": ["Soundtrack", "Rock", "Bollywood"],
+      "mood_tags": ["Triumphant", "Inspiring", "Euphoric"],
+      "energy_level": "HIGH",
+      "suggested_bpm": 135,
+      "search_keywords": ["Chak De India Sukhwinder Singh", "Zinda Bhaag Milkha Bhaag Shankar Mahadevan", "Kar Har Maidaan Fateh Sukhwinder Singh Shreya Ghoshal Sanju", "Lakshya Shankar Ehsaan Loy"],
+      "region": "IN"
+    },
+    "radio_tracks": [
+      {
+        "id": "abc12345",
+        "title": "Chak De India",
+        "artist": "Sukhwinder Singh",
+        "album": "Chak De! India",
+        "duration_ms": 283000,
+        "thumbnail": "https://lh3.googleusercontent.com/..."
+      }
+    ]
+  }
   ```
 
 ### `POST /api/v1/ai/mood`

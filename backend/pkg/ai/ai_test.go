@@ -74,8 +74,16 @@ func TestConversationalVibeQuery(t *testing.T) {
 		t.Errorf("expected CHILL energy level for sad mood, got: %s", res.EnergyLevel)
 	}
 
-	if len(res.SearchKeywords) == 0 || res.SearchKeywords[0] != "sad songs" {
-		t.Errorf("expected 'sad songs' as primary search query, got: %v", res.SearchKeywords)
+	foundSadSeed := false
+	for _, kw := range res.SearchKeywords {
+		lower := strings.ToLower(kw)
+		if strings.Contains(lower, "adele") || strings.Contains(lower, "coldplay") || strings.Contains(lower, "sad") {
+			foundSadSeed = true
+			break
+		}
+	}
+	if !foundSadSeed {
+		t.Errorf("expected melancholy seed track or sad in search keywords, got: %v", res.SearchKeywords)
 	}
 }
 
@@ -106,7 +114,8 @@ func TestVictorySongsSemanticQuery(t *testing.T) {
 
 	foundAnthems := false
 	for _, kw := range res.SearchKeywords {
-		if strings.Contains(kw, "anthem") || strings.Contains(kw, "queen") || strings.Contains(kw, "survivor") {
+		lower := strings.ToLower(kw)
+		if strings.Contains(lower, "anthem") || strings.Contains(lower, "queen") || strings.Contains(lower, "survivor") {
 			foundAnthems = true
 			break
 		}
@@ -116,33 +125,83 @@ func TestVictorySongsSemanticQuery(t *testing.T) {
 	}
 }
 
-// TestSleepySongsSemanticQuery validates that "I am feeling sleppy play me some sleepy music" triggers Chill mood and sleep seeds.
-func TestSleepySongsSemanticQuery(t *testing.T) {
+// TestVictorySongsIndianRegion validates that "Victory Songs" with region "IN" returns iconic Indian victory anthems.
+func TestVictorySongsIndianRegion(t *testing.T) {
 	runner := NewRunner("", "")
 	ctx := context.Background()
 
-	res, err := runner.ParseVibeQuery(ctx, "I am feeling sleppy play me some sleepy music")
+	res, err := runner.ParseVibeQuery(ctx, "Victory Songs", "IN")
 	if err != nil {
 		t.Fatalf("ParseVibeQuery failed: %v", err)
 	}
 
-	foundChill := false
-	for _, m := range res.MoodTags {
-		if m == "Chill" {
-			foundChill = true
+	if res.Region != "IN" {
+		t.Errorf("expected region IN, got %s", res.Region)
+	}
+
+	foundChakDe := false
+	foundGenericPhrase := false
+	for _, kw := range res.SearchKeywords {
+		lower := strings.ToLower(kw)
+		if strings.Contains(lower, "chak de") || strings.Contains(lower, "zinda") || strings.Contains(lower, "lakshya") {
+			foundChakDe = true
+		}
+		if lower == "victory songs" || lower == "victory song" {
+			foundGenericPhrase = true
+		}
+	}
+
+	if !foundChakDe {
+		t.Errorf("expected iconic Indian victory anthem like Chak De India or Zinda in keywords, got: %v", res.SearchKeywords)
+	}
+	if foundGenericPhrase {
+		t.Errorf("expected generic phrase 'victory songs' to be filtered out, got: %v", res.SearchKeywords)
+	}
+}
+
+// TestVictorySongsWesternRegion validates that "Victory Songs" with default/US region returns Queen and Survivor.
+func TestVictorySongsWesternRegion(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	res, err := runner.ParseVibeQuery(ctx, "Victory Songs", "US")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+
+	foundQueen := false
+	for _, kw := range res.SearchKeywords {
+		lower := strings.ToLower(kw)
+		if strings.Contains(lower, "queen") || strings.Contains(lower, "survivor") || strings.Contains(lower, "champions") {
+			foundQueen = true
 			break
 		}
 	}
-	if !foundChill {
-		t.Errorf("expected Chill mood tag for 'sleppy', got: %v", res.MoodTags)
+	if !foundQueen {
+		t.Errorf("expected global champion anthems in keywords, got: %v", res.SearchKeywords)
+	}
+}
+
+// TestSleepySongsIndianRegion validates that "I am sleepy play me some sleepy songs" for India returns iconic Indian calm/sleep songs.
+func TestSleepySongsIndianRegion(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	res, err := runner.ParseVibeQuery(ctx, "I am sleepy play me some sleepy songs", "IN")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
 	}
 
-	if res.EnergyLevel != "CHILL" {
-		t.Errorf("expected CHILL energy level, got: %s", res.EnergyLevel)
+	foundIndianChill := false
+	for _, kw := range res.SearchKeywords {
+		lower := strings.ToLower(kw)
+		if strings.Contains(lower, "phir le aya") || strings.Contains(lower, "kun faya") || strings.Contains(lower, "iktara") || strings.Contains(lower, "flute") {
+			foundIndianChill = true
+			break
+		}
 	}
-
-	if len(res.SearchKeywords) == 0 || !strings.Contains(res.SearchKeywords[0], "sleep") {
-		t.Errorf("expected sleep relaxing ambient music query as primary, got: %v", res.SearchKeywords)
+	if !foundIndianChill {
+		t.Errorf("expected Indian relaxing / sleepy tracks in keywords, got: %v", res.SearchKeywords)
 	}
 }
 

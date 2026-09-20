@@ -92,7 +92,13 @@ data class VibeResult(
     val suggestedBpm: Int = 120,
     val searchKeywords: List<String> = emptyList(),
     val region: String = "IN"
-)
+) {
+    val primaryMood: String
+        get() = moodTags.firstOrNull() ?: targetGenres.firstOrNull() ?: "Vibe"
+
+    val isIndianRegion: Boolean
+        get() = region.equals("IN", ignoreCase = true)
+}
 
 /**
  * Complete response payload from POST /api/v1/search/vibe.
@@ -113,6 +119,9 @@ sealed interface VibeSearchUiState {
         val radioTracks: List<TrackItem>
     ) : VibeSearchUiState
     data class Error(val message: String) : VibeSearchUiState
+
+    val isSuccess: Boolean
+        get() = this is Success
 }
 
 /**

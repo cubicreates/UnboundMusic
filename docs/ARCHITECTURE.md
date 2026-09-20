@@ -315,3 +315,19 @@ erDiagram
 3. **Zero Cloud Telemetry**:
    - No tracking SDKs (Firebase Analytics, Google Analytics, Adjust) are bundled.
    - All recommendation models, Markov listening chains, and Recap statistics are computed 100% on-device.
+
+---
+
+## 8. Geolocation-Aware Vibe AI & Screen State Decoupling
+
+### 8.1 State Decoupling Architecture
+To guarantee pristine UI separation, Home Vibe queries and Discover / Search queries are strictly decoupled into independent reactive state pipelines:
+- **`homeVibeState` (`StateFlow<VibeSearchUiState>`)**: Controls the Home screen's contextual takeover, transforming the Quick Picks grid into a curated Vibe Radio feed without affecting the Search tab.
+- **`searchVibeState` (`StateFlow<VibeSearchUiState>`)**: Governs the Discover / Search screen's dedicated VIBE badge and keyword filtering.
+- **Independence Guarantee**: Submitting a vibe query from the Home screen does not modify `_searchResults`, ensuring that the Discover screen maintains its independent query state, browsing history, and regional explore shelves.
+
+### 8.2 Geolocation & Cultural Seed Synthesis
+Rather than relying on literal YouTube keyword matches that return tracks simply named after words in the prompt (e.g., "Victory Anthem - Celebrity" for "Victory Songs"), the MIR engine incorporates client geolocation:
+1. **Device Resolution**: `GeoLocationProvider` checks `TelephonyManager.getNetworkCountryIso()` -> `getSimCountryIso()` -> `Locale.getDefault().country` -> default fallback (`"IN"`).
+2. **Catalog Mapping**: The backend's `regional_vibe_seeds.go` catalog translates high-level intents ("victory", "sadness", "workout", "sleep") into authentic cultural and regional anthems (e.g., *Chak De India*, *Zinda*, *Kar Har Maidaan Fateh*, *Lakshya* for India; *Hall of Fame*, *Eye of the Tiger* for Western markets).
+3. **Generic Phrase Suppression**: The heuristic parser actively suppresses literal query pollution (such as `"victory songs"` or `"songs that make you feel victorious"`), ensuring that only rich, culturally authentic tracks are fetched and queued.

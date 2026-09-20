@@ -218,7 +218,7 @@ fun PersonalizedHomeScreen(
                         isVibeLoadingNow -> "Vibe AI: Analyzing prompt & curating tracks..."
                         isVibeActive -> {
                             val vr = (vibeState as VibeSearchUiState.Success).vibeResult
-                            "Vibe AI: \"${vr.originalPrompt}\" (${vr.region} Curated)"
+                            "Vibe AI: \"${vr.originalPrompt}\" active"
                         }
                         else -> "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
                     }

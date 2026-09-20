@@ -399,21 +399,6 @@ fun SearchScreen(
                                 )
                             }
 
-                            if (vr.region.isNotBlank()) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = UnboundPrimary.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = vr.region,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = UnboundPrimary,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
                             vr.targetGenres.take(2).forEach { g ->
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),

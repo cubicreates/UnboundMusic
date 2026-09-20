@@ -249,14 +249,6 @@ fun VibePromptBar(
                     )
                 }
 
-                if (userCountry.equals("IN", ignoreCase = true)) {
-                    Text(
-                        text = "🇮🇳",
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
-
                 Spacer(modifier = Modifier.width(10.dp))
 
                 // Text Input Area with cycling placeholder

@@ -99,6 +99,7 @@ fun QuickPicksSection(
 ) {
     if (tracks.isEmpty()) return
 
+    val coroutineScope = rememberCoroutineScope()
     val lazyGridState = rememberLazyGridState()
     val snapper = rememberSnapFlingBehavior(
         SnapLayoutInfoProvider(
@@ -157,7 +158,14 @@ fun QuickPicksSection(
                         color = androidx.compose.ui.graphics.Color(0xFF2A2A2A),
                         border = BorderStroke(1.dp, androidx.compose.ui.graphics.Color(0xFF444444)),
                         modifier = Modifier
-                            .clickable { onReset() }
+                            .clickable {
+                                coroutineScope.launch {
+                                    try {
+                                        lazyGridState.animateScrollToItem(0)
+                                    } catch (_: Exception) {}
+                                }
+                                onReset()
+                            }
                             .padding(end = 8.dp)
                     ) {
                         Row(

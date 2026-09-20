@@ -1004,9 +1004,13 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         list
     }
 
-    /** Natural language Vibe AI Search. */
-    suspend fun searchVibe(prompt: String): VibeSearchResponse = withContext(Dispatchers.IO) {
-        val payload = JSONObject().apply { put("prompt", prompt) }
+    /** Natural language Vibe AI Search with regional cultural awareness. */
+    suspend fun searchVibe(prompt: String, region: String = "IN", language: String = "en"): VibeSearchResponse = withContext(Dispatchers.IO) {
+        val payload = JSONObject().apply {
+            put("prompt", prompt)
+            put("region", region)
+            put("language", language)
+        }
         val (code, json) = post("/api/v1/search/vibe", payload.toString())
         if (code != 200 || json.isBlank()) {
             throw RuntimeException("Vibe search returned HTTP $code: $json")
@@ -1026,7 +1030,8 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
             moodTags = tags,
             energyLevel = vrObj.optString("energy_level", "MEDIUM"),
             suggestedBpm = vrObj.optInt("suggested_bpm", 120),
-            searchKeywords = keywords
+            searchKeywords = keywords,
+            region = vrObj.optString("region", region)
         )
 
         val radioTracks = mutableListOf<TrackItem>()

@@ -397,6 +397,8 @@ fun MainApp(
                                 )
                             }
                             NavigationTab.SEARCH -> {
+                                // Architectural Invariant: SearchScreen is strictly isolated from HomeScreen.
+                                // It consumes searchVibeState instead of homeVibeState to prevent Home queries from hijacking search.
                                 SearchScreen(
                                     searchResults = searchResults,
                                     isSearching = isSearching,

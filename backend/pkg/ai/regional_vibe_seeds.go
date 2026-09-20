@@ -30,12 +30,14 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Lakshya Shankar Mahadevan title track",
 		"Jai Ho AR Rahman Slumdog Millionaire",
 		"Lehra Do 83 Arijit Singh",
+		"Naatu Naatu RRR MM Keeravani",
 		"Sultan title track Sukhwinder Singh",
 		"Dangal title track Daler Mehndi",
 		"Brothers Anthem Ajay Atul",
 		"Aashayein Iqbal KK",
 		"Apna Time Aayega Gully Boy Ranveer Singh",
 		"Badal Pe Paon Hai Hema Sardesai",
+		"Vande Mataram Maa Tujhe Salaam AR Rahman",
 	},
 	SleepAmbient: []string{
 		"Phir Le Aya Dil Barfi Arijit Singh",
@@ -47,6 +49,7 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Indian Bansuri Flute meditation relaxing sleep",
 		"Peaceful Sitar Santur ambient sleep music",
 		"Kabira Encore Arijit Singh Harshdeep Kaur",
+		"Agar Tum Saath Ho flute acoustic instrumental",
 	},
 	WorkoutHype: []string{
 		"Malhari Bajirao Mastani Vishal Dadlani",
@@ -57,6 +60,7 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Sultan title track gym motivation",
 		"Jee Karda Badlapur Divya Kumar",
 		"Aarambh Hai Prachand Piyush Mishra",
+		"Bhaag Milkha Bhaag title track Rock version",
 	},
 	MelancholySad: []string{
 		"Channa Mereya Arijit Singh Ae Dil Hai Mushkil",
@@ -66,6 +70,7 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Bhula Dena Aashiqui 2 Mustafa Zahid",
 		"Tadap Tadap Ke Is Dil Se KK",
 		"Kabira Tochi Raina Rekha Bhardwaj",
+		"Luka Chuppi Rang De Basanti Lata Mangeshkar AR Rahman",
 	},
 	PartyDance: []string{
 		"Gallan Goodiyaan Dil Dhadakne Do",
@@ -74,6 +79,7 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Ghungroo War Arijit Singh Shilpa Rao",
 		"Badtameez Dil Yeh Jawaani Hai Deewani Benny Dayal",
 		"Kar Gayi Chull Kapoor and Sons Badshah",
+		"Abhi Toh Party Shuru Hui Hai Badshah",
 	},
 	RomanticLove: []string{
 		"Tum Hi Ho Aashiqui 2 Arijit Singh",
@@ -81,11 +87,53 @@ var IndianRegionalSeeds = RegionalSeeds{
 		"Kesariya Brahmastra Arijit Singh",
 		"Pee Loon Once Upon a Time in Mumbaai Mohit Chauhan",
 		"Zehnaseeb Hasee Toh Phasee Chinmayi",
+		"Shayad Love Aaj Kal Arijit Singh",
 	},
 	FocusStudy: []string{
 		"Indian classical sitar instrumental for study and focus",
 		"Bollywood lofi chill beats to study to",
 		"Peaceful flute ambient morning raga meditation",
+		"Tabla and Tanpura soothing background drone",
+	},
+}
+
+// LatinRegionalSeeds contains Spanish and Latin victory and emotional anthems for ES/MX/BR/LATAM.
+var LatinRegionalSeeds = RegionalSeeds{
+	VictoryAnthems: []string{
+		"Shakira Waka Waka This Time for Africa",
+		"Ricky Martin La Copa de la Vida The Cup of Life",
+		"Daddy Yankee Limbo",
+		"J Balvin Willy William Mi Gente",
+		"Los del Rio Macarena",
+	},
+	SleepAmbient: []string{
+		"Guitarra espanola relajante para dormir",
+		"Musica acustica suave para descansar",
+		"Lofi latino suave para relajarse",
+	},
+	WorkoutHype: []string{
+		"Daddy Yankee Gasolina",
+		"Don Omar Danza Kuduro Lucenzo",
+		"Pitbull Fireball",
+		"J Balvin Skrillex In Da Getto",
+	},
+	MelancholySad: []string{
+		"Reik Ya Me Entere",
+		"Camila Mientes",
+		"Sin Bandera Entra En Mi Vida",
+	},
+	PartyDance: []string{
+		"Luis Fonsi Daddy Yankee Despacito",
+		"Farruko Pepas",
+		"Bad Bunny Titi Me Pregunto",
+	},
+	RomanticLove: []string{
+		"Sebastian Yatra No Hay Nadie Mas",
+		"Carlos Vives Shakira La Bicicleta",
+	},
+	FocusStudy: []string{
+		"Guitarra clasica espanola estudio",
+		"Bossa nova chill instrumental relax",
 	},
 }
 
@@ -145,12 +193,14 @@ var GlobalWesternSeeds = RegionalSeeds{
 	},
 }
 
-// GetRegionalSeeds returns the seed anthology for a given ISO country code (e.g., "IN", "US").
+// GetRegionalSeeds returns the seed anthology for a given ISO country code (e.g., "IN", "US", "MX").
 func GetRegionalSeeds(region string) RegionalSeeds {
 	upper := strings.ToUpper(strings.TrimSpace(region))
 	switch upper {
 	case "IN", "IND", "INDIA":
 		return IndianRegionalSeeds
+	case "ES", "MX", "AR", "CO", "BR":
+		return LatinRegionalSeeds
 	default:
 		return GlobalWesternSeeds
 	}

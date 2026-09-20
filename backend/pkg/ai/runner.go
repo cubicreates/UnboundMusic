@@ -82,13 +82,13 @@ func extractJSON(raw string) string {
 // ParseVibeQuery translates a natural language vibe query into structured catalog filters.
 // It executes in-memory deterministic heuristic and semantic token extraction in < 1ms,
 // completely eliminating external subprocess spawning on mobile devices.
-func (r *Runner) ParseVibeQuery(ctx context.Context, prompt string) (*models.VibeQueryResult, error) {
+func (r *Runner) ParseVibeQuery(ctx context.Context, prompt string, regions ...string) (*models.VibeQueryResult, error) {
 	trimmed := strings.TrimSpace(prompt)
 	if trimmed == "" {
 		return nil, fmt.Errorf("prompt cannot be empty")
 	}
 
-	return r.parseVibeQueryHeuristic(trimmed)
+	return r.parseVibeQueryHeuristic(trimmed, regions...)
 }
 
 // AnalyzeTrackMood calculates emotional valence and energy attributes for a track using

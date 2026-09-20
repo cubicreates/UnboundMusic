@@ -419,7 +419,12 @@ fun SearchScreen(
 
             // Content Area: Live Search Results OR Discovery Feed
             val displayTracks = when {
-                vibeState is VibeSearchUiState.Success -> vibeState.radioTracks
+                vibeState is VibeSearchUiState.Success -> vibeState.radioTracks.filter { track ->
+                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
+                }
                 else -> searchResults
             }
 

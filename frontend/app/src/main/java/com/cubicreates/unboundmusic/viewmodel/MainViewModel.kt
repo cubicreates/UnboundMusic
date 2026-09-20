@@ -696,8 +696,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Natural Language Home Vibe AI query runner.
      * Crucial: Does NOT modify _searchResults to prevent hijacking the Discover / Search screen!
+     * Crucial: Does NOT auto-play tracks; music only plays upon explicit user tap.
      */
-    fun submitHomeVibeQuery(query: String, autoPlay: Boolean = true) {
+    fun submitHomeVibeQuery(query: String, autoPlay: Boolean = false) {
         val trimmed = query.trim()
         if (trimmed.isBlank()) return
         val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
@@ -706,12 +707,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _homeVibeState.value = VibeSearchUiState.Loading
             try {
                 val res = client.searchVibe(trimmed, region = country, language = lang)
+                // Filter strictly to songs only: reject albums, artists, playlists, and browse IDs
+                val songsOnly = res.radioTracks.filter { track ->
+                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
+                }
                 withContext(Dispatchers.Main) {
-                    _homeVibeState.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
+                    _homeVibeState.value = VibeSearchUiState.Success(res.vibeResult, songsOnly)
                     // Intentionally leave _searchResults untouched so SearchScreen remains independent
-                    if (res.radioTracks.isNotEmpty() && autoPlay) {
-                        val first = res.radioTracks.first()
-                        playTrackWithQueue(first, res.radioTracks)
+                    if (songsOnly.isNotEmpty() && autoPlay) {
+                        val first = songsOnly.first()
+                        playTrackWithQueue(first, songsOnly)
                         val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
@@ -751,10 +759,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _searchVibeState.value = VibeSearchUiState.Loading
             try {
                 val res = client.searchVibe(trimmed, region = country, language = lang)
+                // Filter strictly to songs only: reject albums, artists, playlists, and browse IDs
+                val songsOnly = res.radioTracks.filter { track ->
+                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
+                }
                 withContext(Dispatchers.Main) {
-                    _searchVibeState.value = VibeSearchUiState.Success(res.vibeResult, res.radioTracks)
-                    if (res.radioTracks.isNotEmpty()) {
-                        _searchResults.value = res.radioTracks
+                    _searchVibeState.value = VibeSearchUiState.Success(res.vibeResult, songsOnly)
+                    if (songsOnly.isNotEmpty()) {
+                        _searchResults.value = songsOnly
                     }
                 }
             } catch (e: Exception) {
@@ -776,7 +791,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playVibePrompt(prompt: String) {
-        submitHomeVibeQuery(prompt, autoPlay = true)
+        submitHomeVibeQuery(prompt, autoPlay = false)
     }
 
     fun clearVibeQuery() {

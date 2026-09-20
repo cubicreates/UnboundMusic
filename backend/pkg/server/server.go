@@ -871,9 +871,16 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 			queriesToSearch = queriesToSearch[:3]
 		}
 		for _, searchQuery := range queriesToSearch {
-			tracks, searchErr := s.ytClient.Search(r.Context(), searchQuery)
+			tracks, searchErr := s.ytClient.SearchWithCategory(r.Context(), searchQuery, "song")
 			if searchErr == nil && len(tracks) > 0 {
 				for _, t := range tracks {
+					// Strictly ensure only songs are included (reject albums, artists, playlists, browse IDs)
+					if t.ItemType == "album" || t.ItemType == "artist" || t.ItemType == "playlist" ||
+						strings.HasPrefix(t.ID, "UC") || strings.HasPrefix(t.ID, "MPREb_") ||
+						strings.HasPrefix(t.ID, "VL") || strings.HasPrefix(t.ID, "PL") ||
+						strings.HasPrefix(t.BrowseID, "UC") || strings.HasPrefix(t.BrowseID, "MPREb_") {
+						continue
+					}
 					if !seenIDs[t.ID] {
 						seenIDs[t.ID] = true
 						radioTracks = append(radioTracks, models.TrackItem{

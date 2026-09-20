@@ -434,6 +434,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
     val libraryFolders: StateFlow<Map<String, List<LocalTrack>>> = _libraryFolders.asStateFlow()
 
+    // ==================== Affective MIR & Decoupled Vibe State ====================
+    // Invariant: Home Vibe state and Search Vibe state are strictly decoupled.
+    // Submitting a Home Vibe prompt NEVER mutates _searchResults or modifies Discover tab state.
     private val _homeVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
     val homeVibeState: StateFlow<VibeSearchUiState> = _homeVibeState.asStateFlow()
 

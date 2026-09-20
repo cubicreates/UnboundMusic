@@ -824,7 +824,9 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type VibeSearchRequestBody struct {
-		Prompt string `json:"prompt"`
+		Prompt   string `json:"prompt"`
+		Region   string `json:"region"`
+		Language string `json:"language"`
 	}
 
 	var req VibeSearchRequestBody
@@ -839,7 +841,18 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vibeResult, err := s.aiRunner.ParseVibeQuery(r.Context(), prompt)
+	region := strings.ToUpper(strings.TrimSpace(req.Region))
+	if region == "" {
+		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
+	}
+	if region == "" {
+		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-Country-Code")))
+	}
+	if region == "" {
+		region = "IN"
+	}
+
+	vibeResult, err := s.aiRunner.ParseVibeQuery(r.Context(), prompt, region)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to parse vibe prompt: "+err.Error())
 		return
@@ -880,7 +893,11 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Fallback to regional explore charts if online search yields zero tracks or is offline
 	if len(radioTracks) == 0 && s.ytExploreEng != nil {
-		fallback, _ := s.ytExploreEng.FetchRegionalCharts(r.Context(), "US", "en")
+		lang := strings.ToLower(strings.TrimSpace(req.Language))
+		if lang == "" {
+			lang = "en"
+		}
+		fallback, _ := s.ytExploreEng.FetchRegionalCharts(r.Context(), region, lang)
 		if len(fallback) > 0 {
 			if len(fallback) > 10 {
 				radioTracks = fallback[:10]
@@ -889,7 +906,7 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else if len(radioTracks) == 0 && s.exploreEng != nil {
-		charts, chartErr := s.exploreEng.GetTopCharts(r.Context(), "US")
+		charts, chartErr := s.exploreEng.GetTopCharts(r.Context(), region)
 		if chartErr == nil && len(charts) > 0 {
 			limit := 10
 			if len(charts) < limit {

@@ -257,6 +257,7 @@ type PlaybackEvent struct {
 // VibeQueryResult encapsulates structured search parameters parsed from natural language prompts.
 type VibeQueryResult struct {
 	OriginalPrompt string   `json:"original_prompt"`
+	Region         string   `json:"region,omitempty"`
 	TargetGenres   []string `json:"target_genres"`
 	MoodTags       []string `json:"mood_tags"`
 	EnergyLevel    string   `json:"energy_level"` // "HIGH", "MEDIUM", "CHILL", "INTENSE"

@@ -265,6 +265,27 @@ type VibeQueryResult struct {
 	SearchKeywords []string `json:"search_keywords"`
 }
 
+// IsRegional returns true if a specific region was used for cultural seed mapping.
+func (v VibeQueryResult) IsRegional() bool {
+	return v.Region != ""
+}
+
+// HasSearchKeywords returns true if search query keywords were synthesized.
+func (v VibeQueryResult) HasSearchKeywords() bool {
+	return len(v.SearchKeywords) > 0
+}
+
+// PrimaryMood returns the first mood tag or target genre as a fallback descriptor.
+func (v VibeQueryResult) PrimaryMood() string {
+	if len(v.MoodTags) > 0 {
+		return v.MoodTags[0]
+	}
+	if len(v.TargetGenres) > 0 {
+		return v.TargetGenres[0]
+	}
+	return "Vibe"
+}
+
 // MoodCapsule represents a situational time-aware recommendation category card.
 type MoodCapsule struct {
 	Tag         string `json:"tag"`

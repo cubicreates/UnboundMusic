@@ -90,7 +90,8 @@ data class VibeResult(
     val moodTags: List<String> = emptyList(),
     val energyLevel: String = "MEDIUM",
     val suggestedBpm: Int = 120,
-    val searchKeywords: List<String> = emptyList()
+    val searchKeywords: List<String> = emptyList(),
+    val region: String = "IN"
 )
 
 /**

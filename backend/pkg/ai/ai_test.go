@@ -369,3 +369,44 @@ func TestDeduceTrackMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestIndianRegionalGymAndLoveVibes(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	// 1. Gym Workout Prompt in India
+	resGym, err := runner.ParseVibeQuery(ctx, "gym workout motivation", "IN")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+	if resGym.EnergyLevel != "INTENSE" {
+		t.Errorf("expected INTENSE for gym prompt, got: %s", resGym.EnergyLevel)
+	}
+	hasMalhariOrSultan := false
+	for _, kw := range resGym.SearchKeywords {
+		if strings.Contains(kw, "Malhari") || strings.Contains(kw, "Sultan") || strings.Contains(kw, "Aarambh") {
+			hasMalhariOrSultan = true
+			break
+		}
+	}
+	if !hasMalhariOrSultan {
+		t.Errorf("expected Indian workout anthems in keywords, got: %v", resGym.SearchKeywords)
+	}
+
+	// 2. Romantic Love Prompt in India
+	resLove, err := runner.ParseVibeQuery(ctx, "romantic songs for date night", "IN")
+	if err != nil {
+		t.Fatalf("ParseVibeQuery failed: %v", err)
+	}
+	hasTumHiHoOrKesariya := false
+	for _, kw := range resLove.SearchKeywords {
+		if strings.Contains(kw, "Tum Hi Ho") || strings.Contains(kw, "Kesariya") || strings.Contains(kw, "Raataan Lambiyan") {
+			hasTumHiHoOrKesariya = true
+			break
+		}
+	}
+	if !hasTumHiHoOrKesariya {
+		t.Errorf("expected Bollywood romantic seeds in keywords, got: %v", resLove.SearchKeywords)
+	}
+}
+

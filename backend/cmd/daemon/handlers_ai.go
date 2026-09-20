@@ -45,6 +45,9 @@ func (d *Daemon) HandleVibeSearch(w http.ResponseWriter, r *http.Request) {
 
 	region := strings.ToUpper(strings.TrimSpace(req.Region))
 	if region == "" {
+		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-Unbound-Region")))
+	}
+	if len(region) < 2 || len(region) > 3 {
 		region = "IN"
 	}
 	language := strings.ToLower(strings.TrimSpace(req.Language))

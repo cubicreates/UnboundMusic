@@ -843,12 +843,16 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 
 	region := strings.ToUpper(strings.TrimSpace(req.Region))
 	if region == "" {
+		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-Unbound-Region")))
+	}
+	if region == "" {
 		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
 	}
 	if region == "" {
 		region = strings.ToUpper(strings.TrimSpace(r.Header.Get("X-Country-Code")))
 	}
-	if region == "" {
+	// Sanitize to valid 2-letter or 3-letter country code
+	if len(region) < 2 || len(region) > 3 {
 		region = "IN"
 	}
 

@@ -191,7 +191,10 @@ fun GuestHomeScreen(
                 isOfflineReady = true,
                 statusText = when {
                     isVibeLoadingNow -> "Vibe AI: Analyzing prompt & curating tracks..."
-                    isVibeActive -> "Vibe AI: \"${(vibeState as VibeSearchUiState.Success).vibeResult.originalPrompt}\" active"
+                    isVibeActive -> {
+                        val vr = (vibeState as VibeSearchUiState.Success).vibeResult
+                        "Vibe AI: \"${vr.originalPrompt}\" (${vr.region} Curated)"
+                    }
                     else -> "Vibe AI Engine: Offline Ready (SmolLM2 135M Active)"
                 }
             )

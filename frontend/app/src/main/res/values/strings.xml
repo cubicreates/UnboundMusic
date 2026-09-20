@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">UnboundMusic</string>
+    <string name="vibe_ai_loading">Vibe AI: Analyzing prompt &amp; curating tracks...</string>
+    <string name="vibe_ai_ready">Vibe AI Engine: Offline Ready</string>
+    <string name="vibe_radio_tracks">VIBE RADIO TRACKS</string>
+    <string name="curated_vibe_tracks">Curated Vibe Tracks</string>
+    <string name="reset_vibe">Reset</string>
+    <string name="clear_vibe">Clear Vibe</string>
+    <string name="tuning_vibe_radio">Tuning Vibe Radio...</string>
 </resources>

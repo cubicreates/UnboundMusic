@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">अनबाउंड म्यूज़िक</string>
+    <string name="vibe_ai_loading">वाइब एआई: गानों का विश्लेषण और चयन जारी है...</string>
+    <string name="vibe_ai_ready">वाइब एआई इंजन: ऑफलाइन तैयार</string>
+    <string name="vibe_radio_tracks">वाइब रेडियो ट्रैक्स</string>
+    <string name="curated_vibe_tracks">विशेष चयनित वाइब ट्रैक्स</string>
+    <string name="reset_vibe">रीसेट करें</string>
+    <string name="clear_vibe">वाइब हटाएं</string>
+    <string name="tuning_vibe_radio">वाइब रेडियो ट्यून हो रहा है...</string>
+</resources>

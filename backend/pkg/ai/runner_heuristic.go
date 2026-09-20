@@ -16,18 +16,28 @@ import (
 )
 
 // parseVibeQueryHeuristic evaluates keywords across musical genres, moods, and energy levels.
-func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult, error) {
+func (r *Runner) parseVibeQueryHeuristic(prompt string, regions ...string) (*models.VibeQueryResult, error) {
 	trimmed := strings.TrimSpace(prompt)
 	if trimmed == "" {
 		return nil, fmt.Errorf("prompt cannot be empty")
 	}
 
+	var region string
+	if len(regions) > 0 && strings.TrimSpace(regions[0]) != "" {
+		region = strings.ToUpper(strings.TrimSpace(regions[0]))
+	} else {
+		region = "US"
+	}
+
 	lower := strings.ToLower(trimmed)
 	res := &models.VibeQueryResult{
 		OriginalPrompt: trimmed,
+		Region:         region,
 		EnergyLevel:    "MEDIUM",
 		SuggestedBPM:   115,
 	}
+
+	seeds := GetRegionalSeeds(region)
 
 	// 1. Identify Musical Genres
 	genreKeywords := map[string][]string{
@@ -114,63 +124,41 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 
 	cleanQuery := strings.Join(cleanTokens, " ")
 
-	// 5. Synthesize high-yield targeted music search queries
+	// 5. Synthesize high-yield targeted music search queries using culturally authentic regional seeds
 	var searchQueries []string
 
 	// Primary synthesized query based on recognized mood / genre
 	if len(res.MoodTags) > 0 {
 		switch res.MoodTags[0] {
 		case "Triumphant":
-			searchQueries = append(searchQueries,
-				"epic victory anthems",
-				"stadium rock hype motivation",
-				"we are the champions queen",
-				"eye of the tiger survivor",
-				"hall of fame the script",
-				"remember the name fort minor",
-			)
+			searchQueries = append(searchQueries, seeds.VictoryAnthems...)
 		case "Motivational":
-			searchQueries = append(searchQueries,
-				"motivation workout anthems",
-				"inspiring epic cinematic music",
-				"till i collapse eminem",
-				"stronger kanye west",
-			)
+			searchQueries = append(searchQueries, seeds.VictoryAnthems...)
 		case "Melancholic":
-			if cleanQuery != "" && cleanQuery != "sad" {
-				searchQueries = append(searchQueries, cleanQuery+" sad songs")
-			} else {
-				searchQueries = append(searchQueries, "sad songs", "melancholy acoustic songs")
-			}
+			searchQueries = append(searchQueries, seeds.MelancholySad...)
 		case "Aggressive":
 			if strings.Contains(lower, "phonk") {
 				searchQueries = append(searchQueries, "gym phonk workout", "aggressive drift phonk")
-			} else if len(res.TargetGenres) > 0 {
-				searchQueries = append(searchQueries, res.TargetGenres[0]+" gym workout hype")
 			} else {
-				searchQueries = append(searchQueries, "workout gym motivation music")
+				searchQueries = append(searchQueries, seeds.WorkoutHype...)
 			}
 		case "Euphoric":
-			searchQueries = append(searchQueries, "upbeat feel good happy songs", "dance party hits")
+			searchQueries = append(searchQueries, seeds.PartyDance...)
 		case "Chill":
 			if strings.Contains(lower, "sleep") || strings.Contains(lower, "slepp") || strings.Contains(lower, "slepy") || strings.Contains(lower, "bedtime") || strings.Contains(lower, "tired") {
-				searchQueries = append(searchQueries,
-					"deep sleep relaxing ambient music",
-					"sleep music calming delta waves",
-					"peaceful ambient sleep sounds",
-				)
+				searchQueries = append(searchQueries, seeds.SleepAmbient...)
 			} else if strings.Contains(lower, "study") || strings.Contains(lower, "focus") || strings.Contains(lower, "coding") {
-				searchQueries = append(searchQueries, "study beats lofi focus music")
+				searchQueries = append(searchQueries, seeds.FocusStudy...)
 			} else {
-				searchQueries = append(searchQueries, "lofi chill beats to relax")
+				searchQueries = append(searchQueries, seeds.SleepAmbient...)
 			}
 		case "Romantic":
-			searchQueries = append(searchQueries, "romantic love songs", "slow acoustic romance")
+			searchQueries = append(searchQueries, seeds.RomanticLove...)
 		}
 	} else if len(res.TargetGenres) > 0 {
 		switch res.TargetGenres[0] {
 		case "Lo-Fi / Chill":
-			searchQueries = append(searchQueries, "lofi chill beats to relax")
+			searchQueries = append(searchQueries, seeds.FocusStudy...)
 		case "Hip-Hop / Rap":
 			searchQueries = append(searchQueries, "top hip hop rap hits")
 		case "Rock / Metal":
@@ -188,14 +176,26 @@ func (r *Runner) parseVibeQueryHeuristic(prompt string) (*models.VibeQueryResult
 		}
 	}
 
-	// If clean query has specific keywords preserved, prioritize or append
-	if cleanQuery != "" {
+	// Filter out generic phrases so we don't query literal "victory songs" which returns royalty-free noise
+	genericVibePhrases := map[string]bool{
+		"victory songs": true, "victory song": true, "victory music": true, "victorious songs": true,
+		"sleep songs": true, "sleepy songs": true, "sleepy music": true, "sleeping songs": true,
+		"sad songs": true, "sad music": true, "gym songs": true, "gym music": true,
+		"workout songs": true, "workout music": true, "party songs": true, "party music": true,
+		"chill songs": true, "chill music": true, "study songs": true, "study music": true,
+		"love songs": true, "romantic songs": true,
+	}
+
+	// If clean query has specific artist/title keywords preserved (not generic mood phrase), append it
+	if cleanQuery != "" && !genericVibePhrases[cleanQuery] {
 		searchQueries = append(searchQueries, cleanQuery)
 	}
 
-	// Always ensure raw keywords exist for token fallback
+	// Always ensure raw keywords exist for token fallback if specific
 	for _, tok := range cleanTokens {
-		searchQueries = append(searchQueries, tok)
+		if !genericVibePhrases[tok] && len(tok) > 2 {
+			searchQueries = append(searchQueries, tok)
+		}
 	}
 
 	// Absolute fallback if everything was stripped

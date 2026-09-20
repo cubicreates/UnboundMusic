@@ -33,6 +33,7 @@ val HomeMoodFilters = listOf(
     "Relax",
     "Sleep",
     "Energize",
+    "Victory",
     "Sad",
     "Romance",
     "Feel Good",

@@ -73,7 +73,10 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 import kotlinx.coroutines.delay
 
-private val suggestedPrompts = listOf(
+import androidx.compose.ui.platform.LocalContext
+import com.cubicreates.unboundmusic.util.GeoLocationProvider
+
+private val suggestedPromptsGlobal = listOf(
     "Hey I am feeling Sad play some music",
     "Heavy workout motivation at the gym",
     "Late night rainy highway drive",
@@ -82,13 +85,32 @@ private val suggestedPrompts = listOf(
     "Melancholy acoustic heartbreak ballads"
 )
 
+private val suggestedPromptsIndian = listOf(
+    "Victory Songs",
+    "Hey I am feeling Sad play some music",
+    "High energy gym workout Bollywood Punjabi",
+    "Late night drive acoustic Hindi indie",
+    "Peaceful Sufi acoustic soul songs",
+    "Heartbroken romantic Hindi ballads"
+)
+
 data class QuickVibeChip(
     val label: String,
     val prompt: String,
     val iconEmoji: String
 )
 
-private val quickVibeChips = listOf(
+private val quickVibeChipsIndian = listOf(
+    QuickVibeChip("Victory", "Victory Songs", "🏆"),
+    QuickVibeChip("Sadness", "Hey I am feeling Sad play some music", "🌧"),
+    QuickVibeChip("Desi Hype", "High energy gym workout Bollywood Punjabi", "⚡"),
+    QuickVibeChip("Sufi Soul", "Peaceful Sufi acoustic soul songs", "🕊"),
+    QuickVibeChip("Romance", "Heartbroken romantic Hindi ballads", "❤️"),
+    QuickVibeChip("Night Drive", "Late night drive acoustic Hindi indie", "🌙"),
+    QuickVibeChip("Lo-Fi Chill", "Lofi chill beats to relax", "☕")
+)
+
+private val quickVibeChipsGlobal = listOf(
     QuickVibeChip("Victory", "Victory Songs", "🏆"),
     QuickVibeChip("Sadness", "Hey I am feeling Sad play some music", "🌧"),
     QuickVibeChip("Gym Hype", "Heavy workout gym motivation music", "⚡"),
@@ -148,10 +170,18 @@ fun VibePromptBar(
 ) {
     var textInput by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val userCountry = remember(context) { GeoLocationProvider.getCountryCode(context) }
+    val suggestedPrompts = remember(userCountry) {
+        if (userCountry.equals("IN", ignoreCase = true)) suggestedPromptsIndian else suggestedPromptsGlobal
+    }
+    val quickVibeChips = remember(userCountry) {
+        if (userCountry.equals("IN", ignoreCase = true)) quickVibeChipsIndian else quickVibeChipsGlobal
+    }
     var promptIndex by remember { mutableIntStateOf(0) }
 
     // Cycle hint examples every 4 seconds when input is blank
-    LaunchedEffect(textInput) {
+    LaunchedEffect(textInput, suggestedPrompts) {
         if (textInput.isBlank()) {
             while (true) {
                 delay(4000)

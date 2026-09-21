@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -252,6 +253,12 @@ fun LibraryScreen(
                         onOpenRecentlyPlayed = { subView = LibrarySubView.RECENT_PLAYED },
                         onOpenDownloaded = { subView = LibrarySubView.DOWNLOADED },
                         onStartShazam = onStartShazam,
+                        onShufflePlayAll = {
+                            if (tracks.isNotEmpty()) {
+                                val s = tracks.shuffled()
+                                onTrackSelect(s.first(), s)
+                            }
+                        },
                         onRefresh = onRefresh,
                         onCreatePlaylist = {
                             newPlaylistTitle = ""
@@ -263,8 +270,8 @@ fun LibraryScreen(
 
                 LibrarySubView.TRACKS -> {
                     LibraryTracksListView(
-                        title = "Offline Tracks",
-                        subtitle = "${tracks.size} tracks on this device",
+                        title = "My Songs",
+                        subtitle = "${tracks.size} songs on this device",
                         tracks = tracks,
                         onBack = { subView = LibrarySubView.HUB },
                         onTrackSelect = { track, list -> onTrackSelect(track, list) },
@@ -347,8 +354,8 @@ fun LibraryScreen(
 
                 LibrarySubView.DOWNLOADED -> {
                     LibraryTracksListView(
-                        title = "Downloaded Tracks",
-                        subtitle = "${effectiveDownloaded.size} offline tracks ready for playback",
+                        title = "Downloads",
+                        subtitle = "${effectiveDownloaded.size} downloaded songs ready offline",
                         tracks = effectiveDownloaded,
                         onBack = { subView = LibrarySubView.HUB },
                         onTrackSelect = { track, list -> onTrackSelect(track, list) },
@@ -440,6 +447,7 @@ private fun LibraryHubView(
     onOpenRecentlyPlayed: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onStartShazam: () -> Unit,
+    onShufflePlayAll: () -> Unit = {},
     onRefresh: () -> Unit,
     onCreatePlaylist: () -> Unit,
     onPlaylistClick: (CustomPlaylist) -> Unit
@@ -450,9 +458,9 @@ private fun LibraryHubView(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(top = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header: Clean "Library" title with refresh button (NO 3-dots, NO search icon)
+        // Top Header: Clean "Library" title with scan & refresh button
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -468,7 +476,7 @@ private fun LibraryHubView(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Personal audio, folders & playlists",
+                    text = "Personal audio, downloads & playlists",
                     fontSize = 13.sp,
                     color = OnSurfaceVariant
                 )
@@ -491,86 +499,113 @@ private fun LibraryHubView(
             }
         }
 
-        // ==================== The 6 Hub Category Tiles ====================
-        Column(
+        // ==================== 1. Quick Category Filter Chips ====================
+        var selectedFilter by remember { mutableStateOf("All") }
+        val categoryFilters = listOf("All", "My Songs", "Downloads", "Favorites", "Playlists", "Folders")
+        LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp)
         ) {
-            // Row 1: OFFLINE TRACKS, FOLDERS, FAVORITE
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                UnboundHubTile(
-                    title = "TRACKS",
-                    count = tracksCount.toString(),
-                    subtitle = "Local audio",
-                    icon = Icons.Default.MusicNote,
-                    accentColor = Color(0xFF2979FF), // Electric Blue
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenTracks
-                )
-
-                UnboundHubTile(
-                    title = "FOLDERS",
-                    count = foldersCount.toString(),
-                    subtitle = "Directories",
-                    icon = Icons.Default.Folder,
-                    accentColor = Color(0xFFFF9100), // Warm Amber
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenFolders
-                )
-
-                UnboundHubTile(
-                    title = "FAVORITE",
-                    count = favoritesCount.toString(),
-                    subtitle = "Liked tracks",
-                    icon = Icons.Default.Favorite,
-                    accentColor = Color(0xFFFF5252), // Coral Red
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenFavorites
-                )
-            }
-
-            // Row 2: RECENT PLAYED, DOWNLOADED, SHAZAM
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                UnboundHubTile(
-                    title = "HISTORY",
-                    count = recentlyPlayedCount.toString(),
-                    subtitle = "Recent played",
-                    icon = Icons.Default.History,
-                    accentColor = Color(0xFF00E5FF), // Aqua Cyan
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenRecentlyPlayed
-                )
-
-                UnboundHubTile(
-                    title = "OFFLINE",
-                    count = downloadedCount.toString(),
-                    subtitle = "Downloaded",
-                    icon = Icons.Default.Download,
-                    accentColor = Color(0xFF00E676), // Neon Green
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenDownloaded
-                )
-
-                UnboundHubTile(
-                    title = "SHAZAM",
-                    count = "IDENTIFY",
-                    subtitle = "Audio scan",
-                    icon = Icons.Default.GraphicEq,
-                    accentColor = Color(0xFFB388FF), // Neon Purple
-                    badgeText = "LIVE",
-                    modifier = Modifier.weight(1f),
-                    onClick = onStartShazam
-                )
+            items(categoryFilters) { cat ->
+                val isSelected = selectedFilter == cat
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (isSelected) UnboundPrimary else SurfaceGlassHighest,
+                    border = BorderStroke(1.dp, if (isSelected) UnboundPrimary else BorderGlass),
+                    modifier = Modifier.clickable {
+                        selectedFilter = cat
+                        when (cat) {
+                            "My Songs" -> onOpenTracks()
+                            "Downloads" -> onOpenDownloaded()
+                            "Favorites" -> onOpenFavorites()
+                            "Folders" -> onOpenFolders()
+                            else -> {}
+                        }
+                    }
+                ) {
+                    Text(
+                        text = cat,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) OnPrimary else OnSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                    )
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        // ==================== 2. Hero Feature Card: My Songs ====================
+        ModernHeroMySongsCard(
+            count = tracksCount,
+            onClick = onOpenTracks,
+            onShuffle = onShufflePlayAll
+        )
+
+        // ==================== 3. Bento Split Row: Downloads & Favorites ====================
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ModernBentoMediumCard(
+                title = "Downloads",
+                count = downloadedCount.toString(),
+                subtitle = "Saved offline",
+                icon = Icons.Default.Download,
+                accentColor = Color(0xFF00E676), // Neon Green
+                badgeText = "OFFLINE",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenDownloaded
+            )
+
+            ModernBentoMediumCard(
+                title = "Favorites",
+                count = favoritesCount.toString(),
+                subtitle = "Liked tracks",
+                icon = Icons.Default.Favorite,
+                accentColor = Color(0xFFFF5252), // Coral Rose
+                badgeText = "LIKED",
+                modifier = Modifier.weight(1f),
+                onClick = onOpenFavorites
+            )
+        }
+
+        // ==================== 4. Sleek Utility Row: Folders, History, Shazam ====================
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ModernUtilityCompactCard(
+                title = "Folders",
+                count = foldersCount.toString(),
+                subtitle = "Storage",
+                icon = Icons.Default.Folder,
+                accentColor = Color(0xFFFF9100), // Warm Amber
+                modifier = Modifier.weight(1f),
+                onClick = onOpenFolders
+            )
+
+            ModernUtilityCompactCard(
+                title = "Recent",
+                count = recentlyPlayedCount.toString(),
+                subtitle = "Played",
+                icon = Icons.Default.History,
+                accentColor = Color(0xFF00E5FF), // Aqua Cyan
+                modifier = Modifier.weight(1f),
+                onClick = onOpenRecentlyPlayed
+            )
+
+            ModernUtilityCompactCard(
+                title = "Identify",
+                count = "SCAN",
+                subtitle = "Shazam",
+                icon = Icons.Default.GraphicEq,
+                accentColor = Color(0xFFB388FF), // Neon Purple
+                badgeText = "LIVE",
+                modifier = Modifier.weight(1f),
+                onClick = onStartShazam
+            )
+        }
 
         // ==================== Playlists Section ====================
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -737,10 +772,133 @@ private fun LibraryHubView(
     }
 }
 
-// ==================== Unbound Hub Tile Component ====================
+// ==================== Modern Library Hub Components ====================
 
 @Composable
-private fun UnboundHubTile(
+private fun ModernHeroMySongsCard(
+    count: Int,
+    onClick: () -> Unit,
+    onShuffle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accentBlue = Color(0xFF2979FF)
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xFF161922),
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(
+                    accentBlue.copy(alpha = 0.55f),
+                    accentBlue.copy(alpha = 0.15f),
+                    BorderGlass
+                )
+            )
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            accentBlue.copy(alpha = 0.22f),
+                            Color(0xFF181B26),
+                            Color(0xFF10121A)
+                        )
+                    )
+                )
+                .padding(horizontal = 18.dp, vertical = 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        accentBlue.copy(alpha = 0.35f),
+                                        Color(0xFF0D47A1).copy(alpha = 0.45f)
+                                    )
+                                )
+                            )
+                            .border(1.dp, accentBlue.copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = "My Songs",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column {
+                        Text(
+                            text = "My Songs",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurface,
+                            letterSpacing = (-0.02).sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "$count songs on this device",
+                            fontSize = 12.sp,
+                            color = OnSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = accentBlue,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .clickable(onClick = onShuffle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shuffle,
+                            contentDescription = "Shuffle All",
+                            tint = OnPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Shuffle",
+                            color = OnPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModernBentoMediumCard(
     title: String,
     count: String,
     subtitle: String,
@@ -750,109 +908,212 @@ private fun UnboundHubTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Box(
+    Surface(
         modifier = modifier
-            .height(124.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(
-                        accentColor.copy(alpha = 0.28f),
-                        Color(0xFF202020),
-                        Color(0xFF131313)
-                    )
+            .height(116.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF171717),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    accentColor.copy(alpha = 0.50f),
+                    accentColor.copy(alpha = 0.12f),
+                    BorderGlass
                 )
             )
-            .border(
-                BorderStroke(
-                    1.dp,
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
                     Brush.linearGradient(
-                        colors = listOf(
-                            accentColor.copy(alpha = 0.60f),
-                            accentColor.copy(alpha = 0.15f),
-                            BorderGlass
+                        listOf(
+                            accentColor.copy(alpha = 0.16f),
+                            Color(0xFF1B1B1B),
+                            Color(0xFF121212)
                         )
                     )
-                ),
-                shape = RoundedCornerShape(18.dp)
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
+                )
+                .padding(14.dp)
         ) {
-            // Top Row: Icon pill & optional badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(accentColor.copy(alpha = 0.18f))
-                        .border(1.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(11.dp)),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = accentColor,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-
-                if (!badgeText.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(accentColor.copy(alpha = 0.20f))
-                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = badgeText,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = accentColor,
-                            letterSpacing = 0.5.sp
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = accentColor,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
+
+                    if (!badgeText.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(accentColor.copy(alpha = 0.18f))
+                                .border(1.dp, accentColor.copy(alpha = 0.40f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor,
+                                letterSpacing = 0.4.sp
+                            )
+                        }
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = count,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        letterSpacing = (-0.02).sp
+                    )
+                    Spacer(modifier = Modifier.height(1.dp))
+                    Text(
+                        text = title,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = OnSurfaceVariant,
+                        maxLines = 1
+                    )
                 }
             }
+        }
+    }
+}
 
-            // Bottom Column: Count, Title, and Subtitle
-            Column {
-                Text(
-                    text = count,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    letterSpacing = (-0.02).sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+@Composable
+private fun ModernUtilityCompactCard(
+    title: String,
+    count: String,
+    subtitle: String,
+    icon: ImageVector,
+    accentColor: Color,
+    badgeText: String? = null,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .height(96.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF171717),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    accentColor.copy(alpha = 0.42f),
+                    BorderGlass
                 )
-                Spacer(modifier = Modifier.height(1.dp))
-                Text(
-                    text = title,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = accentColor,
-                    letterSpacing = 0.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            )
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            accentColor.copy(alpha = 0.12f),
+                            Color(0xFF181818),
+                            Color(0xFF111111)
+                        )
+                    )
                 )
-                Spacer(modifier = Modifier.height(1.dp))
-                Text(
-                    text = subtitle,
-                    fontSize = 10.sp,
-                    color = OnSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                .padding(10.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(accentColor.copy(alpha = 0.18f))
+                            .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = accentColor,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+
+                    if (!badgeText.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(accentColor.copy(alpha = 0.18f))
+                                .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badgeText,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor,
+                                letterSpacing = 0.3.sp
+                            )
+                        }
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = count,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = title,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OnSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }

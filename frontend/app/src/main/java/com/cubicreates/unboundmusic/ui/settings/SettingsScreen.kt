@@ -1,21 +1,24 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.settings
  * File: SettingsScreen.kt
- * Purpose: Studio Control Hub for Unbound Music.
- *          Manages Google/YouTube Identity banner, 10-Band EQ & Hardware Audio DSP,
- *          Adaptive Studio Theme selector, Spotify Importer, Storage Cache Purge, and GitHub Auto-Updates.
- * Subsystem: Settings / System Controls UI
+ * Purpose: Modern Studio Control & User Account Hub for Unbound Music.
+ *          Features Bento User Identity Hero, Grouped Glass Setting Containers,
+ *          10-Band EQ & Hardware Audio DSP, Adaptive Studio Theme Selector,
+ *          Cloud Sync, Storage Maintenance, and GitHub Auto-Updates.
+ * Subsystem: Settings / User Account UI
  * Concurrency: Thread-safe UI state updates.
  */
 
 package com.cubicreates.unboundmusic.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,19 +35,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
@@ -54,6 +58,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -65,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -134,19 +140,21 @@ fun SettingsScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(top = 12.dp, bottom = 40.dp)
+                .padding(horizontal = 18.dp)
+                .padding(top = 10.dp, bottom = 36.dp)
         ) {
-            // Header Action Bar
+            // ==================== Header Action Bar ====================
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
                         .background(SurfaceGlassHighest)
                         .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
@@ -154,415 +162,574 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = OnSurface
+                        tint = OnSurface,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                Text(
-                    text = "Studio Settings",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "You & Studio",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface,
+                        letterSpacing = (-0.02).sp
+                    )
+                    Text(
+                        text = "Account & System Preferences",
+                        fontSize = 11.sp,
+                        color = OnSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
 
-                Spacer(modifier = Modifier.size(40.dp))
+                Spacer(modifier = Modifier.size(42.dp))
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // 0. User Identity & Google Studio Banner
-            Box(
+            // ==================== 0. User Identity Hero Bento Card ====================
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(SurfaceGlassHighest)
-                    .border(
-                        width = 1.dp,
-                        color = if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.5f) else BorderGlass,
-                        shape = RoundedCornerShape(16.dp)
+                    .clip(RoundedCornerShape(22.dp)),
+                shape = RoundedCornerShape(22.dp),
+                color = Color(0xFF14151C),
+                border = BorderStroke(
+                    1.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.55f) else Color(0xFF7C4DFF).copy(alpha = 0.45f),
+                            Color(0xFF262838),
+                            BorderGlass
+                        )
                     )
-                    .padding(16.dp)
+                )
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.18f) else Color(0xFF7C4DFF).copy(alpha = 0.14f),
+                                    Color(0xFF161822),
+                                    Color(0xFF101117)
+                                )
+                            )
+                        )
+                        .padding(18.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(if (isYouTubeConnected) UnboundPrimary else UnboundSurfaceContainerHigh),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isYouTubeConnected && !userAvatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = userAvatarUrl,
-                                contentDescription = "Profile Picture",
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Large Avatar with Glow Ring
+                            Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.35f) else Color(0xFF7C4DFF).copy(alpha = 0.25f),
+                                                Color(0xFF1F2232)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (isYouTubeConnected) UnboundPrimary.copy(alpha = 0.8f) else BorderGlass,
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isYouTubeConnected && !userAvatarUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = userAvatarUrl,
+                                        contentDescription = "Profile Picture",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (isYouTubeConnected && accountName.isNotBlank()) {
+                                    Text(
+                                        text = accountName.take(1).uppercase(),
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = UnboundPrimary
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Offline User",
+                                        tint = OnSurfaceVariant,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (isYouTubeConnected) accountName else "Local User",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OnSurface,
+                                    letterSpacing = (-0.02).sp
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isYouTubeConnected) Color(0xFF00E676) else Color(0xFFFF9100))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isYouTubeConnected) "YouTube Synced" else "Offline Mode",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isYouTubeConnected) Color(0xFF00E676) else Color(0xFFFF9100)
+                                    )
+                                }
+                            }
+
+                            // Connect / Disconnect button
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isYouTubeConnected) Color(0xFFFF3B30).copy(alpha = 0.15f) else UnboundPrimary.copy(alpha = 0.18f),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isYouTubeConnected) Color(0xFFFF3B30).copy(alpha = 0.40f) else UnboundPrimary.copy(alpha = 0.50f)
+                                ),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable {
+                                        if (isYouTubeConnected) onDisconnectYouTubeClick() else onYouTubeSyncClick()
+                                    }
+                            ) {
+                                Text(
+                                    text = if (isYouTubeConnected) "Disconnect" else "Connect",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isYouTubeConnected) Color(0xFFFF5252) else UnboundPrimary,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Quick Status Badges Strip
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AccountStatusPill(
+                                label = "Status",
+                                value = if (isYouTubeConnected) "Online" else "Local Only",
+                                accentColor = if (isYouTubeConnected) Color(0xFF00E676) else Color(0xFFFF9100),
+                                modifier = Modifier.weight(1f)
                             )
-                        } else if (isYouTubeConnected && accountName.isNotBlank()) {
-                            Text(
-                                text = accountName.take(1).uppercase(),
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OnPrimary
+                            AccountStatusPill(
+                                label = "Engine",
+                                value = "Port 45731",
+                                accentColor = Color(0xFF2979FF),
+                                modifier = Modifier.weight(1f)
                             )
-                        } else {
+                            AccountStatusPill(
+                                label = "Theme",
+                                value = currentTheme.displayName.substringBefore(" "),
+                                accentColor = currentTheme.previewPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 1. Audio & DSP Section ====================
+            ModernSectionHeader(title = "AUDIO ENGINE & PRO DSP", accentColor = Color(0xFF7C4DFF))
+
+            ModernGroupedCard {
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Tune,
+                    title = "Parametric EQ & Studio DSP",
+                    subtitle = "10-Band EQ, Sub-Bass Boost, 3D Virtualizer, Loudness",
+                    accentColor = Color(0xFF7C4DFF),
+                    onClick = onEqualizerClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Headphones,
+                    title = "AutoEq Headphone Calibration",
+                    subtitle = "4,000+ Harman target headphone curves",
+                    accentColor = Color(0xFF2979FF),
+                    onClick = onAutoEqClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Bedtime,
+                    title = "Sleep Timer & Fade-Out",
+                    subtitle = "Smooth 30s exponential fade or stop at song end",
+                    accentColor = Color(0xFF00E5FF),
+                    onClick = onSleepTimerClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.HighQuality,
+                    title = "Streaming Audio Quality",
+                    subtitle = "Dynamic bitrates and cellular optimization",
+                    accentColor = Color(0xFF00E676),
+                    valueBadge = streamingQuality.title.substringBefore(" "),
+                    onClick = { showStreamingQualityDialog = true }
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.FileDownload,
+                    title = "Download Audio Quality",
+                    subtitle = "Offline codec and bit-depth target",
+                    accentColor = Color(0xFFFF9100),
+                    valueBadge = downloadQuality.title.substringBefore(" "),
+                    onClick = { showDownloadQualityDialog = true }
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.FileDownload,
+                    title = "Downloads & Offline Storage",
+                    subtitle = "Manage cached tracks, offline songs, and folders",
+                    accentColor = Color(0xFFFF5252),
+                    onClick = onOpenDownloadsHub
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 2. Studio Theme Engine Selector ====================
+            ModernSectionHeader(title = "STUDIO THEME ENGINE", accentColor = Color(0xFFFF9100))
+
+            ModernGroupedCard {
+                Column(modifier = Modifier.padding(vertical = 10.dp, horizontal = 2.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFFF9100).copy(alpha = 0.16f))
+                                .border(1.dp, Color(0xFFFF9100).copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.AccountCircle,
-                                contentDescription = "Offline User",
-                                tint = OnSurfaceVariant,
-                                modifier = Modifier.size(32.dp)
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = Color(0xFFFF9100),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Visual Palette & Accent",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OnSurface
+                            )
+                            Text(
+                                text = "High-contrast dynamic themes tailored for OLED",
+                                fontSize = 11.sp,
+                                color = OnSurfaceVariant
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.width(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppThemePreset.entries.forEach { preset ->
+                            val isSelected = currentTheme == preset
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isSelected) preset.previewPrimary.copy(alpha = 0.14f) else Color(0xFF1B1B1F))
+                                    .border(
+                                        width = if (isSelected) 1.5.dp else 1.dp,
+                                        color = if (isSelected) preset.previewPrimary else Color(0xFF2E2E35),
+                                        shape = RoundedCornerShape(14.dp)
+                                    )
+                                    .clickable { onThemeSelected(preset) }
+                                    .padding(vertical = 10.dp, horizontal = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(preset.previewPrimary)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) Color.White else Color.Transparent,
+                                            shape = CircleShape
+                                        )
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = preset.displayName.substringBefore(" "),
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) preset.previewPrimary else OnSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 3. Playback & Automation Section ====================
+            ModernSectionHeader(title = "PLAYBACK & AUTOMATION", accentColor = Color(0xFF00E676))
+
+            ModernGroupedCard {
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.Favorite,
+                    title = "Auto-Download Liked Songs",
+                    subtitle = "Automatically download favorites ready for offline playback",
+                    accentColor = Color(0xFFFF5252),
+                    checked = autoDownloadLikedSongs,
+                    onCheckedChange = onAutoDownloadLikedSongsChange
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.GraphicEq,
+                    title = "Skip Silence",
+                    subtitle = "Automatically bypass silent intros and acoustic dead space",
+                    accentColor = Color(0xFF00E5FF),
+                    checked = skipSilenceEnabled,
+                    onCheckedChange = onSkipSilenceChange
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.VolumeUp,
+                    title = "Loudness Normalization",
+                    subtitle = "Standardize perceived volume levels across albums",
+                    accentColor = Color(0xFFFF9100),
+                    checked = normalizeVolumeEnabled,
+                    onCheckedChange = onNormalizeVolumeChange
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.Info,
+                    title = "SponsorBlock Music Filter",
+                    subtitle = "Skip non-music promo segments automatically",
+                    accentColor = Color(0xFFB388FF),
+                    checked = sponsorBlockEnabled,
+                    onCheckedChange = onSponsorBlockChange
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 4. Services & Integration Section ====================
+            ModernSectionHeader(title = "SERVICES & CLOUD", accentColor = Color(0xFF2979FF))
+
+            ModernGroupedCard {
+                ModernGroupedActionRow(
+                    icon = Icons.Default.FileDownload,
+                    title = "Import Spotify Playlist",
+                    subtitle = "Match Spotify links against YouTube high-quality audio",
+                    accentColor = Color(0xFF1DB954),
+                    onClick = onSpotifyImportClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Sync,
+                    title = if (isYouTubeConnected) "YouTube Library Sync" else "Connect YouTube Music",
+                    subtitle = if (isYouTubeConnected) "Sync Liked songs, playlists, and subscriptions" else "Ingest your cloud music collection",
+                    accentColor = Color(0xFFFF3B30),
+                    valueBadge = if (isYouTubeConnected) "Active" else null,
+                    onClick = onYouTubeSyncClick
+                )
+
+                ModernRowDivider()
+
+                // Background Playback & OEM Doze Exemption
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val powerManager = remember(context) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+                    } else null
+                }
+                val isIgnoringBatteryOpt = remember(powerManager) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M && powerManager != null) {
+                        powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                    } else true
+                }
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Bedtime,
+                    title = "Background Audio & Doze Exemption",
+                    subtitle = if (isIgnoringBatteryOpt) "Exempted • Continuous playback active across OEM Doze" else "Restricted • Tap to whitelist for uninterrupted playback",
+                    accentColor = Color(0xFFFFD600),
+                    valueBadge = if (isIgnoringBatteryOpt) "Optimized" else "Fix",
+                    onClick = {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            try {
+                                val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = android.net.Uri.parse("package:${context.packageName}")
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                try {
+                                    val intent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 5. Backup & Maintenance Section ====================
+            ModernSectionHeader(title = "BACKUP & SYSTEM MAINTENANCE", accentColor = Color(0xFFFF5252))
+
+            ModernGroupedCard {
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Backup,
+                    title = "Export Backup (JSON)",
+                    subtitle = "Save custom playlists, favorites, and settings to JSON",
+                    accentColor = Color(0xFF2979FF),
+                    onClick = onExportBackupClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.Restore,
+                    title = "Restore from Backup (JSON)",
+                    subtitle = "Restore playlists and settings from a JSON file",
+                    accentColor = Color(0xFF00E676),
+                    onClick = onRestoreBackupClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.DeleteSweep,
+                    title = "Purge AI Models & Cache",
+                    subtitle = cachePurgeStatus ?: "Safely free AI models, temp stream and lyric cache",
+                    accentColor = Color(0xFFFF9100),
+                    onClick = onPurgeCacheClick
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedActionRow(
+                    icon = Icons.Default.DeleteForever,
+                    title = "Clean Storage & Reset",
+                    subtitle = "Purge all local storage and reset filesystems",
+                    accentColor = Color(0xFFFF5252),
+                    onClick = onCleanStorageForUninstallClick
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ==================== 6. Engine & App Info Footer ====================
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp)),
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFF131316),
+                border = BorderStroke(1.dp, Color(0xFF24242A))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isYouTubeConnected) accountName else "Local Offline Studio",
-                            fontSize = 16.sp,
+                            text = "Unbound Music v2.4.0 (Build 240)",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = OnSurface
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (isYouTubeConnected) "YouTube Account Connected • Synced" else "Offline mode • Local audio playback",
-                            fontSize = 12.sp,
-                            color = if (isYouTubeConnected) UnboundPrimary else OnSurfaceVariant
+                            text = "Embedded Go Native Engine • Port 45731",
+                            fontSize = 11.sp,
+                            color = OnSurfaceVariant
                         )
                     }
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (isYouTubeConnected) Color(0x33FF3B30) else UnboundPrimary.copy(alpha = 0.2f))
-                            .clickable {
-                                if (isYouTubeConnected) onDisconnectYouTubeClick() else onYouTubeSyncClick()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(UnboundPrimary.copy(alpha = 0.15f))
+                            .border(1.dp, UnboundPrimary.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+                            .clickable(onClick = onCheckUpdateClick)
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
                     ) {
-                        Text(
-                            text = if (isYouTubeConnected) "Disconnect" else "Connect",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isYouTubeConnected) Color(0xFFFF453A) else UnboundPrimary
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 1. Audio & DSP Section
-            SettingsSectionHeader(title = "AUDIO & PRO DSP")
-
-            SettingsActionTile(
-                icon = Icons.Default.Tune,
-                title = "Parametric EQ & Studio DSP",
-                subtitle = "10-Band EQ, Sub-Bass Boost, 3D Virtualizer, Loudness",
-                onClick = onEqualizerClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.Headphones,
-                title = "AutoEq Headphone Calibration",
-                subtitle = "4,000+ Harman target headphone calibration curves",
-                onClick = onAutoEqClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.Bedtime,
-                title = "Sleep Timer & Fade-Out",
-                subtitle = "Smooth 30s exponential fade attenuation or stop at end of song",
-                onClick = onSleepTimerClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.HighQuality,
-                title = "Streaming Audio Quality",
-                subtitle = streamingQuality.title,
-                onClick = { showStreamingQualityDialog = true }
-            )
-
-            SettingsActionTile(
-                icon = Icons.Default.FileDownload,
-                title = "Downloads & Offline Storage",
-                subtitle = "Manage queued downloads, local music files, and storage cache",
-                onClick = onOpenDownloadsHub
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.HighQuality,
-                title = "Download Audio Quality",
-                subtitle = downloadQuality.title,
-                onClick = { showDownloadQualityDialog = true }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 2. Studio Theme Engine Selector
-            SettingsSectionHeader(title = "STUDIO THEME ENGINE")
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(SurfaceGlassHighest)
-                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Palette,
-                        contentDescription = null,
-                        tint = UnboundPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Visual Aesthetic",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = OnSurface
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AppThemePreset.entries.forEach { preset ->
-                        val isSelected = currentTheme == preset
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSelected) UnboundSurfaceContainerHigh else Color.Transparent)
-                                .border(
-                                    width = if (isSelected) 2.dp else 1.dp,
-                                    color = if (isSelected) preset.previewPrimary else BorderGlass,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .clickable { onThemeSelected(preset) }
-                                .padding(8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(preset.previewPrimary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Update,
+                                contentDescription = "Check for Updates",
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
                             Text(
-                                text = preset.displayName.substringBefore(" "),
+                                text = "Updates",
                                 fontSize = 11.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSelected) OnSurface else OnSurfaceVariant,
-                                textAlign = TextAlign.Center
+                                fontWeight = FontWeight.Bold,
+                                color = UnboundPrimary
                             )
                         }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Playback & Automation Section
-            SettingsSectionHeader(title = "PLAYBACK & AUTOMATION")
-
-            SettingsToggleTile(
-                icon = Icons.Default.Favorite,
-                title = "Auto-Download Liked Songs",
-                subtitle = "Automatically download favorites as MP3 to Unbound/Downloads",
-                checked = autoDownloadLikedSongs,
-                onCheckedChange = onAutoDownloadLikedSongsChange
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsToggleTile(
-                icon = Icons.Default.GraphicEq,
-                title = "Skip Silence",
-                subtitle = "Automatically skip silent intros and outros in audio streams",
-                checked = skipSilenceEnabled,
-                onCheckedChange = onSkipSilenceChange
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsToggleTile(
-                icon = Icons.Default.VolumeUp,
-                title = "Loudness Normalization",
-                subtitle = "Equalize perceived volume across acoustic and modern tracks",
-                checked = normalizeVolumeEnabled,
-                onCheckedChange = onNormalizeVolumeChange
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 3. Integration & Services Section
-            SettingsSectionHeader(title = "SERVICES & INTEGRATIONS")
-
-            SettingsActionTile(
-                icon = Icons.Default.FileDownload,
-                title = "Import Spotify Playlist",
-                subtitle = "Match Spotify links against YouTube Opus audio",
-                onClick = onSpotifyImportClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.Sync,
-                title = if (isYouTubeConnected) "YouTube Library Sync" else "Connect YouTube Music",
-                subtitle = if (isYouTubeConnected) "Sync Liked songs, playlists, subscriptions" else "Ingest your cloud music collection",
-                onClick = onYouTubeSyncClick
-            )
-
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsToggleTile(
-                icon = Icons.Default.Info,
-                title = "SponsorBlock Audio Filter",
-                subtitle = "Skip non-music segments automatically",
-                checked = sponsorBlockEnabled,
-                onCheckedChange = onSponsorBlockChange
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // 4. Storage & Maintenance Section
-            SettingsSectionHeader(title = "STORAGE & MAINTENANCE")
-
-            SettingsActionTile(
-                icon = Icons.Default.DeleteSweep,
-                title = "Purge AI Models & Cache",
-                subtitle = cachePurgeStatus ?: "Safely free AI models, temp stream and lyric cache",
-                onClick = onPurgeCacheClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.DeleteForever,
-                title = "Clean Storage & Uninstall Helper",
-                subtitle = "Purge all Unbound app storage and reset filesystem",
-                onClick = onCleanStorageForUninstallClick
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Background Playback & OEM Doze Exemption
-            SettingsSectionHeader(title = "BACKGROUND PLAYBACK & DOZE")
-
-            val context = androidx.compose.ui.platform.LocalContext.current
-            val powerManager = remember(context) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                    context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
-                } else null
-            }
-            val isIgnoringBatteryOpt = remember(powerManager) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M && powerManager != null) {
-                    powerManager.isIgnoringBatteryOptimizations(context.packageName)
-                } else true
-            }
-
-            SettingsActionTile(
-                icon = Icons.Default.Bedtime,
-                title = "Unrestricted Background Playback",
-                subtitle = if (isIgnoringBatteryOpt) {
-                    "Exempted • Continuous audio playback active across OEM Doze"
-                } else {
-                    "Restricted • Tap to exempt from OEM battery optimization"
-                },
-                onClick = {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                        try {
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = android.net.Uri.parse("package:${context.packageName}")
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            try {
-                                val intent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                context.startActivity(intent)
-                            } catch (_: Exception) {}
-                        }
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Backup & Restore
-            SettingsSectionHeader(title = "BACKUP & RESTORE")
-
-            SettingsActionTile(
-                icon = Icons.Default.Backup,
-                title = "Export Backup (JSON)",
-                subtitle = "Save custom playlists, favorites, and settings to a JSON file",
-                onClick = onExportBackupClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.Restore,
-                title = "Restore from Backup (JSON)",
-                subtitle = "Restore playlists, favorites, and settings from JSON file",
-                onClick = onRestoreBackupClick
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            SettingsActionTile(
-                icon = Icons.Default.Update,
-                title = "Check for Updates",
-                subtitle = "Direct in-app GitHub releases update checker",
-                onClick = onCheckUpdateClick
-            )
-
-            Spacer(modifier = Modifier.height(30.dp))
-
-            // Engine Version Footnote
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Unbound Music v2.4.0 (Build 240)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OnSurfaceVariant
-                )
-                Text(
-                    text = "Embedded Go Native Engine • Port 45731",
-                    fontSize = 11.sp,
-                    color = OnSurfaceVariant.copy(alpha = 0.6f)
-                )
             }
         }
 
+        // ==================== Dialogs ====================
         if (showStreamingQualityDialog) {
             QualitySelectionDialog(
                 title = "Streaming Audio Quality",
@@ -589,6 +756,238 @@ fun SettingsScreen(
     }
 }
 
+// ==================== Modern UI Components ====================
+
+@Composable
+private fun AccountStatusPill(
+    label: String,
+    value: String,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF1C1D26))
+            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+    ) {
+        Column {
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = OnSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(1.dp))
+            Text(
+                text = value,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = accentColor,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModernSectionHeader(
+    title: String,
+    accentColor: Color
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 3.dp, height = 13.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(accentColor)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = OnSurfaceVariant,
+            letterSpacing = 0.8.sp
+        )
+    }
+}
+
+@Composable
+private fun ModernGroupedCard(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF161619),
+        border = BorderStroke(1.dp, Color(0xFF26262B))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun ModernGroupedActionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accentColor: Color,
+    valueBadge: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 11.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(accentColor.copy(alpha = 0.16f))
+                .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = accentColor,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(13.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnSurface,
+                lineHeight = 18.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = OnSurfaceVariant,
+                lineHeight = 14.sp
+            )
+        }
+
+        if (!valueBadge.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(accentColor.copy(alpha = 0.16f))
+                    .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = valueBadge,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = accentColor
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = "Navigate",
+            tint = Color(0xFF666666),
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun ModernGroupedToggleRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accentColor: Color,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp, horizontal = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(accentColor.copy(alpha = 0.16f))
+                .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = accentColor,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(13.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = OnSurface,
+                lineHeight = 18.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = OnSurfaceVariant,
+                lineHeight = 14.sp
+            )
+        }
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = OnPrimary,
+                checkedTrackColor = UnboundPrimary,
+                uncheckedTrackColor = Color(0xFF2A2A2E),
+                uncheckedBorderColor = Color(0xFF3E3E44)
+            )
+        )
+    }
+}
+
+@Composable
+private fun ModernRowDivider() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(0.8.dp)
+            .background(Color(0xFF222227))
+    )
+}
+
 @Composable
 private fun QualitySelectionDialog(
     title: String,
@@ -601,7 +1000,7 @@ private fun QualitySelectionDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(UnboundBackground)
+                .background(Color(0xFF161619))
                 .border(1.dp, BorderGlass, RoundedCornerShape(24.dp))
                 .padding(22.dp)
         ) {
@@ -620,6 +1019,7 @@ private fun QualitySelectionDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
+                            .background(if (isChecked) UnboundPrimary.copy(alpha = 0.12f) else Color.Transparent)
                             .clickable { onSelect(q) }
                             .padding(vertical = 10.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -647,129 +1047,5 @@ private fun QualitySelectionDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun SettingsSectionHeader(title: String) {
-    Text(
-        text = title,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        color = OnSurfaceVariant,
-        letterSpacing = 0.1.sp,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
-}
-
-@Composable
-private fun SettingsActionTile(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceGlassHighest)
-            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(UnboundSurfaceContainerHigh),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = UnboundPrimary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OnSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                fontSize = 12.sp,
-                color = OnSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsToggleTile(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(SurfaceGlassHighest)
-            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
-            .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(UnboundSurfaceContainerHigh),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = UnboundPrimary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.width(14.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OnSurface
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                fontSize = 12.sp,
-                color = OnSurfaceVariant
-            )
-        }
-
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = OnPrimary,
-                checkedTrackColor = UnboundPrimary,
-                uncheckedTrackColor = UnboundSurfaceContainerHigh
-            )
-        )
     }
 }

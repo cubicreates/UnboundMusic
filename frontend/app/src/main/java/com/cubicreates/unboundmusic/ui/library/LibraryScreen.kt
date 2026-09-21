@@ -910,7 +910,7 @@ private fun ModernBentoMediumCard(
 ) {
     Surface(
         modifier = modifier
-            .height(116.dp)
+            .height(126.dp)
             .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
@@ -938,7 +938,7 @@ private fun ModernBentoMediumCard(
                         )
                     )
                 )
-                .padding(14.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -951,17 +951,17 @@ private fun ModernBentoMediumCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(11.dp))
                             .background(accentColor.copy(alpha = 0.20f))
-                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(12.dp)),
+                            .border(1.dp, accentColor.copy(alpha = 0.45f), RoundedCornerShape(11.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = title,
                             tint = accentColor,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
@@ -984,12 +984,13 @@ private fun ModernBentoMediumCard(
                     }
                 }
 
-                Column {
+                Column(modifier = Modifier.padding(bottom = 2.dp)) {
                     Text(
                         text = count,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
+                        lineHeight = 22.sp,
                         letterSpacing = (-0.02).sp
                     )
                     Spacer(modifier = Modifier.height(1.dp))
@@ -998,12 +999,14 @@ private fun ModernBentoMediumCard(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         color = accentColor,
+                        lineHeight = 16.sp,
                         maxLines = 1
                     )
                     Text(
                         text = subtitle,
                         fontSize = 11.sp,
                         color = OnSurfaceVariant,
+                        lineHeight = 14.sp,
                         maxLines = 1
                     )
                 }
@@ -1025,7 +1028,7 @@ private fun ModernUtilityCompactCard(
 ) {
     Surface(
         modifier = modifier
-            .height(96.dp)
+            .height(112.dp)
             .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
@@ -1052,7 +1055,7 @@ private fun ModernUtilityCompactCard(
                         )
                     )
                 )
-                .padding(10.dp)
+                .padding(horizontal = 10.dp, vertical = 8.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
@@ -1065,7 +1068,7 @@ private fun ModernUtilityCompactCard(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(30.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .background(accentColor.copy(alpha = 0.18f))
                             .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
@@ -1075,7 +1078,7 @@ private fun ModernUtilityCompactCard(
                             imageVector = icon,
                             contentDescription = title,
                             tint = accentColor,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -1098,19 +1101,22 @@ private fun ModernUtilityCompactCard(
                     }
                 }
 
-                Column {
+                Column(modifier = Modifier.padding(bottom = 2.dp)) {
                     Text(
                         text = count,
-                        fontSize = 16.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
+                        lineHeight = 20.sp,
                         maxLines = 1
                     )
+                    Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = title,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = OnSurfaceVariant,
+                        lineHeight = 15.sp,
                         maxLines = 1
                     )
                 }

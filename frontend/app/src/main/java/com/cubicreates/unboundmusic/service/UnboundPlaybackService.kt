@@ -22,6 +22,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -42,9 +43,12 @@ import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
+import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.cubicreates.unboundmusic.MainActivity
 import com.cubicreates.unboundmusic.R
 import com.cubicreates.unboundmusic.audio.CrossfadeFilterAudioProcessor
@@ -101,6 +105,8 @@ class UnboundPlaybackService : MediaSessionService() {
         const val NOTIFICATION_CHANNEL_ID = "unbound_media_playback"
         const val NOTIFICATION_ID = 45731
 
+        const val ACTION_CYCLE_REPEAT = "com.cubicreates.unboundmusic.ACTION_CYCLE_REPEAT"
+
         @Volatile
         var activeEqualizerCurve: EqualizerCurve = EqualizerCurve.FLAT
 
@@ -115,6 +121,147 @@ class UnboundPlaybackService : MediaSessionService() {
 
     private val equalizerProcessor = EqualizerAudioProcessor { activeEqualizerCurve }
     private val sleepFadeProcessor = SleepFadeAudioProcessor { activeSleepFadeGain }
+
+    private var forwardingPlayer: UnboundForwardingPlayer? = null
+
+    private fun buildRepeatCommandButton(repeatMode: Int): CommandButton {
+        val (iconRes, displayName) = when (repeatMode) {
+            Player.REPEAT_MODE_ONE -> Pair(R.drawable.ic_notification_repeat_one, "Repeat One")
+            Player.REPEAT_MODE_ALL -> Pair(R.drawable.ic_notification_repeat_all, "Repeat All")
+            else -> Pair(R.drawable.ic_notification_repeat_off, "Repeat Off")
+        }
+        return CommandButton.Builder(iconRes)
+            .setDisplayName(displayName)
+            .setSessionCommand(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
+            .setEnabled(true)
+            .build()
+    }
+
+    private fun updateNotificationCustomLayout(repeatMode: Int) {
+        val session = mediaSession ?: return
+        val repeatBtn = buildRepeatCommandButton(repeatMode)
+        session.setCustomLayout(listOf(repeatBtn))
+    }
+
+    private fun cycleRepeatMode() {
+        val player = exoPlayer ?: return
+        val nextMode = when (player.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
+            else -> Player.REPEAT_MODE_ALL
+        }
+        player.repeatMode = nextMode
+        updateNotificationCustomLayout(nextMode)
+        serviceScope.launch(Dispatchers.Main) {
+            val sc = ServiceConnection.getInstance(applicationContext)
+            val mode = when (nextMode) {
+                Player.REPEAT_MODE_ONE -> PlaybackMode.LOOP_ONE
+                Player.REPEAT_MODE_ALL -> PlaybackMode.LOOP_ALL
+                else -> PlaybackMode.NORMAL
+            }
+            sc.setPlaybackMode(mode)
+        }
+    }
+
+    private fun handleNotificationSkipNext() {
+        serviceScope.launch(Dispatchers.Main) {
+            val sc = ServiceConnection.getInstance(applicationContext)
+            if (sc.onSkipToNextListener != null) {
+                sc.onSkipToNextListener?.invoke()
+            } else {
+                sc.next()
+            }
+        }
+    }
+
+    private fun handleNotificationSkipPrev() {
+        serviceScope.launch(Dispatchers.Main) {
+            val sc = ServiceConnection.getInstance(applicationContext)
+            if (sc.onSkipToPreviousListener != null) {
+                sc.onSkipToPreviousListener?.invoke()
+            } else {
+                sc.previous()
+            }
+        }
+    }
+
+    private fun hasNextQueueItem(): Boolean {
+        val sc = ServiceConnection.getInstance(applicationContext)
+        val state = sc.playbackState.value
+        return state.hasNext || sc.onSkipToNextListener != null
+    }
+
+    private fun hasPreviousQueueItem(): Boolean {
+        val sc = ServiceConnection.getInstance(applicationContext)
+        val state = sc.playbackState.value
+        return state.hasPrevious || sc.onSkipToPreviousListener != null
+    }
+
+    private inner class UnboundForwardingPlayer(
+        player: Player
+    ) : ForwardingPlayer(player) {
+
+        override fun getAvailableCommands(): Player.Commands {
+            return super.getAvailableCommands().buildUpon()
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SET_REPEAT_MODE)
+                .build()
+        }
+
+        override fun isCommandAvailable(command: Int): Boolean {
+            return when (command) {
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SET_REPEAT_MODE -> true
+                else -> super.isCommandAvailable(command)
+            }
+        }
+
+        override fun hasNextMediaItem(): Boolean {
+            return super.hasNextMediaItem() || hasNextQueueItem()
+        }
+
+        override fun hasPreviousMediaItem(): Boolean {
+            return super.hasPreviousMediaItem() || hasPreviousQueueItem()
+        }
+
+        override fun seekToNext() {
+            seekToNextMediaItem()
+        }
+
+        override fun seekToNextMediaItem() {
+            if (super.hasNextMediaItem()) {
+                super.seekToNextMediaItem()
+            } else {
+                handleNotificationSkipNext()
+            }
+        }
+
+        override fun seekToPrevious() {
+            seekToPreviousMediaItem()
+        }
+
+        override fun seekToPreviousMediaItem() {
+            if (currentPosition > 3000L) {
+                seekTo(0L)
+            } else if (super.hasPreviousMediaItem()) {
+                super.seekToPreviousMediaItem()
+            } else {
+                handleNotificationSkipPrev()
+            }
+        }
+
+        override fun setRepeatMode(repeatMode: Int) {
+            super.setRepeatMode(repeatMode)
+            updateNotificationCustomLayout(repeatMode)
+        }
+    }
 
     @OptIn(UnstableApi::class)
     override fun onCreate() {
@@ -233,6 +380,11 @@ class UnboundPlaybackService : MediaSessionService() {
                 }
             }
 
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                Log.i(TAG, "onRepeatModeChanged: repeatMode=$repeatMode")
+                updateNotificationCustomLayout(repeatMode)
+            }
+
             override fun onAudioSessionIdChanged(audioSessionId: Int) {
                 if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId != 0) {
                     AudioEffectController.attachAudioSession(audioSessionId)
@@ -269,10 +421,16 @@ class UnboundPlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val fPlayer = UnboundForwardingPlayer(exoPlayer!!)
+        forwardingPlayer = fPlayer
+
+        val initialRepeatButton = buildRepeatCommandButton(exoPlayer?.repeatMode ?: Player.REPEAT_MODE_OFF)
+
         // MediaSession for system integration
-        mediaSession = MediaSession.Builder(this, exoPlayer!!)
+        mediaSession = MediaSession.Builder(this, fPlayer)
             .setSessionActivity(pendingIntent)
             .setCallback(UnboundMediaSessionCallback())
+            .setCustomLayout(listOf(initialRepeatButton))
             .build()
 
         Log.i(TAG, "Unbound Playback Service successfully initialized.")
@@ -308,6 +466,7 @@ class UnboundPlaybackService : MediaSessionService() {
             player.release()
             release()
         }
+        forwardingPlayer = null
         mediaSession = null
         exoPlayer = null
         super.onDestroy()
@@ -528,6 +687,35 @@ class UnboundPlaybackService : MediaSessionService() {
     }
 
     private inner class UnboundMediaSessionCallback : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+            val connectionResult = super.onConnect(session, controller)
+            val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
+                .add(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
+                .build()
+            return MediaSession.ConnectionResult.accept(
+                availableSessionCommands,
+                connectionResult.availablePlayerCommands
+            )
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): com.google.common.util.concurrent.ListenableFuture<SessionResult> {
+            if (customCommand.customAction == ACTION_CYCLE_REPEAT) {
+                cycleRepeatMode()
+                return com.google.common.util.concurrent.Futures.immediateFuture(
+                    SessionResult(SessionResult.RESULT_SUCCESS)
+                )
+            }
+            return super.onCustomCommand(session, controller, customCommand, args)
+        }
+
         override fun onSetMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,

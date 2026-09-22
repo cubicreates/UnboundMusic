@@ -385,8 +385,16 @@ class ServiceConnection private constructor(private val context: Context) {
         val ctrl = controller
         if (ctrl != null && ctrl.hasNextMediaItem()) {
             ctrl.seekToNextMediaItem()
-        } else {
+        } else if (onSkipToNextListener != null) {
             onSkipToNextListener?.invoke()
+        } else if (originalQueue.isNotEmpty()) {
+            val current = _playbackState.value.currentTrack
+            val idx = originalQueue.indexOfFirst {
+                (it.id.isNotBlank() && it.id == current?.id) ||
+                (it.title.isNotBlank() && it.title.equals(current?.title, ignoreCase = true))
+            }
+            val nextIdx = if (idx in 0 until originalQueue.size - 1) idx + 1 else 0
+            playTrack(originalQueue[nextIdx])
         }
     }
 
@@ -396,10 +404,23 @@ class ServiceConnection private constructor(private val context: Context) {
             return
         }
         val ctrl = controller
+        val pos = ctrl?.currentPosition ?: 0L
+        if (pos > 3000L) {
+            ctrl?.seekTo(0)
+            return
+        }
         if (ctrl != null && ctrl.hasPreviousMediaItem()) {
             ctrl.seekToPreviousMediaItem()
-        } else {
+        } else if (onSkipToPreviousListener != null) {
             onSkipToPreviousListener?.invoke()
+        } else if (originalQueue.isNotEmpty()) {
+            val current = _playbackState.value.currentTrack
+            val idx = originalQueue.indexOfFirst {
+                (it.id.isNotBlank() && it.id == current?.id) ||
+                (it.title.isNotBlank() && it.title.equals(current?.title, ignoreCase = true))
+            }
+            val prevIdx = if (idx > 0) idx - 1 else originalQueue.lastIndex
+            playTrack(originalQueue[prevIdx])
         }
     }
 
@@ -636,7 +657,11 @@ class ServiceConnection private constructor(private val context: Context) {
         override fun onPlaybackStateChanged(playbackState: Int) {
             syncState()
             if (playbackState == Player.STATE_ENDED) {
-                onTrackEndedListener?.invoke()
+                if (onTrackEndedListener != null) {
+                    onTrackEndedListener?.invoke()
+                } else {
+                    next()
+                }
             }
         }
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = syncState()

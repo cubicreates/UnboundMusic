@@ -73,6 +73,7 @@ import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.account.YouTubeDeviceAuthSheet
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.genre.GenreDetailScreen
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
@@ -95,7 +96,6 @@ fun MainApp(
     var isPlayerExpanded by remember { mutableStateOf(false) }
 
     // Modal navigation states
-    var showSettings by remember { mutableStateOf(false) }
     var showEqualizer by remember { mutableStateOf(false) }
     var showAutoEqPicker by remember { mutableStateOf(false) }
     var showRecap by remember { mutableStateOf(false) }
@@ -261,6 +261,10 @@ fun MainApp(
     }
     val currentDownloadProgress = currentTask?.progress ?: 0.0
 
+    BackHandler(enabled = selectedTab != NavigationTab.HOME && !isPlayerExpanded) {
+        selectedTab = NavigationTab.HOME
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -277,8 +281,8 @@ fun MainApp(
                     accountName = accountName,
                     isLoggedIn = isYouTubeConnected,
                     activeDownloadsCount = activeDownloadsCount,
-                    onMenuClick = { showSettings = true },
-                    onProfileClick = { showSettings = true },
+                    onMenuClick = { selectedTab = NavigationTab.YOU },
+                    onProfileClick = { selectedTab = NavigationTab.YOU },
                     onDownloadsClick = { showDownloadsScreen = true }
                 )
             },
@@ -308,12 +312,12 @@ fun MainApp(
                             userAvatarUrl = userAvatarUrl,
                             accountName = accountName,
                             isLoggedIn = isYouTubeConnected,
-                            isProfileActive = showSettings,
+                            isProfileActive = (selectedTab == NavigationTab.YOU),
                             onTabSelected = { tab ->
                                 selectedTab = tab
                             },
                             onProfileClick = {
-                                showSettings = true
+                                selectedTab = NavigationTab.YOU
                             }
                         )
                     }
@@ -368,7 +372,7 @@ fun MainApp(
                                         viewModel.playTrackWithQueue(track, queue)
                                         isPlayerExpanded = true
                                     },
-                                    onProfileClick = { showSettings = true },
+                                    onProfileClick = { selectedTab = NavigationTab.YOU },
                                     onMenuClick = {
                                         viewModel.loadRecap()
                                         showRecap = true
@@ -474,7 +478,7 @@ fun MainApp(
                                         isPlayerExpanded = true
                                     },
                                     onRefresh = { viewModel.refreshLibrary() },
-                                    onProfileClick = { showSettings = true },
+                                    onProfileClick = { selectedTab = NavigationTab.YOU },
                                     favoriteTracks = favoriteTracks,
                                     recentlyPlayedTracks = recentlyPlayedTracks,
                                     onOpenEqualizer = { showEqualizer = true },
@@ -485,45 +489,43 @@ fun MainApp(
                                     onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
                                 )
                             }
+                            NavigationTab.YOU -> {
+                                SettingsScreen(
+                                    onClose = { selectedTab = NavigationTab.HOME },
+                                    onEqualizerClick = { showEqualizer = true },
+                                    onAutoEqClick = { showAutoEqPicker = true },
+                                    isYouTubeConnected = isYouTubeConnected,
+                                    accountName = accountName,
+                                    userAvatarUrl = userAvatarUrl,
+                                    currentTheme = selectedTheme,
+                                    cachePurgeStatus = cachePurgeStatus,
+                                    onThemeSelected = { viewModel.setTheme(it) },
+                                    onYouTubeSyncClick = { launchYouTubeAuth() },
+                                    onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
+                                    onPurgeCacheClick = { viewModel.purgeCache() },
+                                    onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
+                                    autoDownloadLikedSongs = autoDownloadLikedSongs,
+                                    skipSilenceEnabled = skipSilenceEnabled,
+                                    normalizeVolumeEnabled = normalizeVolumeEnabled,
+                                    sponsorBlockEnabled = sponsorBlockEnabled,
+                                    streamingQuality = streamingQuality,
+                                    downloadQuality = downloadQuality,
+                                    onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
+                                    onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
+                                    onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
+                                    onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
+                                    onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
+                                    onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+                                    onOpenDownloadsHub = { showDownloadsScreen = true },
+                                    onSleepTimerClick = { showSleepTimerFromSettings = true },
+                                    onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
+                                    onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
+                                )
+                            }
                         }
                     }
                 }
             }
-
-        // Modal 1: Settings Screen
-        if (showSettings) {
-            SettingsScreen(
-                onClose = { showSettings = false },
-                onEqualizerClick = { showEqualizer = true },
-                onAutoEqClick = { showAutoEqPicker = true },
-                isYouTubeConnected = isYouTubeConnected,
-                accountName = accountName,
-                userAvatarUrl = userAvatarUrl,
-                currentTheme = selectedTheme,
-                cachePurgeStatus = cachePurgeStatus,
-                onThemeSelected = { viewModel.setTheme(it) },
-                onYouTubeSyncClick = { launchYouTubeAuth() },
-                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
-                onPurgeCacheClick = { viewModel.purgeCache() },
-                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
-                autoDownloadLikedSongs = autoDownloadLikedSongs,
-                skipSilenceEnabled = skipSilenceEnabled,
-                normalizeVolumeEnabled = normalizeVolumeEnabled,
-                sponsorBlockEnabled = sponsorBlockEnabled,
-                streamingQuality = streamingQuality,
-                downloadQuality = downloadQuality,
-                onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
-                onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
-                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
-                onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
-                onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
-                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
-                onOpenDownloadsHub = { showDownloadsScreen = true },
-                onSleepTimerClick = { showSleepTimerFromSettings = true },
-                onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
-                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
-            )
-        }
 
         // Modal: Sleep Timer from Settings
         if (showSleepTimerFromSettings) {

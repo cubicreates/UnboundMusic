@@ -55,7 +55,8 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 enum class NavigationTab(val label: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     SEARCH("Search", Icons.Default.Search),
-    LIBRARY("Library", Icons.Default.Favorite)
+    LIBRARY("Library", Icons.Default.Favorite),
+    YOU("You", Icons.Default.Person)
 }
 
 @Composable
@@ -91,7 +92,7 @@ fun UnboundBottomNavBar(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 NavigationTab.values().forEach { tab ->
-                    val isSelected = tab == currentTab && !isProfileActive
+                    val isSelected = tab == currentTab || (tab == NavigationTab.YOU && isProfileActive)
                     val contentColor = if (isSelected) UnboundPrimary else Color(0xFFB0B0B0)
 
                     Column(
@@ -103,16 +104,65 @@ fun UnboundBottomNavBar(
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
-                                onClick = { onTabSelected(tab) }
+                                onClick = {
+                                    onTabSelected(tab)
+                                    if (tab == NavigationTab.YOU) {
+                                        onProfileClick()
+                                    }
+                                }
                             )
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(
-                            imageVector = tab.icon,
-                            contentDescription = tab.label,
-                            tint = contentColor,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        if (tab == NavigationTab.YOU) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) SurfaceGlassHighest else Color.Transparent)
+                                    .then(
+                                        if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
+                                            Modifier.border(
+                                                width = 1.dp,
+                                                color = if (isSelected) UnboundPrimary else BorderGlass,
+                                                shape = CircleShape
+                                            )
+                                        } else Modifier
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = userAvatarUrl,
+                                        contentDescription = "You",
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else if (isLoggedIn && !accountName.isNullOrBlank()) {
+                                    Text(
+                                        text = accountName.take(1).uppercase(),
+                                        color = contentColor,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "You",
+                                        tint = contentColor,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = tab.label,
@@ -121,73 +171,6 @@ fun UnboundBottomNavBar(
                             color = contentColor
                         )
                     }
-                }
-
-                // "You" / Profile Tab Button
-                val isProfileSelected = isProfileActive
-                val profileContentColor = if (isProfileSelected) UnboundPrimary else Color(0xFFB0B0B0)
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (isProfileSelected) UnboundPrimary.copy(alpha = 0.12f) else Color.Transparent)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onProfileClick
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) SurfaceGlassHighest else Color.Transparent)
-                            .then(
-                                if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
-                                    Modifier.border(
-                                        width = 1.dp,
-                                        color = if (isProfileSelected) UnboundPrimary else BorderGlass,
-                                        shape = CircleShape
-                                    )
-                                } else Modifier
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isLoggedIn && !userAvatarUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = userAvatarUrl,
-                                contentDescription = "You",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else if (isLoggedIn && !accountName.isNullOrBlank()) {
-                            Text(
-                                text = accountName.take(1).uppercase(),
-                                color = profileContentColor,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "You",
-                                tint = profileContentColor,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "You",
-                        fontSize = 11.sp,
-                        fontWeight = if (isProfileSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = profileContentColor
-                    )
                 }
             }
         }

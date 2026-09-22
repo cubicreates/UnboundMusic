@@ -137,56 +137,30 @@ fun SettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp)
-                .padding(top = 10.dp, bottom = 36.dp)
+                .padding(top = 14.dp, bottom = 96.dp)
         ) {
-            // ==================== Header Action Bar ====================
-            Row(
+            // ==================== Header Title ====================
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(bottom = 16.dp)
             ) {
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceGlassHighest)
-                        .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = OnSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "You & Studio",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OnSurface,
-                        letterSpacing = (-0.02).sp
-                    )
-                    Text(
-                        text = "Account & System Preferences",
-                        fontSize = 11.sp,
-                        color = OnSurfaceVariant,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Spacer(modifier = Modifier.size(42.dp))
+                Text(
+                    text = "Studio & Preferences",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = OnSurface,
+                    letterSpacing = (-0.02).sp
+                )
+                Text(
+                    text = "Account, Playback & System Settings",
+                    fontSize = 12.sp,
+                    color = OnSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
             }
-
-            Spacer(modifier = Modifier.height(18.dp))
 
             // ==================== 0. User Identity Hero Bento Card ====================
             Surface(

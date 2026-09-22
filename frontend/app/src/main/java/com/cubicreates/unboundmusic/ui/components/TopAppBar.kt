@@ -107,6 +107,7 @@ fun UnboundTopAppBar(
                             NavigationTab.HOME -> "Unbound"
                             NavigationTab.SEARCH -> "Discover"
                             NavigationTab.LIBRARY -> "Library"
+                            NavigationTab.YOU -> "You"
                         },
                         color = UnboundPrimary,
                         fontSize = 24.sp,

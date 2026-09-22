@@ -487,6 +487,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 fetchRydVotes(track)
                             }
                             saveCurrentPlaybackState(0L)
+
+                            // Guest Mode Strategy A: proactively extend radio queue when approaching the end
+                            if (!_isYouTubeConnected.value && track.id.isNotBlank() && !track.id.startsWith("local:")) {
+                                val q = _currentQueue.value
+                                val idx = q.indexOfFirst { it.id == track.id }
+                                if (idx >= 0 && idx >= q.size - 3) {
+                                    fetchGuestAlgorithmicRadio(track, append = true)
+                                }
+                            }
                         }
                     }
                 }
@@ -869,6 +878,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun startRadio(seedTrack: TrackItem, onStarted: (() -> Unit)? = null) {
         if (seedTrack.id.isBlank() && seedTrack.title.isBlank()) return
+        if (!_isYouTubeConnected.value) {
+            playTrack(seedTrack)
+            fetchGuestAlgorithmicRadio(seedTrack, append = false)
+            onStarted?.invoke()
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
@@ -982,7 +997,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val initialQ = listOf(targetTrack)
             _currentQueue.value = initialQ
             serviceConnection.setQueue(initialQ)
-            fetchAutomixQueue(targetTrack)
+            if (!_isYouTubeConnected.value) {
+                fetchGuestAlgorithmicRadio(targetTrack)
+            } else {
+                fetchAutomixQueue(targetTrack)
+            }
         }
 
         // Immediately reset lyrics state and fetch for this specific track
@@ -1252,6 +1271,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        if (!_isYouTubeConnected.value) {
+            // Guest Mode Strategy A: YouTube Native Dynamic Radio Graph algorithm.
+            // Check if user explicitly clicked inside an album playlist detail view
+            val isExplicitAlbumOrPlaylist = albumPlaylistData.value?.let { it.tracks == queue } == true
+            if (!isExplicitAlbumOrPlaylist) {
+                // Dynamically shift upcoming playback queue to YouTube's native algorithmic radio graph
+                // matching this song's artist, genre, and vibe (Strategy A).
+                val initialQ = listOf(track)
+                _currentQueue.value = initialQ
+                serviceConnection.setQueue(initialQ)
+                playTrack(track)
+                fetchGuestAlgorithmicRadio(track)
+                saveCurrentPlaybackState(0L)
+                return
+            }
+        }
+
+        // Signed-in Mode (or Explicit Album Detail): Preserve user's personal queue
         if (queue.size > 1) {
             _currentQueue.value = queue
             serviceConnection.setQueue(queue)
@@ -1264,6 +1301,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             fetchAutomixQueue(track)
         }
         saveCurrentPlaybackState(0L)
+    }
+
+    private var guestRadioJob: Job? = null
+
+    /**
+     * Strategy A: Dynamic YouTube Algorithmic Radio Graph (Guest Mode Only).
+     *
+     * Queries YouTube Music's native /next endpoint with playlistId = RDAMVM<videoId>
+     * to populate 25-50 vibe, artist, and genre-matched tracks into the active playback queue.
+     * When the guest selects a new track (e.g. Imagine Dragons -> ballad -> EDM), the algorithm
+     * dynamically shifts the upcoming queue to match that seed track.
+     */
+    fun fetchGuestAlgorithmicRadio(seedTrack: TrackItem, append: Boolean = false) {
+        if (_isYouTubeConnected.value) return // Strictly guest mode only
+        val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
+        if (cleanId.isBlank() && seedTrack.title.isBlank()) return
+
+        guestRadioJob?.cancel()
+        guestRadioJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Guest Algorithmic Radio (Strategy A): Fetching radio graph for '${seedTrack.title}' ($cleanId)...")
+                var radioTracks: List<TrackItem> = emptyList()
+
+                // Primary (Strategy A): YouTube's native /next radio graph (RDAMVM<videoId>)
+                if (cleanId.isNotBlank()) {
+                    val (code, resp) = client.getRadioNext(cleanId)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        radioTracks = client.parseRadioNext(resp).filter {
+                            it.id != seedTrack.id && it.title.isNotBlank()
+                        }
+                    }
+                }
+
+                // Fallback: If RDAMVM returned empty or seed is local, search for artist + title radio
+                if (radioTracks.isEmpty() && seedTrack.title.isNotBlank()) {
+                    val query = "${seedTrack.artist} ${seedTrack.title} radio".trim()
+                    val (sCode, sResp) = client.search(query, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        radioTracks = client.parseSearchResults(sResp).filter {
+                            it.id != seedTrack.id && it.title.isNotBlank()
+                        }
+                    }
+                }
+
+                if (radioTracks.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        if (!_isYouTubeConnected.value) {
+                            val updatedQueue = if (append) {
+                                val existingIds = _currentQueue.value.map { it.id }.toSet()
+                                _currentQueue.value + radioTracks.filter { !existingIds.contains(it.id) }
+                            } else {
+                                listOf(seedTrack) + radioTracks
+                            }
+                            _currentQueue.value = updatedQueue
+                            serviceConnection.setQueue(updatedQueue)
+                            if (!append) {
+                                val vibeLabel = seedTrack.artist.ifBlank { "Algorithmic" }
+                                com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                    getApplication(),
+                                    "Radio: Shifted to $vibeLabel vibe",
+                                    isLong = false
+                                )
+                            }
+                            Log.i(TAG, "Guest Algorithmic Radio: Successfully shifted queue to ${updatedQueue.size} tracks for '${seedTrack.title}' (${seedTrack.artist})")
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "Guest Algorithmic Radio: No recommendations returned for ${seedTrack.title}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Guest Algorithmic Radio error: ${e.message}")
+            }
+        }
     }
 
     private var automixJob: Job? = null
@@ -1429,7 +1539,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Proactive infinite auto-play: When within 3 tracks of the end of the queue, fetch next batch
             if (currentIndex >= q.size - 3 && q.isNotEmpty()) {
-                fetchAutomixQueue(q.last(), append = true)
+                if (!_isYouTubeConnected.value) {
+                    fetchGuestAlgorithmicRadio(q.last(), append = true)
+                } else {
+                    fetchAutomixQueue(q.last(), append = true)
+                }
             }
 
             val nextIndex = if (currentIndex in 0 until q.size - 1) {

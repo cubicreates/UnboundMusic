@@ -52,10 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import androidx.compose.material.icons.filled.Public
 import com.cubicreates.unboundmusic.data.DaypartingState
-import com.cubicreates.unboundmusic.data.GenreItemDto
-import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.MoodCapsule
 import com.cubicreates.unboundmusic.data.SmartShelfDto
@@ -63,8 +60,6 @@ import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.MoodItem
 import com.cubicreates.unboundmusic.ui.components.MoodsSection
 import com.cubicreates.unboundmusic.ui.components.defaultMoods
-import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
-import com.cubicreates.unboundmusic.ui.components.TopTracksGrid
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.VibeAIStatusCard
 import com.cubicreates.unboundmusic.ui.components.VibePromptBar
@@ -95,8 +90,6 @@ fun PersonalizedHomeScreen(
     userMixes: List<MixDto> = emptyList(),
     smartShelves: List<SmartShelfDto> = emptyList(),
     daypartingState: DaypartingState? = null,
-    genreSections: List<GenreSectionDto> = emptyList(),
-    tracks: List<TrackItem> = defaultTopTracks,
     isSyncing: Boolean = false,
     isLoadingMore: Boolean = false,
     currentTrackId: String = "",
@@ -105,7 +98,6 @@ fun PersonalizedHomeScreen(
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit = { _, _ -> },
     onMoodSelect: (MoodItem) -> Unit = {},
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
-    onGenreSelect: (GenreItemDto) -> Unit = {},
     onMixClick: (MixDto) -> Unit = {},
     onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
@@ -125,19 +117,19 @@ fun PersonalizedHomeScreen(
 ) {
     val listState = rememberLazyListState()
 
-    // Quick picks tracks: dynamically replaced by Vibe Search, or smart shelf named "Quick picks", or synced tracks, or trending chart tracks
+    // Quick picks tracks: personal taste (Vibe Search, or user smart shelf "Quick picks", or personal synced tracks)
     val quickPicksShelf = smartShelves.find { it.title.contains("quick", ignoreCase = true) }
     val isVibeActive = vibeState is VibeSearchUiState.Success && vibeState.radioTracks.isNotEmpty()
-    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, tracks, selectedMood, moodTracks, vibeState) {
+    val quickPicksTracks = remember(quickPicksShelf, syncedTracks, selectedMood, moodTracks, vibeState) {
         if (isVibeActive) {
             (vibeState as VibeSearchUiState.Success).radioTracks
         } else if (selectedMood.equals("All", ignoreCase = true)) {
-            quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.ifEmpty { tracks }.take(16)
+            quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
         } else {
             if (moodTracks.isNotEmpty()) {
                 moodTracks.take(16)
             } else {
-                quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.ifEmpty { tracks }.take(16)
+                quickPicksShelf?.tracks?.ifEmpty { null } ?: syncedTracks.take(16)
             }
         }
     }
@@ -440,73 +432,12 @@ fun PersonalizedHomeScreen(
                 }
             }
         } else if (smartShelves.isEmpty()) {
-            // Loading / Ingestion state when syncing first time
+            // Loading / Ingestion state — strictly personal, NO Global Top 100
             item(key = "sync_placeholder") {
                 PersonalizedSyncingPlaceholder(
                     isSyncing = isSyncing,
                     onSyncClick = onSyncClick
                 )
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-
-        // 8. Genre & Mood Discovery Boards (matching Guest Mode parity)
-        if (genreSections.isNotEmpty()) {
-            item(key = "genre_discovery_board") {
-                Spacer(modifier = Modifier.height(12.dp))
-                MoodAndGenreBoard(
-                    sections = genreSections,
-                    onGenreClick = onGenreSelect
-                )
-                Spacer(modifier = Modifier.height(28.dp))
-            }
-        }
-
-        // 9. Trending Billboard / Global Charts Top 100 (matching Guest Mode parity)
-        val chartList = if (tracks.isNotEmpty()) tracks else defaultTopTracks
-        if (chartList.isNotEmpty()) {
-            item(key = "billboard_header") {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Public,
-                            contentDescription = null,
-                            tint = UnboundPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Trending Billboard",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface
-                        )
-                    }
-                    Text(
-                        text = "Global Top 100",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = UnboundPrimary
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            item(key = "billboard_grid") {
-                TopTracksGrid(
-                    tracks = chartList,
-                    onTrackClick = { track, queue ->
-                        onTrackSelect(track, queue)
-                    }
-                )
-                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }

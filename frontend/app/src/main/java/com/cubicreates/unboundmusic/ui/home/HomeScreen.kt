@@ -70,7 +70,7 @@ fun HomeScreen(
             .background(UnboundBackground)
     ) {
         // Dual-Mode Routing:
-        // Mode 1: Logged-in YouTube user -> Personalized "My Music" (Zero Global Billboard Top 100)
+        // Mode 1: Logged-in YouTube user -> Personalized "My Music" + Discovery & Charts Parity
         // Mode 2: Guest / Logged-out user -> Billboard Top 100 Charts & Connect CTA
         if (isYouTubeConnected) {
             PersonalizedHomeScreen(
@@ -80,6 +80,8 @@ fun HomeScreen(
                 userMixes = userMixes,
                 smartShelves = smartShelves,
                 daypartingState = daypartingState,
+                genreSections = genreSections,
+                tracks = tracks,
                 isSyncing = isSyncing,
                 isLoadingMore = isLoadingMore,
                 currentTrackId = currentTrackId,
@@ -88,6 +90,7 @@ fun HomeScreen(
                 onTrackSelect = onTrackSelect,
                 onMoodSelect = onMoodSelect,
                 onCapsuleSelect = onCapsuleSelect,
+                onGenreSelect = onGenreSelect,
                 onMixClick = onMixClick,
                 onAlbumPlaylistClick = onAlbumPlaylistClick,
                 onProfileClick = onProfileClick,

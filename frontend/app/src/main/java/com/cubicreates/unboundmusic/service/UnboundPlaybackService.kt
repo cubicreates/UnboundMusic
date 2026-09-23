@@ -125,12 +125,12 @@ class UnboundPlaybackService : MediaSessionService() {
     private var forwardingPlayer: UnboundForwardingPlayer? = null
 
     private fun buildRepeatCommandButton(repeatMode: Int): CommandButton {
-        val (iconRes, displayName) = when (repeatMode) {
-            Player.REPEAT_MODE_ONE -> Pair(R.drawable.ic_notification_repeat_one, "Repeat One")
-            Player.REPEAT_MODE_ALL -> Pair(R.drawable.ic_notification_repeat_all, "Repeat All")
-            else -> Pair(R.drawable.ic_notification_repeat_off, "Repeat Off")
+        val (icon, displayName) = when (repeatMode) {
+            Player.REPEAT_MODE_ONE -> Pair(CommandButton.ICON_REPEAT_ONE, "Repeat: One")
+            Player.REPEAT_MODE_ALL -> Pair(CommandButton.ICON_REPEAT_ALL, "Repeat: All")
+            else -> Pair(CommandButton.ICON_REPEAT_OFF, "Repeat: Off")
         }
-        return CommandButton.Builder(iconRes)
+        return CommandButton.Builder(icon)
             .setDisplayName(displayName)
             .setSessionCommand(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
             .setEnabled(true)
@@ -186,18 +186,6 @@ class UnboundPlaybackService : MediaSessionService() {
         }
     }
 
-    private fun hasNextQueueItem(): Boolean {
-        val sc = ServiceConnection.getInstance(applicationContext)
-        val state = sc.playbackState.value
-        return state.hasNext || sc.onSkipToNextListener != null
-    }
-
-    private fun hasPreviousQueueItem(): Boolean {
-        val sc = ServiceConnection.getInstance(applicationContext)
-        val state = sc.playbackState.value
-        return state.hasPrevious || sc.onSkipToPreviousListener != null
-    }
-
     private inner class UnboundForwardingPlayer(
         player: Player
     ) : ForwardingPlayer(player) {
@@ -221,14 +209,6 @@ class UnboundPlaybackService : MediaSessionService() {
                 Player.COMMAND_SET_REPEAT_MODE -> true
                 else -> super.isCommandAvailable(command)
             }
-        }
-
-        override fun hasNextMediaItem(): Boolean {
-            return super.hasNextMediaItem() || hasNextQueueItem()
-        }
-
-        override fun hasPreviousMediaItem(): Boolean {
-            return super.hasPreviousMediaItem() || hasPreviousQueueItem()
         }
 
         override fun seekToNext() {
@@ -292,7 +272,7 @@ class UnboundPlaybackService : MediaSessionService() {
                 NOTIFICATION_CHANNEL_ID,
                 R.string.app_name
             ).apply {
-                setSmallIcon(R.mipmap.ic_launcher)
+                setSmallIcon(R.drawable.ic_stat_music)
             }
         )
 
@@ -427,11 +407,13 @@ class UnboundPlaybackService : MediaSessionService() {
         val initialRepeatButton = buildRepeatCommandButton(exoPlayer?.repeatMode ?: Player.REPEAT_MODE_OFF)
 
         // MediaSession for system integration
-        mediaSession = MediaSession.Builder(this, fPlayer)
+        val session = MediaSession.Builder(this, fPlayer)
             .setSessionActivity(pendingIntent)
             .setCallback(UnboundMediaSessionCallback())
             .setCustomLayout(listOf(initialRepeatButton))
             .build()
+        mediaSession = session
+        addSession(session)
 
         Log.i(TAG, "Unbound Playback Service successfully initialized.")
     }
@@ -451,6 +433,11 @@ class UnboundPlaybackService : MediaSessionService() {
         return mediaSession
     }
 
+    override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
+        Log.i(TAG, "onUpdateNotification: startInForegroundRequired=$startInForegroundRequired, isPlaying=${session.player.isPlaying}")
+        super.onUpdateNotification(session, startInForegroundRequired)
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
         if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
@@ -463,6 +450,7 @@ class UnboundPlaybackService : MediaSessionService() {
         serviceScope.cancel()
         AudioEffectController.release()
         mediaSession?.run {
+            removeSession(this)
             player.release()
             release()
         }
@@ -695,9 +683,17 @@ class UnboundPlaybackService : MediaSessionService() {
             val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
                 .add(SessionCommand(ACTION_CYCLE_REPEAT, Bundle.EMPTY))
                 .build()
+            val availablePlayerCommands = connectionResult.availablePlayerCommands.buildUpon()
+                .add(Player.COMMAND_PLAY_PAUSE)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SET_REPEAT_MODE)
+                .build()
             return MediaSession.ConnectionResult.accept(
                 availableSessionCommands,
-                connectionResult.availablePlayerCommands
+                availablePlayerCommands
             )
         }
 

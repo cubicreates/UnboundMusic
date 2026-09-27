@@ -1,22 +1,20 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.splash
  * File: SplashScreen.kt
- * Purpose: Studio-mode technical brutalist Splash Screen for Unbound Music.
- *          Features 32dp canvas grid, corner tick brackets, cyan pulse glow, technical progress bar,
- *          and telemetry phase readout.
+ * Purpose: Studio-Mode technical brutalist Splash Screen for Unbound Music.
+ *          Ultra-optimized with 0 infinite render loops, phase-skipping GPU draw,
+ *          and tactile spring entry physics.
  * Subsystem: Startup / Splash UI
  */
 
 package com.cubicreates.unboundmusic.ui.splash
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -41,12 +40,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 private const val SPLASH_LOGO_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuCiCHsQD6ywAgAk-W6VoIUdO1HFQY3AI2rLY_bbdoWFW0xgkO8UJYAd3UknVFBw2t0B_WLsOrbRERpoUHFswsBKpfSwWOAHb-sJwqi7jhP8BNO_UW0xdMqfqRGuYPpfoFdX1lAlk0UvkRm7Qvw8H1j-cz5zwhr0rV8ITYg_ELFlOv1XCPI73JT4DDjOc6uCxRQSv0Vl1TucvQdHpseSMrq-Bv1SipZ8mNKhXz5VBYZdY_A059PL9UMC7g"
 
@@ -59,21 +60,28 @@ fun SplashScreen(
 ) {
     val animatedProgress by animateFloatAsState(
         targetValue = progress.coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
         label = "progress_anim"
     )
 
-    // Cyan border pulse effect
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse_border")
-    val pulseGlowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_alpha"
-    )
+    // Event-driven entry springs (0% CPU at rest)
+    val entryAlpha = remember { Animatable(0f) }
+    val entryScale = remember { Animatable(0.88f) }
+
+    LaunchedEffect(Unit) {
+        launch {
+            entryAlpha.animateTo(1f, tween(300))
+        }
+        launch {
+            entryScale.animateTo(
+                1f,
+                spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
 
     LaunchedEffect(progress) {
         if (progress >= 1f) {
@@ -87,61 +95,38 @@ fun SplashScreen(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF0A0A0A),
-                        Color(0xFF000000)
+                        Color(0xFF0F1215),
+                        Color(0xFF07090A),
+                        Color(0xFF020304)
                     )
                 )
             )
     ) {
-        // 1. Studio-Mode 32dp Grid Overlay
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val gridSpacing = 32.dp.toPx()
-            val gridColor = Color(0xFF3D494D).copy(alpha = 0.18f)
-
-            // Vertical grid lines
-            var x = 0f
-            while (x <= size.width) {
-                drawLine(
-                    color = gridColor,
-                    start = Offset(x, 0f),
-                    end = Offset(x, size.height),
-                    strokeWidth = 1f
-                )
-                x += gridSpacing
-            }
-
-            // Horizontal grid lines
-            var y = 0f
-            while (y <= size.height) {
-                drawLine(
-                    color = gridColor,
-                    start = Offset(0f, y),
-                    end = Offset(size.width, y),
-                    strokeWidth = 1f
-                )
-                y += gridSpacing
-            }
-        }
-
-        // 2. Central Technical Brutalist Presentation
+        // Central Technical Brutalist Presentation (Hardware Layered)
         Column(
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .graphicsLayer {
+                    alpha = entryAlpha.value
+                    scaleX = entryScale.value
+                    scaleY = entryScale.value
+                },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             // Brutalist Logo Container with Corner Brackets
             Box(
                 modifier = Modifier
-                    .size(200.dp)
+                    .size(190.dp)
                     .shadow(
-                        elevation = 24.dp,
-                        spotColor = Color(0xFF4CD6FB).copy(alpha = pulseGlowAlpha * 0.4f),
+                        elevation = 20.dp,
+                        spotColor = Color(0xFF4CD6FB).copy(alpha = 0.35f),
                         shape = RoundedCornerShape(2.dp)
                     )
                     .background(Color(0xFF0E0E0E))
                     .border(
                         width = 1.dp,
-                        color = Color(0xFF4CD6FB).copy(alpha = pulseGlowAlpha)
+                        color = Color(0xFF4CD6FB).copy(alpha = 0.5f)
                     )
                     .drawBehind {
                         // Technical L-shaped corner accent brackets (length: 10dp, thickness: 2dp)
@@ -171,42 +156,42 @@ fun SplashScreen(
                     model = SPLASH_LOGO_URL,
                     contentDescription = "Unbound Music Logo",
                     modifier = Modifier
-                        .size(120.dp)
-                        .shadow(elevation = 16.dp, spotColor = Color(0xFF4CD6FB).copy(alpha = 0.5f)),
+                        .size(110.dp)
+                        .shadow(elevation = 12.dp, spotColor = Color(0xFF4CD6FB).copy(alpha = 0.4f)),
                     contentScale = ContentScale.Fit
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Brand Typography
             Text(
                 text = "UNBOUND",
-                fontSize = 44.sp,
+                fontSize = 40.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Color(0xFFB2EBFF),
                 letterSpacing = (-0.04).sp
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
-            // Technical Horizontal Loading Bar (192dp x 4dp)
+            // Technical Horizontal Loading Bar (192dp x 3dp)
             Box(
                 modifier = Modifier
                     .width(192.dp)
-                    .height(4.dp)
-                    .background(Color(0xFF1F1F1F))
-                    .border(width = 1.dp, color = Color(0xFF3D494D))
+                    .height(3.dp)
+                    .background(Color(0xFF1B1B1B))
+                    .border(width = 0.5.dp, color = Color(0xFF333B3E))
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(animatedProgress)
-                        .height(4.dp)
+                        .height(3.dp)
                         .background(Color(0xFF4CD6FB))
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Monospace Telemetry Readout
             Row(

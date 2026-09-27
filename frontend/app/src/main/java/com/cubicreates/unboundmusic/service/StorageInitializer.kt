@@ -42,9 +42,14 @@ object StorageInitializer {
             if (!backendRoot.exists()) backendRoot.mkdirs()
             if (!modelsDir.exists()) modelsDir.mkdirs()
 
-            // 1. Extract and set executable permissions for fpcalc & llama-cli (must be in app internal binDir for execve permissions)
-            extractBinaryAsset(context, "bin/arm64-v8a/fpcalc", File(binDir, "fpcalc"))
-            extractBinaryAsset(context, "bin/arm64-v8a/llama-cli", File(binDir, "llama-cli"))
+            // 1. Extract and set executable permissions for fpcalc & llama-cli (only on supported architectures)
+            val isArm64 = android.os.Build.SUPPORTED_ABIS.any { it.contains("arm64", ignoreCase = true) }
+            if (isArm64) {
+                extractBinaryAsset(context, "bin/arm64-v8a/fpcalc", File(binDir, "fpcalc"))
+                extractBinaryAsset(context, "bin/arm64-v8a/llama-cli", File(binDir, "llama-cli"))
+            } else {
+                Log.i(TAG, "Non-arm64 architecture detected (${android.os.Build.SUPPORTED_ABIS.joinToString()}). Skipping arm64 native binary extraction to prevent emulator/system crash.")
+            }
 
             // 2. Extract AI models archive into hidden .backend/models/ only if optionally bundled
             val assetList = try { context.assets.list("payload") } catch (_: Exception) { null }

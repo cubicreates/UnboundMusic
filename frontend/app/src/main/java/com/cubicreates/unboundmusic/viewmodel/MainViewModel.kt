@@ -608,55 +608,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun deployDaemonAndHydrate() {
         viewModelScope.launch(Dispatchers.IO) {
-            _startupPhase.value = "SYSTEM_INIT"
-            _startupProgress.value = 0.35f
+            try {
+                kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                    _startupPhase.value = "SYSTEM_INIT"
+                    _startupProgress.value = 0.35f
 
-            // Unpack assets and binaries
-            StorageInitializer.initialize(getApplication())
+                    // Unpack assets and binaries safely
+                    StorageInitializer.initialize(getApplication())
 
-            _startupPhase.value = "DAEMON_CONNECT"
-            _startupProgress.value = 0.60f
+                    _startupPhase.value = "DAEMON_CONNECT"
+                    _startupProgress.value = 0.60f
 
-            // Start Go Engine Daemon
-            daemonManager.startDaemonAuto(force = true)
+                    // Start Go Engine Daemon
+                    daemonManager.startDaemonAuto(force = true)
 
-            // Handshake with daemon
-            for (i in 1..10) {
-                try {
-                    val (code, _) = client.healthCheck()
-                    if (code in 200..299) break
-                } catch (e: Exception) {
-                    // Daemon booting
+                    // Handshake with daemon
+                    for (i in 1..10) {
+                        try {
+                            val (code, _) = client.healthCheck()
+                            if (code in 200..299) break
+                        } catch (e: Exception) {
+                            // Daemon booting
+                        }
+                        delay(150)
+                    }
+
+                    _startupPhase.value = "CACHE_HYDRATE"
+                    _startupProgress.value = 0.88f
+                    try { StorageInitializer.unpackModelsIfPending(getApplication()) } catch (_: Exception) {}
+                    val userCountry = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+                    val userLanguage = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
+                    initializeColdStart(userCountry, userLanguage)
+                    loadHomeFeed()
+                    refreshLibrary()
+                    val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
+                    if (sessionStore.hasActiveSession && !sessionStore.cookie.isNullOrBlank()) {
+                        try {
+                            client.syncAccount(sessionStore.cookie!!)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Session re-sync on startup note: ${e.message}")
+                        }
+                    }
+                    checkAccountStatus()
+                    loadAppSettings()
+                    loadCustomEqPresets()
+                    loadMoodsAndGenres(userCountry, userLanguage)
+                } ?: run {
+                    Log.w(TAG, "Startup hydration timed out after 5s; entering safe offline mode")
+                    _startupPhase.value = "OFFLINE_MODE"
                 }
-                delay(150)
+            } catch (e: Exception) {
+                Log.e(TAG, "Startup hydration exception: ${e.message}", e)
+                _startupPhase.value = "OFFLINE_MODE"
+            } finally {
+                _startupProgress.value = 1.0f
+                _startupPhase.value = "READY"
+                delay(200)
+                _isAppReady.value = true
             }
-
-            _startupPhase.value = "CACHE_HYDRATE"
-            _startupProgress.value = 0.88f
-            StorageInitializer.unpackModelsIfPending(getApplication())
-            val userCountry = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-            val userLanguage = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-            initializeColdStart(userCountry, userLanguage)
-            loadHomeFeed()
-            refreshLibrary()
-            val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
-            if (sessionStore.hasActiveSession && !sessionStore.cookie.isNullOrBlank()) {
-                try {
-                    client.syncAccount(sessionStore.cookie!!)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Session re-sync on startup note: ${e.message}")
-                }
-            }
-            checkAccountStatus()
-            loadAppSettings()
-            loadCustomEqPresets()
-            loadMoodsAndGenres(userCountry, userLanguage)
-            delay(300)
-
-            _startupPhase.value = "READY"
-            _startupProgress.value = 1.0f
-            delay(250)
-            _isAppReady.value = true
         }
     }
 
@@ -3218,7 +3227,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Position Ticker ====================
 
     /**
-     * Ticks every 300ms to update playback progress smoothly in the UI and check SponsorBlock skips.
+     * Ticks every 800ms during playback to update progress and check SponsorBlock skips with minimal CPU overhead.
      */
     private fun startPositionTicker() {
         viewModelScope.launch {
@@ -3227,12 +3236,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     serviceConnection.updatePosition()
                     checkSponsorBlockSkip()
                     val now = System.currentTimeMillis()
-                    if (now - lastSavedStateTick >= 4000L) {
+                    if (now - lastSavedStateTick >= 6000L) {
                         lastSavedStateTick = now
                         saveCurrentPlaybackState()
                     }
                 }
-                delay(300)
+                delay(800)
             }
         }
     }

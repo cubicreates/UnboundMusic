@@ -61,10 +61,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
@@ -165,7 +165,10 @@ fun KineticLyricsView(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .scale(textScale)
+                            .graphicsLayer {
+                                scaleX = textScale
+                                scaleY = textScale
+                            }
                             .clip(RoundedCornerShape(8.dp))
                             .clickable { onLineClick(line) }
                             .padding(vertical = 4.dp)
@@ -401,7 +404,7 @@ private fun LyricsShimmerPlaceholder(modifier: Modifier = Modifier) {
     val widths = listOf(0.70f, 0.88f, 0.55f, 0.82f, 0.65f, 0.78f, 0.48f)
 
     Column(
-        modifier = modifier,
+        modifier = modifier.graphicsLayer { this.alpha = alpha },
         verticalArrangement = Arrangement.spacedBy(28.dp)
     ) {
         widths.forEach { widthFraction ->
@@ -410,7 +413,7 @@ private fun LyricsShimmerPlaceholder(modifier: Modifier = Modifier) {
                     .fillMaxWidth(widthFraction)
                     .height(26.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = alpha))
+                    .background(Color.White.copy(alpha = 0.25f))
             )
         }
     }

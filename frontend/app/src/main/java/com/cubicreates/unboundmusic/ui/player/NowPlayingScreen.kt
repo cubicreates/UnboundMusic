@@ -1637,9 +1637,9 @@ private fun M3ExpressivePlayerContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // ANIMATED WAVY SEEK BAR (Live Sine-Wave Oscillating Progress Track)
+        // SLEEK PROGRESS BAR (120 FPS Hardware-Accelerated Pill Track)
         Column(modifier = Modifier.fillMaxWidth()) {
-            WavySeekBar(
+            SleekProgressBar(
                 progressFraction = progress,
                 isPlaying = isPlaying,
                 activeColor = UnboundPrimary,

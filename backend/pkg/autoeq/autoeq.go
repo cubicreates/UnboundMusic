@@ -1,7 +1,8 @@
 /*
  * Package: autoeq
  * File: autoeq.go
- * Purpose: Parametric 10-band equalizer and Harman acoustic target curve calibration engine for 4,000+ headphone models.
+ * Purpose: Parametric 10-band equalizer, Harman acoustic target curve calibration engine,
+ *          and continuous logarithmic curve interpolation for headphone models.
  * Subsystem: Audio Processing & Sound Calibration
  * Concurrency: Thread-safe pure lookups and calculation functions safe for concurrent access.
  */
@@ -10,6 +11,7 @@ package autoeq
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 )
@@ -23,12 +25,53 @@ type EQBand struct {
 
 // EQPreset contains 10-band equalization parameters and preamp gain for a specific headphone model.
 type EQPreset struct {
-	ModelID     string   `json:"model_id"`
-	ModelName   string   `json:"model_name"`
-	Brand       string   `json:"brand"`
-	TargetCurve string   `json:"target_curve"` // e.g. "Harman Over-Ear 2018", "Harman In-Ear 2019"
+	ModelID      string   `json:"model_id"`
+	ModelName    string   `json:"model_name"`
+	Brand        string   `json:"brand"`
+	TargetCurve  string   `json:"target_curve"` // e.g. "Harman Over-Ear 2018", "Harman In-Ear 2019"
 	PreampGainDB float64  `json:"preamp_gain_db"`
-	Bands       []EQBand `json:"bands"`
+	Bands        []EQBand `json:"bands"`
+}
+
+// InterpolateGain calculates continuous logarithmic frequency response gain in dB.
+func (p *EQPreset) InterpolateGain(targetFreqHz float64) float64 {
+	if len(p.Bands) == 0 {
+		return 0.0
+	}
+	if targetFreqHz <= float64(p.Bands[0].FrequencyHz) {
+		return p.Bands[0].GainDB
+	}
+	lastIdx := len(p.Bands) - 1
+	if targetFreqHz >= float64(p.Bands[lastIdx].FrequencyHz) {
+		return p.Bands[lastIdx].GainDB
+	}
+
+	for i := 0; i < lastIdx; i++ {
+		f0 := float64(p.Bands[i].FrequencyHz)
+		f1 := float64(p.Bands[i+1].FrequencyHz)
+		if targetFreqHz >= f0 && targetFreqHz <= f1 {
+			// Logarithmic frequency interpolation
+			logF0 := math.Log10(f0)
+			logF1 := math.Log10(f1)
+			logTarget := math.Log10(targetFreqHz)
+			t := (logTarget - logF0) / (logF1 - logF0)
+			return p.Bands[i].GainDB + t*(p.Bands[i+1].GainDB-p.Bands[i].GainDB)
+		}
+	}
+	return 0.0
+}
+
+// ResampleCurve generates an EQBand list resampled to target arbitrary frequencies.
+func (p *EQPreset) ResampleCurve(targetFreqs []int) []EQBand {
+	resampled := make([]EQBand, len(targetFreqs))
+	for i, f := range targetFreqs {
+		resampled[i] = EQBand{
+			FrequencyHz: f,
+			GainDB:      math.Round(p.InterpolateGain(float64(f))*100) / 100,
+			QFactor:     1.41,
+		}
+	}
+	return resampled
 }
 
 // HeadphoneModel contains search metadata for a calibrated headphone profile.
@@ -175,6 +218,48 @@ func (e *Engine) loadBuiltinPresets() {
 			{FrequencyHz: 4000, GainDB: 2.0, QFactor: 1.41},
 			{FrequencyHz: 8000, GainDB: -3.5, QFactor: 1.41},
 			{FrequencyHz: 16000, GainDB: 0.5, QFactor: 1.41},
+		},
+	}, "Over-Ear")
+
+	// 5. Moondrop Blessing 2
+	e.registerPreset(&EQPreset{
+		ModelID:      "moondrop_blessing2",
+		ModelName:    "Blessing 2",
+		Brand:        "Moondrop",
+		TargetCurve:  "Harman In-Ear 2019",
+		PreampGainDB: -4.2,
+		Bands: []EQBand{
+			{FrequencyHz: 31, GainDB: 2.8, QFactor: 1.41},
+			{FrequencyHz: 62, GainDB: 2.1, QFactor: 1.41},
+			{FrequencyHz: 125, GainDB: 0.5, QFactor: 1.41},
+			{FrequencyHz: 250, GainDB: -0.2, QFactor: 1.41},
+			{FrequencyHz: 500, GainDB: 0.0, QFactor: 1.41},
+			{FrequencyHz: 1000, GainDB: 0.5, QFactor: 1.41},
+			{FrequencyHz: 2000, GainDB: -0.8, QFactor: 1.41},
+			{FrequencyHz: 4000, GainDB: 1.2, QFactor: 1.41},
+			{FrequencyHz: 8000, GainDB: -1.5, QFactor: 1.41},
+			{FrequencyHz: 16000, GainDB: 0.8, QFactor: 1.41},
+		},
+	}, "In-Ear / IEM")
+
+	// 6. Beyerdynamic DT 770 Pro 80 Ohm
+	e.registerPreset(&EQPreset{
+		ModelID:      "beyerdynamic_dt770pro_80",
+		ModelName:    "DT 770 Pro (80 Ohm)",
+		Brand:        "Beyerdynamic",
+		TargetCurve:  "Harman Over-Ear 2018",
+		PreampGainDB: -5.8,
+		Bands: []EQBand{
+			{FrequencyHz: 31, GainDB: -2.0, QFactor: 1.41},
+			{FrequencyHz: 62, GainDB: -3.5, QFactor: 1.41},
+			{FrequencyHz: 125, GainDB: -1.5, QFactor: 1.41},
+			{FrequencyHz: 250, GainDB: 0.0, QFactor: 1.41},
+			{FrequencyHz: 500, GainDB: 1.2, QFactor: 1.41},
+			{FrequencyHz: 1000, GainDB: 1.0, QFactor: 1.41},
+			{FrequencyHz: 2000, GainDB: 2.0, QFactor: 1.41},
+			{FrequencyHz: 4000, GainDB: -1.5, QFactor: 1.41},
+			{FrequencyHz: 8000, GainDB: -4.5, QFactor: 1.41},
+			{FrequencyHz: 16000, GainDB: -1.0, QFactor: 1.41},
 		},
 	}, "Over-Ear")
 }

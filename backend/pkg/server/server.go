@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -252,6 +251,7 @@ func NewServer(cfg Config) (*Server, error) {
 	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/fallback/resolve", s.handleFallbackResolve)
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
@@ -435,23 +435,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// handleStatus returns engine diagnostic information, memory stats, and storage gatekeeper mode.
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	storageStatus, _ := gatekeeper.CheckStorageCapacity(s.cfg.AppStorageRoot)
 
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	payload := map[string]interface{}{
-		"status":           "ONLINE",
-		"engine_version":   "1.0.0-FOSS",
-		"storage":          storageStatus,
-		"goroutines":       runtime.NumGoroutine(),
-		"allocated_ram_mb": float64(m.Alloc) / (1024 * 1024),
-	}
-
-	writeJSON(w, http.StatusOK, payload)
-}
 
 // handleFallbackResolve verifies and resolves songs missing from YouTube via Spotify/P2P fallback.
 func (s *Server) handleFallbackResolve(w http.ResponseWriter, r *http.Request) {
@@ -482,52 +466,7 @@ func (s *Server) EventBus() *events.EventBus {
 	return s.events
 }
 
-// handleEvents streams real-time Server-Sent Events (SSE) to connected clients.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming unsupported by client connection")
-		return
-	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	if s.events == nil {
-		s.events = events.NewEventBus(128)
-	}
-
-	ch := s.events.Subscribe()
-	defer s.events.Unsubscribe(ch)
-
-	// Send initial connection handshake
-	initEvt := events.Event{
-		Type:      "connected",
-		Payload:   map[string]string{"status": "READY"},
-		Timestamp: time.Now(),
-	}
-	_, _ = w.Write(initEvt.SSEMessage())
-	flusher.Flush()
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case evt, open := <-ch:
-			if !open {
-				return
-			}
-			_, err := w.Write(evt.SSEMessage())
-			if err != nil {
-				return
-			}
-			flusher.Flush()
-		}
-	}
-}
 
 // handleSearch handles catalog search queries with optional category filtering (all, music, podcast).
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -2380,44 +2319,7 @@ func (s *Server) handleFingerprintIdentify(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, track)
 }
 
-func (s *Server) handleUnpackPayload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
 
-	var req struct {
-		ArchivePath string `json:"archive_path"`
-		DestDir     string `json:"dest_dir"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid JSON body")
-		return
-	}
-
-	if req.ArchivePath == "" || req.DestDir == "" {
-		writeError(w, http.StatusBadRequest, "archive_path and dest_dir are required")
-		return
-	}
-
-	data, err := os.ReadFile(req.ArchivePath)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("failed to read archive: %v", err))
-		return
-	}
-
-	manifest, err := gatekeeper.DecompressZstdTarStream(data, req.DestDir)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("decompression failed: %v", err))
-		return
-	}
-
-	// Clean up archive file to reclaim storage space
-	_ = os.Remove(req.ArchivePath)
-
-	writeJSON(w, http.StatusOK, manifest)
-}
 
 // corsMiddleware adds permissive headers for local IPC and web frontend callers.
 func corsMiddleware(next http.Handler) http.Handler {

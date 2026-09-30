@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -83,6 +84,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.datasource.okhttp)
     implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)

@@ -12,6 +12,7 @@ package fallback
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -98,6 +99,38 @@ func (idx *IndexerAggregator) SearchAudio(ctx context.Context, title, artist str
 							SizeBytes:   size,
 							AudioFormat: format,
 						})
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Secondary Indexer Failover (Nyaa Audio RSS for lossless FLAC and international tracks)
+	if len(results) == 0 {
+		nyaaURL := fmt.Sprintf("https://nyaa.si/?page=rss&q=%s&c=2_0", url.QueryEscape(cleanQuery))
+		nReq, nErr := http.NewRequestWithContext(ctx, http.MethodGet, nyaaURL, nil)
+		if nErr == nil {
+			nReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+			nResp, nDoErr := idx.httpClient.Do(nReq)
+			if nDoErr == nil {
+				defer nResp.Body.Close()
+				if nResp.StatusCode == http.StatusOK {
+					body, _ := io.ReadAll(nResp.Body)
+					magnets := magnetRegex.FindAllString(string(body), -1)
+					for _, mag := range magnets {
+						match := hashRegex.FindStringSubmatch(mag)
+						if len(match) > 1 {
+							infoHash := strings.ToLower(match[1])
+							results = append(results, AudioTorrentItem{
+								Name:        cleanQuery,
+								MagnetURI:   mag,
+								InfoHash:    infoHash,
+								Seeders:     5,
+								Leechers:    1,
+								SizeBytes:   15 * 1024 * 1024,
+								AudioFormat: detectAudioFormat(cleanQuery),
+							})
+						}
 					}
 				}
 			}

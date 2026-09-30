@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
+	"github.com/cubicreates/unbound-engine/pkg/upstream"
 )
 
 // PlaybackContext defines HTML5 playback preferences.
@@ -134,6 +135,14 @@ func (c *Client) GetStreamInfoWithQuality(ctx context.Context, videoID string, q
 				lastErr = err
 			}
 		}
+	}
+
+	// Upstream Multi-Mirror Resilience Failover:
+	// If direct InnerTube extraction across all personas (VisionOS, Android, iOS, Web) fails
+	// (e.g. cipher rotations, IP blocking, or rate limiting), failover to upstream mirrors (Piped/Invidious).
+	mirrorStream, mirrorErr := upstream.GetDefaultMirrorManager().FetchStreamFromMirror(ctx, videoID)
+	if mirrorErr == nil && mirrorStream != nil && mirrorStream.StreamURL != "" {
+		return mirrorStream, nil
 	}
 
 	return nil, fmt.Errorf("failed to extract audio stream: %w", lastErr)

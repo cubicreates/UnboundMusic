@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
+	"github.com/cubicreates/unbound-engine/pkg/upstream"
 )
 
 // Protobuf Search Filter Constants
@@ -73,8 +74,16 @@ func (c *Client) Search(ctx context.Context, query string) ([]models.Track, erro
 		return combined, nil
 	}
 
-	if err != nil {
-		return nil, err
+	if err != nil || len(tracks) == 0 {
+		// Upstream Mirror Search Failover:
+		// If InnerTube search is down, rate-limited, or blocked, failover to Piped/Invidious mirrors.
+		mirrorTracks, mirrorErr := upstream.GetDefaultMirrorManager().SearchTracksFromMirror(ctx, query)
+		if mirrorErr == nil && len(mirrorTracks) > 0 {
+			return mirrorTracks, nil
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	return tracks, nil
 }
@@ -91,9 +100,24 @@ func (c *Client) SearchWithCategory(ctx context.Context, query, category string)
 	case "music":
 		// 1. Query with strict Song filter
 		tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
+		if (err != nil || len(tracks) == 0) && c.HasCredentials() {
+			// Resilience: If authenticated search fails or returns 0 (e.g. invalid/expired token),
+			// retry as clean guest.
+			guestClient := *c
+			guestClient.cookieStr = ""
+			guestClient.accessToken = ""
+			tracks, err = guestClient.searchWithFilter(ctx, trimmed, FilterSong)
+		}
 		if err != nil || len(tracks) == 0 {
 			// Fallback: regular search but strictly filtered
 			tracks, _ = c.searchWithFilter(ctx, trimmed, "")
+		}
+		if len(tracks) == 0 {
+			// Fallback to upstream mirrors (Piped / Invidious)
+			mirrorTracks, _ := upstream.GetDefaultMirrorManager().SearchTracksFromMirror(ctx, trimmed)
+			if len(mirrorTracks) > 0 {
+				tracks = mirrorTracks
+			}
 		}
 		// Strict music filter: remove non-music videos, vlogs, reviews, long video essays, podcasts, ads
 		var filtered []models.Track

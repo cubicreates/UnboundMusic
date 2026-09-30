@@ -63,8 +63,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -1848,16 +1851,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Shazam Recognition ====================
 
+    val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     fun startAmbientShazamRecognition() {
         if (_isListeningShazam.value) return
-        val activity = com.cubicreates.unboundmusic.MainActivity.instance
-        if (activity != null) {
-            activity.requestRecordAudio {
-                executeAmbientShazamCapture()
-            }
-        } else {
+        val context = getApplication<Application>()
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             executeAmbientShazamCapture()
+        } else {
+            audioPermissionRequestEvent.tryEmit(Unit)
         }
+    }
+
+    fun onAudioPermissionGranted() {
+        executeAmbientShazamCapture()
     }
 
     private fun executeAmbientShazamCapture() {

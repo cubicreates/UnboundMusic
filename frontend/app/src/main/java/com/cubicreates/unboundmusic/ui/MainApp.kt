@@ -244,6 +244,25 @@ fun MainApp(
         }
     }
 
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.onAudioPermissionGranted()
+        } else {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                context,
+                "Microphone permission is required to identify ambient music."
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.audioPermissionRequestEvent.collect {
+            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val activeDownloadsCount = remember(downloadTasks) {
         downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" || it.status == "PAUSED" }
     }

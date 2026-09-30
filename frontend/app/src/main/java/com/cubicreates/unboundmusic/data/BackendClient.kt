@@ -18,6 +18,7 @@ import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import okhttp3.ConnectionPool
 import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
@@ -91,6 +92,11 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     }
 
     companion object {
+        val defaultJson = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            coerceInputValues = true
+        }
         private const val TAG = "BackendClient"
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -208,6 +214,58 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         val encoded = URLEncoder.encode(query, "UTF-8")
         val encodedType = URLEncoder.encode(type, "UTF-8")
         get("/api/v1/search?q=$encoded&type=$encodedType")
+    }
+
+    /** Type-safe decode of SearchResultDto using kotlinx.serialization with fallback to manual parsing. */
+    fun decodeSearchResult(jsonStr: String): SearchResultDto {
+        if (jsonStr.isBlank()) return SearchResultDto()
+        return try {
+            defaultJson.decodeFromString<SearchResultDto>(jsonStr)
+        } catch (_: Exception) {
+            val fallbackTracks = parseSearchResults(jsonStr).map {
+                TrackMetadataDto(
+                    id = it.id,
+                    title = it.title,
+                    artist = it.artist,
+                    album = it.album,
+                    durationMs = it.durationMs,
+                    thumbnail = it.coverUrl,
+                    streamUrl = it.streamUrl,
+                    source = it.source
+                )
+            }
+            SearchResultDto(tracks = fallbackTracks)
+        }
+    }
+
+    /** Type-safe decode of LyricsPayloadDto using kotlinx.serialization. */
+    fun decodeLyricsPayload(jsonStr: String): LyricsPayloadDto? {
+        if (jsonStr.isBlank()) return null
+        return try {
+            defaultJson.decodeFromString<LyricsPayloadDto>(jsonStr)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Type-safe decode of AutoEqSearchResponseDto using kotlinx.serialization. */
+    fun decodeAutoEqSearchResponse(jsonStr: String): AutoEqSearchResponseDto {
+        if (jsonStr.isBlank()) return AutoEqSearchResponseDto()
+        return try {
+            defaultJson.decodeFromString<AutoEqSearchResponseDto>(jsonStr)
+        } catch (_: Exception) {
+            AutoEqSearchResponseDto()
+        }
+    }
+
+    /** Type-safe decode of EQPresetDto using kotlinx.serialization. */
+    fun decodeEQPreset(jsonStr: String): EQPresetDto? {
+        if (jsonStr.isBlank()) return null
+        return try {
+            defaultJson.decodeFromString<EQPresetDto>(jsonStr)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** Parses raw search JSON from /api/v1/search into polymorphic TrackItem list. */

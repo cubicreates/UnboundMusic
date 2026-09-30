@@ -314,22 +314,21 @@ enum class RomanizationMode {
     DUAL
 }
 
-/**
- * Phonetic sub-word syllable timing.
- */
+@Serializable
 data class SyllableDto(
-    val text: String,
-    val startMs: Long,
-    val endMs: Long
+    val text: String = "",
+    @SerialName("start_ms") val startMs: Long = 0,
+    @SerialName("end_ms") val endMs: Long = 0
 )
 
 /**
  * LyricLine model with phonetic Romanization support.
  */
+@Serializable
 data class LyricLineDto(
-    val text: String,
-    val startMs: Long,
-    val endMs: Long,
+    val text: String = "",
+    @SerialName("start_ms") val startMs: Long = 0,
+    @SerialName("end_ms") val endMs: Long = 0,
     val romanized: String = "",
     val syllables: List<SyllableDto> = emptyList()
 )
@@ -337,13 +336,14 @@ data class LyricLineDto(
 /**
  * Full lyrics payload from GET /api/v1/lyrics.
  */
+@Serializable
 data class LyricsPayloadDto(
-    val trackId: String,
-    val title: String,
-    val artist: String,
-    val plainLyrics: String,
+    @SerialName("track_id") val trackId: String = "",
+    val title: String = "",
+    val artist: String = "",
+    @SerialName("plain_lyrics") val plainLyrics: String = "",
     val lines: List<LyricLineDto> = emptyList(),
-    val isWordSynced: Boolean = false,
+    @SerialName("is_word_synced") val isWordSynced: Boolean = false,
     val instrumental: Boolean = false,
     val source: String = ""
 )

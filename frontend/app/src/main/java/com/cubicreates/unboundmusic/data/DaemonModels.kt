@@ -531,4 +531,49 @@ data class SearchResultDto(
     val tracks: List<TrackMetadataDto> = emptyList()
 )
 
+/**
+ * Type-safe @Serializable Headphone Profile metadata DTO from /api/v1/autoeq/search.
+ */
+@Serializable
+data class AutoEqHeadphoneDto(
+    val id: String = "",
+    val name: String = "",
+    val brand: String = "",
+    val type: String = "Over-Ear",
+    @SerialName("has_preset") val hasPreset: Boolean = true
+)
+
+/**
+ * Type-safe @Serializable AutoEq Search Response DTO from /api/v1/autoeq/search.
+ */
+@Serializable
+data class AutoEqSearchResponseDto(
+    val query: String = "",
+    val count: Int = 0,
+    val headphones: List<AutoEqHeadphoneDto> = emptyList()
+)
+
+/**
+ * Type-safe @Serializable Parametric EQ Band DTO.
+ */
+@Serializable
+data class EQBandDto(
+    @SerialName("frequency_hz") val frequencyHz: Int = 1000,
+    @SerialName("gain_db") val gainDb: Double = 0.0,
+    @SerialName("q_factor") val qFactor: Double = 1.414
+)
+
+/**
+ * Type-safe @Serializable Equalizer Preset DTO from /api/v1/autoeq/preset.
+ */
+@Serializable
+data class EQPresetDto(
+    @SerialName("model_id") val modelId: String = "",
+    @SerialName("model_name") val modelName: String = "",
+    val brand: String = "",
+    @SerialName("target_curve") val targetCurve: String = "Harman",
+    @SerialName("preamp_gain_db") val preampGainDb: Double = 0.0,
+    val bands: List<EQBandDto> = emptyList()
+)
+
 

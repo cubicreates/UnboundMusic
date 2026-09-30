@@ -20,6 +20,39 @@ func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stream, err := s.router.ResolvePlayback(r.Context(), trackID, title, artist)
+	if err != nil && s.fallbackCoord != nil && (title != "" || trackID != "") {
+		// Upstream Health Canary / Silent Fallback:
+		// When YouTube extraction fails (e.g. cipher changes, regional block, or 403),
+		// attempt silent resolution via the multi-stage fallback engine instead of failing.
+		queryTitle := title
+		if queryTitle == "" {
+			queryTitle = trackID
+		}
+		fallbackStatus, fbErr := s.fallbackCoord.ResolveAndStream(r.Context(), queryTitle, artist)
+		if fbErr == nil && fallbackStatus != nil && fallbackStatus.SelectedSource != nil {
+			resolvedTitle := queryTitle
+			if fallbackStatus.VerifiedTrack != nil && fallbackStatus.VerifiedTrack.Title != "" {
+				resolvedTitle = fallbackStatus.VerifiedTrack.Title
+			}
+			resolvedArtist := artist
+			if fallbackStatus.VerifiedTrack != nil && fallbackStatus.VerifiedTrack.Artist != "" {
+				resolvedArtist = fallbackStatus.VerifiedTrack.Artist
+			}
+			streamURL := fmt.Sprintf("http://127.0.0.1:%d/api/v1/proxy/stream?id=%s", s.cfg.Port, fallbackStatus.SelectedSource.InfoHash)
+			stream = &router.ResolvedStream{
+				TrackID:         fallbackStatus.SelectedSource.InfoHash,
+				Title:           resolvedTitle,
+				Artist:          resolvedArtist,
+				StreamURL:       streamURL,
+				DirectStreamURL: streamURL,
+				StreamType:      "p2p_fallback",
+				Codec:           fallbackStatus.SelectedSource.AudioFormat,
+				BitrateKbps:     320,
+				DataConsumed:    0,
+			}
+			err = nil
+		}
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

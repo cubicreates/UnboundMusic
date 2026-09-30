@@ -1,8 +1,8 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.home
- * File: PersonalizedHomeScreen.kt
+ * File: SignedInHomeScreen.kt
  * Purpose: Authenticated User HomeScreen ("My Music") rendering personal YouTube library, custom mixes, and taste recommendations.
- * Subsystem: Home UI / Personalized Presentation
+ * Subsystem: Home UI / Signed-In Presentation
  */
 
 package com.cubicreates.unboundmusic.ui.home
@@ -82,7 +82,7 @@ import androidx.compose.runtime.setValue
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 
 @Composable
-fun PersonalizedHomeScreen(
+fun SignedInHomeScreen(
     modifier: Modifier = Modifier,
     accountName: String? = null,
     userAvatarUrl: String? = null,

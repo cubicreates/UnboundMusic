@@ -424,6 +424,7 @@ fun MainApp(
                                 // Architectural Invariant: SearchScreen is strictly isolated from HomeScreen.
                                 // It consumes searchVibeState instead of homeVibeState to prevent Home queries from hijacking search.
                                 SearchScreen(
+                                    isYouTubeConnected = isYouTubeConnected,
                                     searchResults = searchResults,
                                     isSearching = isSearching,
                                     vibeState = searchVibeState,
@@ -470,6 +471,7 @@ fun MainApp(
                             }
                             NavigationTab.LIBRARY -> {
                                 LibraryScreen(
+                                    isYouTubeConnected = isYouTubeConnected,
                                     savedGB = savedGB,
                                     downloadsCount = downloadsCount,
                                     whatsappCount = whatsappCount,

@@ -1,0 +1,763 @@
+/*
+ * Package: com.cubicreates.unboundmusic.ui.library
+ * File: SignedInLibraryScreen.kt
+ * Purpose: Authenticated User Library presentation integrating YouTube Music cloud sync,
+ *          synced liked tracks, cloud playlists, and offline storage management.
+ * Subsystem: Personal Library / Signed-In Presentation
+ */
+
+package com.cubicreates.unboundmusic.ui.library
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.cubicreates.unboundmusic.data.CustomPlaylist
+import com.cubicreates.unboundmusic.data.DownloadTaskDto
+import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.theme.BorderGlass
+import com.cubicreates.unboundmusic.ui.theme.OnPrimary
+import com.cubicreates.unboundmusic.ui.theme.OnSurface
+import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
+import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
+import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
+import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
+
+@Composable
+fun SignedInLibraryScreen(
+    modifier: Modifier = Modifier,
+    savedGB: Double = 0.0,
+    downloadsCount: Int = 0,
+    whatsappCount: Int = 0,
+    telegramCount: Int = 0,
+    youtubeCount: Int = 0,
+    tracks: List<TrackItem> = emptyList(),
+    syncedYouTubeTracks: List<TrackItem> = emptyList(),
+    favoriteTracks: List<TrackItem> = emptyList(),
+    recentlyPlayedTracks: List<TrackItem> = emptyList(),
+    downloadedTracks: List<TrackItem> = emptyList(),
+    onMenuClick: () -> Unit = {},
+    onProfileClick: () -> Unit = {},
+    onSourceClick: (String) -> Unit = {},
+    onTrackSelect: (TrackItem, List<TrackItem>) -> Unit = { _, _ -> },
+    onRefresh: () -> Unit = {},
+    downloadTasks: Map<String, DownloadTaskDto> = emptyMap(),
+    onStartDownload: (TrackItem) -> Unit = {},
+    onCancelDownload: (String) -> Unit = {},
+    onDeleteDownload: (String) -> Unit = {},
+    onOpenDownloadsHub: () -> Unit = {},
+    customPlaylists: List<CustomPlaylist> = emptyList(),
+    onCreatePlaylist: (title: String) -> Unit = {},
+    onPlaylistClick: (CustomPlaylist) -> Unit = {},
+    onAddToPlaylist: (TrackItem) -> Unit = {},
+    onPlayNext: (TrackItem) -> Unit = {},
+    onAddToQueue: (TrackItem) -> Unit = {},
+    onStartRadio: (TrackItem) -> Unit = {},
+    onOpenEqualizer: () -> Unit = {},
+    onOpenRingtoneCutter: (TrackItem) -> Unit = {},
+    onToggleFavorite: (TrackItem) -> Unit = {},
+    onStartShazam: () -> Unit = {},
+    onShufflePlayAll: () -> Unit = {},
+    onIdentifyTrack: (TrackItem) -> Unit = {},
+    onBatchIdentify: () -> Unit = {}
+) {
+    var subView by remember { mutableStateOf(LibrarySubView.HUB) }
+    var selectedFolder by remember { mutableStateOf<AudioFolder?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistTitle by remember { mutableStateOf("") }
+
+    BackHandler(enabled = subView != LibrarySubView.HUB) {
+        if (subView == LibrarySubView.FOLDER_TRACKS) {
+            subView = LibrarySubView.FOLDERS
+        } else {
+            subView = LibrarySubView.HUB
+        }
+    }
+
+    val audioFolders = remember(tracks) {
+        extractAudioFolders(tracks)
+    }
+
+    // Combined favorites: both online synced and offline favorited tracks
+    val combinedFavorites = remember(favoriteTracks, syncedYouTubeTracks) {
+        (favoriteTracks + syncedYouTubeTracks.filter { it in favoriteTracks }).distinctBy { it.id }
+            .ifEmpty { favoriteTracks }
+    }
+
+    // Effective downloaded tracks
+    val effectiveDownloaded = remember(downloadedTracks, tracks) {
+        if (downloadedTracks.isNotEmpty()) {
+            downloadedTracks
+        } else {
+            tracks.filter {
+                it.source.contains("Downloads", ignoreCase = true) ||
+                it.source.contains("Unbound", ignoreCase = true)
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(UnboundBackground)
+    ) {
+        Crossfade(
+            targetState = subView,
+            label = "signed_in_library_view_crossfade"
+        ) { currentView ->
+            when (currentView) {
+                LibrarySubView.HUB -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 16.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Library",
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OnSurface,
+                                    letterSpacing = (-0.02).sp
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Cloud synced & personal audio collection",
+                                    fontSize = 13.sp,
+                                    color = OnSurfaceVariant
+                                )
+                            }
+
+                            IconButton(
+                                onClick = onRefresh,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(SurfaceGlassHighest)
+                                    .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Sync & Refresh",
+                                    tint = UnboundPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        // Filter chips
+                        var selectedFilter by remember { mutableStateOf("All") }
+                        val categoryFilters = listOf("All", "My Songs", "Downloads", "Favorites", "Playlists", "Folders")
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 2.dp)
+                        ) {
+                            items(categoryFilters) { cat ->
+                                val isSelected = selectedFilter == cat
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (isSelected) UnboundPrimary else SurfaceGlassHighest,
+                                    border = BorderStroke(1.dp, if (isSelected) UnboundPrimary else BorderGlass),
+                                    modifier = Modifier.clickable {
+                                        selectedFilter = cat
+                                        when (cat) {
+                                            "My Songs" -> subView = LibrarySubView.TRACKS
+                                            "Downloads" -> subView = LibrarySubView.DOWNLOADED
+                                            "Favorites" -> subView = LibrarySubView.FAVORITES
+                                            "Folders" -> subView = LibrarySubView.FOLDERS
+                                            else -> {}
+                                        }
+                                    }
+                                ) {
+                                    Text(
+                                        text = cat,
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) OnPrimary else OnSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Signed-In Cloud Status Banner
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            color = Color(0xFF141E18),
+                            border = BorderStroke(
+                                1.dp,
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        Color(0xFF00E676).copy(alpha = 0.50f),
+                                        UnboundPrimary.copy(alpha = 0.35f),
+                                        BorderGlass
+                                    )
+                                )
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                Color(0xFF00E676).copy(alpha = 0.16f),
+                                                Color(0xFF112217),
+                                                Color(0xFF0F1511)
+                                            )
+                                        )
+                                    )
+                                    .padding(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(46.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(
+                                                Brush.linearGradient(
+                                                    listOf(Color(0xFF00E676), UnboundPrimary)
+                                                )
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudDone,
+                                            contentDescription = null,
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(14.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = "YouTube Library Synced",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = OnSurface
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color(0xFF00E676).copy(alpha = 0.20f))
+                                                    .border(1.dp, Color(0xFF00E676).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "ONLINE",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF00E676)
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "${syncedYouTubeTracks.size} cloud tracks • ${tracks.size} offline device tracks",
+                                            fontSize = 11.sp,
+                                            color = OnSurfaceVariant,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                    IconButton(
+                                        onClick = onRefresh,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF00E676).copy(alpha = 0.15f))
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Refresh Cloud",
+                                            tint = Color(0xFF00E676),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Hero Card: My Songs
+                        ModernHeroMySongsCard(
+                            count = tracks.size,
+                            onClick = { subView = LibrarySubView.TRACKS },
+                            onShuffle = {
+                                if (tracks.isNotEmpty()) {
+                                    val s = tracks.shuffled()
+                                    onTrackSelect(s.first(), s)
+                                }
+                            }
+                        )
+
+                        // Bento Split Row: Downloads & Favorites
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            ModernBentoMediumCard(
+                                title = "Downloads",
+                                count = effectiveDownloaded.size.toString(),
+                                subtitle = "Saved offline",
+                                icon = Icons.Default.Download,
+                                accentColor = Color(0xFF00E676),
+                                badgeText = "OFFLINE",
+                                modifier = Modifier.weight(1f),
+                                onClick = { subView = LibrarySubView.DOWNLOADED }
+                            )
+
+                            ModernBentoMediumCard(
+                                title = "Favorites",
+                                count = combinedFavorites.size.toString(),
+                                subtitle = "Cloud & Local likes",
+                                icon = Icons.Default.Favorite,
+                                accentColor = Color(0xFFFF5252),
+                                badgeText = "SYNCED",
+                                modifier = Modifier.weight(1f),
+                                onClick = { subView = LibrarySubView.FAVORITES }
+                            )
+                        }
+
+                        // Utility Row: Folders, History, Shazam
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            ModernUtilityCompactCard(
+                                title = "Folders",
+                                count = audioFolders.size.toString(),
+                                subtitle = "Storage",
+                                icon = Icons.Default.Folder,
+                                accentColor = Color(0xFFFF9100),
+                                modifier = Modifier.weight(1f),
+                                onClick = { subView = LibrarySubView.FOLDERS }
+                            )
+
+                            ModernUtilityCompactCard(
+                                title = "Recent",
+                                count = recentlyPlayedTracks.size.toString(),
+                                subtitle = "Played",
+                                icon = Icons.Default.History,
+                                accentColor = Color(0xFF00E5FF),
+                                modifier = Modifier.weight(1f),
+                                onClick = { subView = LibrarySubView.RECENT_PLAYED }
+                            )
+
+                            ModernUtilityCompactCard(
+                                title = "Identify",
+                                count = "SCAN",
+                                subtitle = "Shazam",
+                                icon = Icons.Default.GraphicEq,
+                                accentColor = Color(0xFFB388FF),
+                                badgeText = "LIVE",
+                                modifier = Modifier.weight(1f),
+                                onClick = onStartShazam
+                            )
+                        }
+
+                        // Playlists Section
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Playlists",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnSurface,
+                                        letterSpacing = (-0.01).sp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(SurfaceGlassHighest)
+                                            .border(1.dp, BorderGlass, RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = customPlaylists.size.toString(),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = UnboundPrimary
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(UnboundPrimary.copy(alpha = 0.15f))
+                                        .clickable {
+                                            newPlaylistTitle = ""
+                                            showCreatePlaylistDialog = true
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "New Playlist",
+                                            tint = UnboundPrimary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "New",
+                                            color = UnboundPrimary,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            if (customPlaylists.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    UnboundPrimary.copy(alpha = 0.22f),
+                                                    Color(0xFF7C4DFF).copy(alpha = 0.18f),
+                                                    Color(0xFF181818)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            BorderStroke(
+                                                1.dp,
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        UnboundPrimary.copy(alpha = 0.45f),
+                                                        Color(0xFF7C4DFF).copy(alpha = 0.30f),
+                                                        BorderGlass
+                                                    )
+                                                )
+                                            ),
+                                            RoundedCornerShape(18.dp)
+                                        )
+                                        .clickable {
+                                            newPlaylistTitle = ""
+                                            showCreatePlaylistDialog = true
+                                        }
+                                        .padding(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(52.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(
+                                                    Brush.linearGradient(
+                                                        listOf(UnboundPrimary, Color(0xFF7C4DFF))
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Create Your Custom Playlist",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = OnSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Curate local device & synced tracks into personalized mix tapes",
+                                                fontSize = 12.sp,
+                                                color = OnSurfaceVariant,
+                                                lineHeight = 16.sp
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .background(UnboundPrimary)
+                                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                text = "Create",
+                                                color = OnPrimary,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 2.dp)
+                                ) {
+                                    items(customPlaylists) { playlist ->
+                                        PlaylistCard(
+                                            playlist = playlist,
+                                            onClick = { onPlaylistClick(playlist) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                LibrarySubView.TRACKS -> {
+                    LibraryTracksListView(
+                        title = "My Songs",
+                        subtitle = "${tracks.size} songs on this device",
+                        tracks = tracks,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+
+                LibrarySubView.FOLDERS -> {
+                    LibraryFoldersListView(
+                        folders = audioFolders,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onFolderSelect = { folder ->
+                            selectedFolder = folder
+                            subView = LibrarySubView.FOLDER_TRACKS
+                        }
+                    )
+                }
+
+                LibrarySubView.FOLDER_TRACKS -> {
+                    val currentFolder = selectedFolder
+                    LibraryTracksListView(
+                        title = currentFolder?.name ?: "Folder Tracks",
+                        subtitle = "${currentFolder?.tracks?.size ?: 0} tracks in this folder",
+                        tracks = currentFolder?.tracks ?: emptyList(),
+                        onBack = { subView = LibrarySubView.FOLDERS },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+
+                LibrarySubView.FAVORITES -> {
+                    LibraryTracksListView(
+                        title = "Favorite Songs",
+                        subtitle = "${combinedFavorites.size} favorite songs • Online & Offline",
+                        tracks = combinedFavorites,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+
+                LibrarySubView.RECENT_PLAYED -> {
+                    LibraryTracksListView(
+                        title = "Recently Played",
+                        subtitle = "${recentlyPlayedTracks.size} songs in playback history",
+                        tracks = recentlyPlayedTracks,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+
+                LibrarySubView.DOWNLOADED -> {
+                    LibraryTracksListView(
+                        title = "Downloads",
+                        subtitle = "${effectiveDownloaded.size} downloaded songs ready offline",
+                        tracks = effectiveDownloaded,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+            }
+        }
+
+        // Create Playlist Dialog
+        if (showCreatePlaylistDialog) {
+            AlertDialog(
+                onDismissRequest = { showCreatePlaylistDialog = false },
+                containerColor = UnboundSurfaceContainerHigh,
+                title = {
+                    Text(
+                        text = "Create Playlist",
+                        color = OnSurface,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = "Give your playlist a title to organize your music.",
+                            color = OnSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedTextField(
+                            value = newPlaylistTitle,
+                            onValueChange = { newPlaylistTitle = it },
+                            placeholder = { Text("Playlist name...", color = OnSurfaceVariant.copy(alpha = 0.6f)) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = UnboundPrimary,
+                                unfocusedBorderColor = BorderGlass,
+                                focusedTextColor = OnSurface,
+                                unfocusedTextColor = OnSurface
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newPlaylistTitle.isNotBlank()) {
+                                onCreatePlaylist(newPlaylistTitle.trim())
+                                showCreatePlaylistDialog = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary)
+                    ) {
+                        Text("Create", color = OnPrimary, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreatePlaylistDialog = false }) {
+                        Text("Cancel", color = OnSurfaceVariant)
+                    }
+                }
+            )
+        }
+    }
+}

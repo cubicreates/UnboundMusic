@@ -1,7 +1,7 @@
 /*
  * Package: com.cubicreates.unboundmusic.ui.home
  * File: HomeScreen.kt
- * Purpose: Production coordinator HomeScreen routing to PersonalizedHomeScreen (for logged-in YouTube users)
+ * Purpose: Production coordinator HomeScreen routing to SignedInHomeScreen (for logged-in YouTube users)
  *          or GuestHomeScreen (for offline/logged-out users with Billboard Top 100).
  * Subsystem: Home UI / Dual-Mode Coordinator
  */
@@ -73,7 +73,7 @@ fun HomeScreen(
         // Mode 1: Logged-in YouTube user -> Strictly Personal Feed + Vibe AI
         // Mode 2: Guest / Logged-out user -> Billboard Top 100 Charts & Connect CTA
         if (isYouTubeConnected) {
-            PersonalizedHomeScreen(
+            SignedInHomeScreen(
                 accountName = accountName,
                 userAvatarUrl = userAvatarUrl,
                 syncedTracks = syncedYouTubeTracks,

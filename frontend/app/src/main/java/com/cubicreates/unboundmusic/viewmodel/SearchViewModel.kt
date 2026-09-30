@@ -14,7 +14,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cubicreates.unboundmusic.daemon.DaemonManager
-import com.cubicreates.unboundmusic.data.VibeSearchUiState
+import com.cubicreates.unboundmusic.data.*
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.search.SearchCategory
 import com.cubicreates.unboundmusic.util.GeoLocationProvider

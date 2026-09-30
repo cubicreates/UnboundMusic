@@ -15,7 +15,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.daemon.DaemonManager
-import com.cubicreates.unboundmusic.data.UserEqPresetDto
+import com.cubicreates.unboundmusic.data.*
 import com.cubicreates.unboundmusic.service.ServiceConnection
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
 import kotlinx.coroutines.Dispatchers

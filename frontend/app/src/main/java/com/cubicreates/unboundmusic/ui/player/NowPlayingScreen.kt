@@ -159,7 +159,8 @@ fun NowPlayingScreen(
     onStartRadio: () -> Unit = {},
     playbackSpeed: Float = 1.0f,
     playbackPitch: Float = 1.0f,
-    onSetPlaybackSpeedAndPitch: (speed: Float, pitch: Float) -> Unit = { _, _ -> }
+    onSetPlaybackSpeedAndPitch: (speed: Float, pitch: Float) -> Unit = { _, _ -> },
+    fallbackStatus: com.cubicreates.unboundmusic.data.FallbackStatusDto? = null
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("unbound_player_prefs", Context.MODE_PRIVATE) }
@@ -670,6 +671,43 @@ private fun SpotifyPlayerContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+
+        // P2P / Spotify Multi-Stage Fallback Connection Status Pill
+        AnimatedVisibility(
+            visible = fallbackStatus != null,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -20 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -20 })
+        ) {
+            fallbackStatus?.let { status ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF1E1E1E).copy(alpha = 0.95f))
+                        .border(1.dp, Color(0xFF00E5FF).copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Radio,
+                        contentDescription = null,
+                        tint = Color(0xFF00E5FF),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = status.message,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = OnSurface,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
 
         // SponsorBlock Non-Music Skit Skip Toast Pill
         AnimatedVisibility(

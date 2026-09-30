@@ -185,6 +185,7 @@ fun MainApp(
     val freeStorageGB by viewModel.freeStorageGB.collectAsStateWithLifecycle()
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val skippedSkitNotice by viewModel.skippedSkitNotice.collectAsStateWithLifecycle()
+    val fallbackStatus by viewModel.fallbackStatus.collectAsStateWithLifecycle()
     val albumPlaylistData by viewModel.albumPlaylistData.collectAsStateWithLifecycle()
     val rydVotes by viewModel.rydVotes.collectAsStateWithLifecycle()
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
@@ -750,7 +751,8 @@ fun MainApp(
                 },
                 playbackSpeed = playbackState.playbackSpeed,
                 playbackPitch = playbackState.playbackPitch,
-                onSetPlaybackSpeedAndPitch = { speed, pitch -> viewModel.setPlaybackSpeed(speed, pitch) }
+                onSetPlaybackSpeedAndPitch = { speed, pitch -> viewModel.setPlaybackSpeed(speed, pitch) },
+                fallbackStatus = fallbackStatus
             )
         }
 

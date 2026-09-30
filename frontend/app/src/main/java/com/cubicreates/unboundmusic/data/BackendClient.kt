@@ -2051,6 +2051,38 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
         return Pair(-1, lastError)
     }
 
+    // ==================== SECTION 17: Multi-Stage Fallback Engine ====================
+
+    /** Queries Spotify/MusicBrainz verification gate and resolves P2P fallback streams. */
+    suspend fun resolveFallbackTrack(title: String, artist: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val encTitle = URLEncoder.encode(title, "UTF-8")
+        val encArtist = URLEncoder.encode(artist, "UTF-8")
+        get("/api/v1/fallback/resolve?title=$encTitle&artist=$encArtist")
+    }
+
+    /** Parses fallback resolution payload into FallbackStatusDto. */
+    fun parseFallbackStatus(jsonStr: String): FallbackStatusDto? {
+        if (jsonStr.isBlank()) return null
+        return try {
+            val json = JSONObject(jsonStr)
+            val verifiedObj = json.optJSONObject("verified_track")
+            val sourceObj = json.optJSONObject("selected_source")
+
+            FallbackStatusDto(
+                stage = json.optString("stage", "UNKNOWN"),
+                message = json.optString("message", ""),
+                elapsedMs = json.optLong("elapsed_ms", 0L),
+                verifiedTitle = verifiedObj?.optString("title"),
+                verifiedArtist = verifiedObj?.optString("artist"),
+                verifiedFoundOn = verifiedObj?.optString("found_on"),
+                sourceFormat = sourceObj?.optString("audio_format"),
+                seeders = sourceObj?.optInt("seeders")
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun get(path: String): Pair<Int, String> = executeWithRetry(path, "GET")
 
     private fun post(

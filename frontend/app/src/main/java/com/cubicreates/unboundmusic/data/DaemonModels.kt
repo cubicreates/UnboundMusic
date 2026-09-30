@@ -476,3 +476,18 @@ data class IdentifiedTrackDto(
     val confidence: Double
 )
 
+/**
+ * Result of Multi-Stage Spotify/P2P Fallback Resolution.
+ */
+data class FallbackStatusDto(
+    val stage: String,
+    val message: String,
+    val elapsedMs: Long = 0,
+    val verifiedTitle: String? = null,
+    val verifiedArtist: String? = null,
+    val verifiedFoundOn: String? = null,
+    val sourceFormat: String? = null,
+    val seeders: Int? = null
+)
+
+

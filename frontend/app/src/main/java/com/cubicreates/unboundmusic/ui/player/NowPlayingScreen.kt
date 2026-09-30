@@ -247,6 +247,7 @@ fun NowPlayingScreen(
                         downloadStatus = downloadStatus,
                         downloadProgress = downloadProgress,
                         skippedSkitNotice = skippedSkitNotice,
+                        fallbackStatus = fallbackStatus,
                         sleepTimerActive = sleepTimerState.isActive,
                         onCollapse = onCollapse,
                         onOpenStylePicker = { showStylePickerSheet = true },
@@ -504,7 +505,8 @@ private fun SpotifyPlayerContent(
     onUndoSkip: () -> Unit,
     onDismissSkipNotice: () -> Unit,
     rydData: RydVoteData? = null,
-    onOpenRydStats: () -> Unit = {}
+    onOpenRydStats: () -> Unit = {},
+    fallbackStatus: com.cubicreates.unboundmusic.data.FallbackStatusDto? = null
 ) {
     Column(
         modifier = Modifier

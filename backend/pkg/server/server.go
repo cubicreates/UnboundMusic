@@ -43,6 +43,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/dsp"
 	"github.com/cubicreates/unbound-engine/pkg/events"
 	"github.com/cubicreates/unbound-engine/pkg/explore"
+	"github.com/cubicreates/unbound-engine/pkg/fallback"
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
@@ -124,6 +125,7 @@ type Server struct {
 	radioGen     *ytmusic.RadioGenerator
 	algoEngine   *algorithm.Engine
 	neteaseClient *lyrics.NetEaseClient
+	fallbackCoord *fallback.Coordinator
 	udsServer      *http.Server
 	udsListener    net.Listener
 	ctx            context.Context
@@ -244,12 +246,14 @@ func NewServer(cfg Config) (*Server, error) {
 		radioGen:      radioGen,
 		algoEngine:    algorithm.NewEngine(repo, ytClient),
 		neteaseClient: lyrics.NewNetEaseClient(),
+		fallbackCoord: fallback.NewCoordinator(downloadDir),
 		spoolCancels:  make(map[string]context.CancelFunc),
 	}
 	s.ctx, s.cancelCtx = context.WithCancel(context.Background())
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
+	mux.HandleFunc("/api/v1/fallback/resolve", s.handleFallbackResolve)
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/search", s.handleSearch)
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
@@ -447,6 +451,30 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, payload)
+}
+
+// handleFallbackResolve verifies and resolves songs missing from YouTube via Spotify/P2P fallback.
+func (s *Server) handleFallbackResolve(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	title := r.URL.Query().Get("title")
+	artist := r.URL.Query().Get("artist")
+	if strings.TrimSpace(title) == "" {
+		writeError(w, http.StatusBadRequest, "title parameter required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	status, err := s.fallbackCoord.ResolveAndStream(ctx, title, artist)
+	if err != nil && status == nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 // EventBus returns the server's real-time event bus.

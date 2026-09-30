@@ -716,3 +716,36 @@ func TestServerRydVotesEndpoint(t *testing.T) {
 	}
 }
 
+// TestServerFallbackResolveEndpoint tests the /api/v1/fallback/resolve endpoint.
+func TestServerFallbackResolveEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45733,
+		DatabasePath:   filepath.Join(tempDir, "test_server_fallback.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Missing title should return 400 Bad Request
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/v1/fallback/resolve", nil)
+	wMissing := httptest.NewRecorder()
+	srv.handleFallbackResolve(wMissing, reqMissing)
+	if wMissing.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for missing title, got %d", wMissing.Code)
+	}
+
+	// 2. POST method should return 405 Method Not Allowed
+	reqMethod := httptest.NewRequest(http.MethodPost, "/api/v1/fallback/resolve?title=Song", nil)
+	wMethod := httptest.NewRecorder()
+	srv.handleFallbackResolve(wMethod, reqMethod)
+	if wMethod.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed for POST, got %d", wMethod.Code)
+	}
+}
+

@@ -331,3 +331,78 @@ Rather than relying on literal YouTube keyword matches that return tracks simply
 1. **Device Resolution**: `GeoLocationProvider` checks `TelephonyManager.getNetworkCountryIso()` -> `getSimCountryIso()` -> `Locale.getDefault().country` -> default fallback (`"IN"`).
 2. **Catalog Mapping**: The backend's `regional_vibe_seeds.go` catalog translates high-level intents ("victory", "sadness", "workout", "sleep") into authentic cultural and regional anthems (e.g., *Chak De India*, *Zinda*, *Kar Har Maidaan Fateh*, *Lakshya* for India; *Hall of Fame*, *Eye of the Tiger* for Western markets).
 3. **Generic Phrase Suppression**: The heuristic parser actively suppresses literal query pollution (such as `"victory songs"` or `"songs that make you feel victorious"`), ensuring that only rich, culturally authentic tracks are fetched and queued.
+
+---
+
+## 9. Multi-Stage Fallback Pipeline (Spotify Metadata + P2P Streaming)
+
+When content is geo-restricted, unavailable, or blocked on YouTube Music, the engine initiates a non-blocking, multi-stage fallback pipeline:
+
+```mermaid
+sequenceDiagram
+    participant Player as ExoPlayer / Client
+    participant VM as MainViewModel
+    participant Go as Embedded Go Daemon
+    participant Meta as Spotify / MusicBrainz
+    participant P2P as BitTorrent Swarm
+
+    Player->>VM: Playback Error / Stream Unavailable
+    VM->>Go: POST /api/v1/fallback/resolve {title, artist}
+    Go->>Meta: Step 1: Open Metadata Verification Gate
+    Meta-->>Go: Confirmed track existence, ISRC, release year
+    Go-->>VM: FallbackStatusDto {stage: "METADATA_SEARCH", verified: true}
+    Go->>P2P: Step 2: Multi-Indexer Audio Search (InfoHash)
+    P2P-->>Go: Swarm active (14 seeders, FLAC/320kbps MP3)
+    Go-->>VM: FallbackStatusDto {stage: "RESOLVING", seeders: 14}
+    Go->>P2P: Step 3: Sequential Chunk Streaming Coordinator
+    P2P-->>Go: Head chunks buffered (0-5%)
+    Go-->>VM: FallbackStatusDto {stage: "STREAMING_ACTIVE", resolved_url: "http://127.0.0.1:45731/api/v1/fallback/stream/:hash"}
+    VM->>Player: Transition stream source seamlessly to localhost proxy
+```
+
+### Key Safety and Verification Gates:
+1. **Metadata Verification**: The engine does NOT download arbitrary torrents. It first queries Spotify Open APIs and MusicBrainz to prove the song exists and verifies exact duration, artist name, and album art.
+2. **P2P Audio Coordinator**: The BitTorrent client (`pkg/fallback/torrent.go`) enforces sequential piece prioritization for instant playback (< 3 seconds) instead of waiting for full file downloads.
+3. **Headless Local Proxy**: Stream chunks are served through the Go daemon's HTTP range proxy, enabling ExoPlayer to scrub and buffer naturally without native BitTorrent library dependencies in ART.
+
+---
+
+## 10. Domain-Driven ViewModels & Clean Architecture
+
+To eliminate monolithic God Objects (`MainViewModel.kt` ~4,200 lines), the application presentation layer is decoupled into specialized domain ViewModels adhering to the Single Responsibility Principle:
+
+| Domain ViewModel | File Location | Responsibility |
+|---|---|---|
+| `SearchViewModel` | `viewmodel/SearchViewModel.kt` | Search debouncing, real-time autocomplete suggestions, category filtering, and AI Vibe search. |
+| `EqualizerViewModel` | `viewmodel/EqualizerViewModel.kt` | 10-band IIR DSP curve state, AutoEq headphone target compensation, Bass Boost, and Virtualizer. |
+| `LyricsViewModel` | `viewmodel/LyricsViewModel.kt` | Synchronized LRCLIB lyrics, word-synced syllable tracking, timing offsets, and instrumental detection. |
+| `DownloadsViewModel` | `viewmodel/DownloadsViewModel.kt` | Background download orchestration, task polling loop, Scoped Storage cache tracking, and offline status. |
+| `ShazamViewModel` | `viewmodel/ShazamViewModel.kt` | 16kHz PCM microphone audio recording, acoustic fingerprinting, and Pure-Go Shazam identification. |
+| `PlaybackViewModel` | `viewmodel/PlaybackViewModel.kt` | Media3 ExoPlayer lifecycle, queue orchestration, shuffle/repeat modes, and playback speed. |
+| `LibraryViewModel` | `viewmodel/LibraryViewModel.kt` | User playlists, favorite tracks, MediaStore local audio indexing, and recaps. |
+
+`MainViewModel` serves as the top-level coordinator via lazy delegation, maintaining 100% backward compatibility with all Jetpack Compose screens.
+
+---
+
+## 11. Modular Daemon Handler Architecture
+
+The embedded Go micro-daemon (`pkg/server/server.go`) routes are decomposed into domain-partitioned handler modules:
+- **`handlers_system.go`**: `/health`, `/api/v1/daemon/ping`, `/api/v1/system/status`
+- **`handlers_stream.go`**: `/api/v1/stream`, HTTP range header chunk proxying, audio transcoding
+- **`handlers_search.go`**: `/api/v1/search`, `/api/v1/search/vibe`, `/api/v1/search/suggestions`
+- **`handlers_lyrics.go`**: `/api/v1/lyrics`, subtitle synchronization, LRCLIB integration
+- **`handlers_equalizer.go`**: `/api/v1/equalizer/presets`, AutoEq 4000+ headphone database query and curve interpolation
+
+---
+
+## 12. Scoped Storage Partitioning & Automatic LRU Cache Pruning
+
+To conform strictly to Android 11+ (API 30+) Scoped Storage and prevent device storage exhaustion:
+1. **Partition Isolation (`StorageManager`)**:
+   - `PartitionInternalCache`: Private app storage (`.backend/cache/`) for ephemeral range chunks and PCM audio.
+   - `PartitionPublicExports`: User-visible media directory (`Download/Unbound/`) for tagged MP3/FLAC exports.
+2. **Automatic LRU Cache Pruning (`CachePruner`)**:
+   - Enforces a default 2 GB quota watermark.
+   - When quota is exceeded, automatically evicts oldest accessed stream chunks down to the 80% watermark (1.6 GB) while preserving active playback and offline downloads.
+

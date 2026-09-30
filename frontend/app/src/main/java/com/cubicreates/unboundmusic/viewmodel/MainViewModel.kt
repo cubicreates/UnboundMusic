@@ -11,6 +11,11 @@
 package com.cubicreates.unboundmusic.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.os.BatteryManager
 import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -1952,8 +1957,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _fallbackStatus = MutableStateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?>(null)
     val fallbackStatus: StateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?> = _fallbackStatus.asStateFlow()
 
-    fun triggerFallbackSearch(title: String, artist: String = "") {
+    fun triggerFallbackSearch(title: String, artist: String = "", forceSwarm: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+
+            // 1. Guard against battery depletion on low charge
+            if (!forceSwarm) {
+                try {
+                    val batteryIntent = app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                    val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                    val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                    val batteryPct = if (level >= 0 && scale > 0) (level * 100) / scale else 100
+
+                    if (!isCharging && batteryPct < 15) {
+                        _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
+                            stage = "PAUSED_BATTERY",
+                            message = "P2P swarming paused to conserve battery (${batteryPct}%)"
+                        )
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Battery check warning: ${e.message}")
+                }
+
+                // 2. Guard against high cellular data usage on metered networks
+                try {
+                    val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                    val isMetered = cm?.isActiveNetworkMetered == true
+                    if (isMetered) {
+                        val prefs = app.getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
+                        val allowCellularP2P = prefs.getBoolean("allow_cellular_p2p", false)
+                        if (!allowCellularP2P) {
+                            _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
+                                stage = "PAUSED_METERED",
+                                message = "P2P swarming paused on metered mobile data"
+                            )
+                            return@launch
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Connectivity check warning: ${e.message}")
+                }
+            }
+
             _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
                 stage = "VERIFYING",
                 message = "Verifying '$title' on Spotify and music registries..."
@@ -1985,6 +2033,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    fun setAllowCellularP2P(enabled: Boolean) {
+        val prefs = getApplication<Application>().getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("allow_cellular_p2p", enabled).apply()
+    }
+
+    fun isAllowCellularP2P(): Boolean {
+        val prefs = getApplication<Application>().getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("allow_cellular_p2p", false)
     }
 
     fun clearFallbackStatus() {

@@ -50,7 +50,40 @@ object StorageInitializer {
             if (primaryModel.exists() && primaryModel.length() > 0L) {
                 Log.i(TAG, "On-device AI model weights verified at ${primaryModel.absolutePath} (${primaryModel.length()} bytes)")
             } else {
-                Log.i(TAG, "Lightweight mode active: No on-device LLM weights installed. Fast in-memory heuristic vibe search engaged.")
+                // Testing Phase: Check if models are bundled locally in assets/payload/
+                val hasAssetGguf = try {
+                    context.assets.list("payload")?.contains("smollm2_135m.gguf") == true
+                } catch (_: Exception) { false }
+
+                val hasAssetZst = try {
+                    context.assets.list("payload")?.contains("models.zst") == true
+                } catch (_: Exception) { false }
+
+                if (hasAssetGguf) {
+                    Log.i(TAG, "Testing phase: Extracting bundled smollm2_135m.gguf from APK assets...")
+                    context.assets.open("payload/smollm2_135m.gguf").use { input ->
+                        FileOutputStream(primaryModel).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    Log.i(TAG, "Bundled test model extracted (${primaryModel.length()} bytes).")
+                } else if (hasAssetZst) {
+                    Log.i(TAG, "Testing phase: Unpacking bundled models.zst from APK assets...")
+                    val zstFile = File(modelsDir, "models.zst")
+                    context.assets.open("payload/models.zst").use { input ->
+                        FileOutputStream(zstFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(context).client
+                    val success = daemonClient.unpackPayload(zstFile.absolutePath, modelsDir.absolutePath)
+                    if (success && primaryModel.exists()) {
+                        Log.i(TAG, "Successfully extracted testing model (${primaryModel.length()} bytes)")
+                    }
+                    if (zstFile.exists()) zstFile.delete()
+                } else {
+                    Log.i(TAG, "Lightweight mode active: No on-device LLM weights installed. Fast in-memory heuristic vibe search engaged.")
+                }
             }
 
             Log.i(TAG, "Storage initialization completed successfully.")

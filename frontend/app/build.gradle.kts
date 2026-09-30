@@ -48,6 +48,14 @@ android {
         compose = true
         buildConfig = false
     }
+    splits {
+        abi {
+            isEnable = false
+            isUniversalApk = true
+            reset()
+            include("arm64-v8a", "x86_64")
+        }
+    }
     testOptions {
         unitTests.isReturnDefaultValues = true
     }

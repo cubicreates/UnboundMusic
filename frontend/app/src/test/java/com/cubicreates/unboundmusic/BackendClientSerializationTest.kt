@@ -1,6 +1,6 @@
 package com.cubicreates.unboundmusic
 
-import com.cubicreates.unboundmusic.data.BackendClient
+import com.cubicreates.unboundmusic.data.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue

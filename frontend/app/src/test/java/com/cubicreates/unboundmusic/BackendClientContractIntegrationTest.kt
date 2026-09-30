@@ -9,11 +9,7 @@
 
 package com.cubicreates.unboundmusic
 
-import com.cubicreates.unboundmusic.data.AutoEqSearchResponseDto
-import com.cubicreates.unboundmusic.data.BackendClient
-import com.cubicreates.unboundmusic.data.EQPresetDto
-import com.cubicreates.unboundmusic.data.LyricsPayloadDto
-import com.cubicreates.unboundmusic.data.SearchResultDto
+import com.cubicreates.unboundmusic.data.*
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull

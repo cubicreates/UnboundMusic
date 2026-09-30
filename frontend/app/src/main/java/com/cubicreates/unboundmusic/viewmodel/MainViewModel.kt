@@ -1940,6 +1940,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ==================== Multi-Stage Spotify / P2P Fallback Engine ====================
+
+    private val _fallbackStatus = MutableStateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?>(null)
+    val fallbackStatus: StateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?> = _fallbackStatus.asStateFlow()
+
+    fun triggerFallbackSearch(title: String, artist: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
+                stage = "VERIFYING",
+                message = "Verifying '$title' on Spotify and music registries..."
+            )
+            try {
+                val (code, json) = client.resolveFallbackTrack(title, artist)
+                if (code == 200 && json.isNotBlank()) {
+                    val status = client.parseFallbackStatus(json)
+                    _fallbackStatus.value = status
+                    if (status != null && status.stage == "STREAMING") {
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "Fallback stream found via P2P (${status.sourceFormat ?: "Audio"})",
+                                isLong = true
+                            )
+                        }
+                    }
+                } else {
+                    _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
+                        stage = "NOT_FOUND",
+                        message = "Track could not be resolved on fallback networks."
+                    )
+                }
+            } catch (e: Exception) {
+                _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
+                    stage = "ERROR",
+                    message = "Fallback resolution error: ${e.message}"
+                )
+            }
+        }
+    }
+
+    fun clearFallbackStatus() {
+        _fallbackStatus.value = null
+    }
+
     // ==================== Lyrics ====================
 
     /**

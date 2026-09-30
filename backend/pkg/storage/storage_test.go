@@ -267,3 +267,125 @@ func TestStorageProvisionerPermissionFallback(t *testing.T) {
 	}
 }
 
+// TestStorageManagerPartitionIsolation tests Scoped Storage boundary enforcement and track export.
+func TestStorageManagerPartitionIsolation(t *testing.T) {
+	tempDir := t.TempDir()
+	prov := NewProvisioner(tempDir)
+	tree, err := prov.ProvisionLayout()
+	if err != nil {
+		t.Fatalf("failed provisioning layout: %v", err)
+	}
+
+	sm := NewStorageManager(tree)
+
+	// Check partition paths
+	cachePath, err := sm.GetPartitionPath(PartitionInternalCache)
+	if err != nil || cachePath == "" {
+		t.Fatalf("expected valid cache partition path, got: %s (err: %v)", cachePath, err)
+	}
+
+	exportPath, err := sm.GetPartitionPath(PartitionPublicExports)
+	if err != nil || exportPath == "" {
+		t.Fatalf("expected valid export partition path, got: %s (err: %v)", exportPath, err)
+	}
+
+	if cachePath == exportPath {
+		t.Errorf("internal cache and public exports must be distinct partitions")
+	}
+
+	// Test ExportTrack
+	tempAudioFile := filepath.Join(cachePath, "temp_stream_123.mp3")
+	dummyData := []byte("ID3dummy_audio_stream_data_sample_content")
+	if err := os.WriteFile(tempAudioFile, dummyData, 0644); err != nil {
+		t.Fatalf("failed creating source audio file: %v", err)
+	}
+
+	destFilename := "artist_title_clean.mp3"
+	exportedPath, err := sm.ExportTrack(tempAudioFile, destFilename)
+	if err != nil {
+		t.Fatalf("ExportTrack failed: %v", err)
+	}
+
+	if _, err := os.Stat(exportedPath); os.IsNotExist(err) {
+		t.Errorf("expected exported file to exist at %s", exportedPath)
+	}
+
+	// Source file should have been moved/removed
+	if _, err := os.Stat(tempAudioFile); !os.IsNotExist(err) {
+		t.Errorf("expected source temp file to be removed after export")
+	}
+
+	// Verify content matches
+	readData, err := os.ReadFile(exportedPath)
+	if err != nil || !bytes.Equal(readData, dummyData) {
+		t.Errorf("exported file content corrupted or mismatched")
+	}
+}
+
+// TestCachePrunerLRUAndAgeEviction tests LRU quota eviction and TTL age-based pruning.
+func TestCachePrunerLRUAndAgeEviction(t *testing.T) {
+	tempDir := t.TempDir()
+	prov := NewProvisioner(tempDir)
+	tree, err := prov.ProvisionLayout()
+	if err != nil {
+		t.Fatalf("failed provisioning layout: %v", err)
+	}
+
+	sm := NewStorageManager(tree, 1000) // 1000 byte quota
+	pruner := NewCachePruner(sm)
+
+	cacheDir := tree.CachePath
+	_ = os.MkdirAll(cacheDir, 0755)
+
+	// Create 3 files with 500 bytes each (total 1500 bytes > 1000 byte quota)
+	fileOld := filepath.Join(cacheDir, "old_chunk.bin")
+	fileMid := filepath.Join(cacheDir, "mid_chunk.bin")
+	fileNew := filepath.Join(cacheDir, "new_chunk.bin")
+
+	buf500 := make([]byte, 500)
+
+	if err := os.WriteFile(fileOld, buf500, 0644); err != nil {
+		t.Fatalf("failed writing file: %v", err)
+	}
+	if err := os.WriteFile(fileMid, buf500, 0644); err != nil {
+		t.Fatalf("failed writing file: %v", err)
+	}
+	if err := os.WriteFile(fileNew, buf500, 0644); err != nil {
+		t.Fatalf("failed writing file: %v", err)
+	}
+
+	// Adjust timestamps
+	now := time.Now()
+	_ = os.Chtimes(fileOld, now.Add(-3*time.Hour), now.Add(-3*time.Hour))
+	_ = os.Chtimes(fileMid, now.Add(-2*time.Hour), now.Add(-2*time.Hour))
+	_ = os.Chtimes(fileNew, now.Add(-10*time.Minute), now.Add(-10*time.Minute))
+
+	// Prune with 1000 byte quota and 0.8 watermark (target = 800 bytes)
+	policy := PrunePolicy{
+		MaxAge:        24 * time.Hour,
+		TargetQuota:   1000,
+		WatermarkFrac: 0.80,
+	}
+
+	res, err := pruner.Prune(policy)
+	if err != nil {
+		t.Fatalf("Prune failed: %v", err)
+	}
+
+	// Total was 1500, target is 800. Needs to delete at least 2 files (1000 bytes) so remaining <= 800.
+	if res.FilesDeleted < 1 {
+		t.Errorf("expected at least 1 file deleted, got %d", res.FilesDeleted)
+	}
+
+	// Oldest file should definitely have been deleted
+	if _, err := os.Stat(fileOld); !os.IsNotExist(err) {
+		t.Errorf("expected oldest file to be evicted")
+	}
+
+	// Newest file should have been preserved
+	if _, err := os.Stat(fileNew); os.IsNotExist(err) {
+		t.Errorf("expected newest file to be preserved")
+	}
+}
+
+

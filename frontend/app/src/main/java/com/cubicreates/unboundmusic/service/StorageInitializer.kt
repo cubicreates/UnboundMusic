@@ -34,7 +34,7 @@ object StorageInitializer {
             // Deploy canonical app-specific Unbound folder and purge legacy public storage
             UnboundStorageManager.deployUnboundStorage(context)
 
-            // App-specific internal/external backend directory (/Android/data/.../.backend)
+            // 1. App-specific internal/external backend directory (/Android/data/.../.backend)
             val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
             val modelsDir = File(backendRoot, "models")
 
@@ -42,33 +42,93 @@ object StorageInitializer {
             if (!backendRoot.exists()) backendRoot.mkdirs()
             if (!modelsDir.exists()) modelsDir.mkdirs()
 
-            // 1. Extract and set executable permissions for fpcalc & llama-cli (only on supported architectures)
-            val isArm64 = android.os.Build.SUPPORTED_ABIS.any { it.contains("arm64", ignoreCase = true) }
-            if (isArm64) {
-                extractBinaryAsset(context, "bin/arm64-v8a/fpcalc", File(binDir, "fpcalc"))
-                extractBinaryAsset(context, "bin/arm64-v8a/llama-cli", File(binDir, "llama-cli"))
+            // 2. Pure in-process Go engine provides all acoustic DSP and fingerprinting
+            Log.i(TAG, "Storage directories initialized. Native DSP & Shazam engine active via in-process Go daemon.")
+
+            // 3. Check for presence of on-device AI model weights
+            val primaryModel = File(modelsDir, "smollm2_135m.gguf")
+            if (primaryModel.exists() && primaryModel.length() > 0L) {
+                Log.i(TAG, "On-device AI model weights verified at ${primaryModel.absolutePath} (${primaryModel.length()} bytes)")
             } else {
-                Log.i(TAG, "Non-arm64 architecture detected (${android.os.Build.SUPPORTED_ABIS.joinToString()}). Skipping arm64 native binary extraction to prevent emulator/system crash.")
+                Log.i(TAG, "Lightweight mode active: No on-device LLM weights installed. Fast in-memory heuristic vibe search engaged.")
             }
 
-            // 2. Extract AI models archive into hidden .backend/models/ only if optionally bundled
-            val assetList = try { context.assets.list("payload") } catch (_: Exception) { null }
-            if (assetList != null && assetList.contains("models.zst")) {
-                val primaryModel = File(modelsDir, "smollm2_135m.gguf")
-                if (!primaryModel.exists() || primaryModel.length() == 0L) {
-                    Log.i(TAG, "AI model archive found in assets. Extracting payload...")
-                    extractPayloadAsset(context, "payload/models.zst", File(modelsDir, "models.zst"))
-                } else {
-                    Log.i(TAG, "AI model weights already initialized at ${primaryModel.absolutePath}")
-                }
-            } else {
-                Log.i(TAG, "Lightweight mode active: No bundled heavy LLM weights. Pure fast heuristic vibe search engaged.")
-            }
-
-            Log.i(TAG, "Storage and binary initialization completed successfully.")
+            Log.i(TAG, "Storage initialization completed successfully.")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error during storage initialization: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Checks if the on-device AI model weights are downloaded and available.
+     */
+    fun isAiModelInstalled(context: Context): Boolean {
+        val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+        val primaryModel = File(File(backendRoot, "models"), "smollm2_135m.gguf")
+        return primaryModel.exists() && primaryModel.length() > 0L
+    }
+
+    /**
+     * Downloads models.zst on-demand from remote URL and unpacks via Go daemon.
+     */
+    suspend fun downloadAndInstallModel(
+        context: Context,
+        downloadUrl: String = "https://github.com/cubicreates/UnboundMusic/releases/download/v1.0.0-assets/models.zst",
+        onProgress: (Float) -> Unit = {}
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+            val modelsDir = File(backendRoot, "models")
+            if (!modelsDir.exists()) modelsDir.mkdirs()
+            val zstFile = File(modelsDir, "models.zst")
+
+            Log.i(TAG, "Starting on-demand download of AI model weights from $downloadUrl")
+            val request = okhttp3.Request.Builder().url(downloadUrl).build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Failed downloading AI model payload: HTTP ${response.code}")
+                return@withContext false
+            }
+
+            val body = response.body ?: return@withContext false
+            val contentLength = body.contentLength()
+            var downloadedBytes = 0L
+
+            body.byteStream().use { input ->
+                FileOutputStream(zstFile).use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                        downloadedBytes += read
+                        if (contentLength > 0) {
+                            val progress = downloadedBytes.toFloat() / contentLength.toFloat()
+                            onProgress(progress.coerceIn(0f, 1f))
+                        }
+                    }
+                }
+            }
+
+            Log.i(TAG, "Model payload downloaded (${zstFile.length()} bytes). Unpacking via Go engine...")
+            val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(context).client
+            val unpacked = daemonClient.unpackPayload(zstFile.absolutePath, modelsDir.absolutePath)
+            if (unpacked) {
+                if (zstFile.exists()) zstFile.delete()
+                Log.i(TAG, "On-demand AI model installation complete.")
+                true
+            } else {
+                Log.e(TAG, "Failed unpacking AI model payload via daemon.")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading and installing AI model: ${e.message}", e)
             false
         }
     }
@@ -104,57 +164,6 @@ object StorageInitializer {
         } catch (e: Exception) {
             Log.w(TAG, "unpackModelsIfPending note: ${e.message}")
             true
-        }
-    }
-
-    private fun extractBinaryAsset(context: Context, assetPath: String, destFile: File) {
-        try {
-            var needsCopy = !destFile.exists()
-            if (!needsCopy) {
-                // Verify file size matches asset if accessible
-                try {
-                    context.assets.openFd(assetPath).use { fd ->
-                        if (destFile.length() != fd.length) {
-                            needsCopy = true
-                        }
-                    }
-                } catch (_: Exception) {
-                    // Compressed assets do not support openFd, keep existing if non-empty
-                    if (destFile.length() == 0L) needsCopy = true
-                }
-            }
-
-            if (needsCopy) {
-                Log.i(TAG, "Extracting binary asset $assetPath to ${destFile.absolutePath}")
-                context.assets.open(assetPath).use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-
-            // Set POSIX executable permissions: readable and executable by all
-            val execSuccess = destFile.setExecutable(true, false)
-            val readSuccess = destFile.setReadable(true, false)
-            Log.d(TAG, "Binary ${destFile.name} permissions: executable=$execSuccess, readable=$readSuccess")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed extracting binary asset $assetPath: ${e.message}")
-        }
-    }
-
-    private fun extractPayloadAsset(context: Context, assetPath: String, destFile: File) {
-        try {
-            if (!destFile.exists() || destFile.length() == 0L) {
-                Log.i(TAG, "Copying $assetPath to ${destFile.absolutePath}")
-                context.assets.open(assetPath).use { input ->
-                    FileOutputStream(destFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-            }
-            Log.i(TAG, "Payload asset copied (${destFile.length()} bytes).")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed copying payload asset $assetPath: ${e.message}")
         }
     }
 }

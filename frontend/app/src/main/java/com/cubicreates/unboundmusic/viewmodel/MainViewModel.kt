@@ -93,6 +93,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val serviceConnection = ServiceConnection.getInstance(application)
     private val downloadNotificationHelper = com.cubicreates.unboundmusic.notification.DownloadNotificationHelper(application)
 
+    // ==================== Domain ViewModels Delegation ====================
+    val searchDomainViewModel by lazy { SearchViewModel(application) }
+    val equalizerDomainViewModel by lazy { EqualizerViewModel(application) }
+    val lyricsDomainViewModel by lazy { LyricsViewModel(application) }
+    val downloadsDomainViewModel by lazy { DownloadsViewModel(application) }
+    val shazamDomainViewModel by lazy { ShazamViewModel(application) }
+
     val daemonState: StateFlow<DaemonLifecycleState> = daemonManager.state
 
     /** Reactive playback state from the Media3 foreground service. */

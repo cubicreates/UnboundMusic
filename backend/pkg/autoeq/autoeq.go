@@ -85,9 +85,11 @@ type HeadphoneModel struct {
 
 // Engine coordinates headphone calibration curves and parametric EQ profiles.
 type Engine struct {
-	mu      sync.RWMutex
-	presets map[string]*EQPreset
-	models  []HeadphoneModel
+	mu            sync.RWMutex
+	presets       map[string]*EQPreset
+	models        []HeadphoneModel
+	resampleMu    sync.RWMutex
+	resampleCache map[string][]EQBand
 }
 
 // StandardFrequencies defines the canonical 10-band octave frequencies (Hz).
@@ -96,8 +98,9 @@ var StandardFrequencies = []int{31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 1
 // NewEngine initializes the AutoEq calibration engine with built-in reference headphone curves.
 func NewEngine() *Engine {
 	e := &Engine{
-		presets: make(map[string]*EQPreset),
-		models:  make([]HeadphoneModel, 0, 50),
+		presets:       make(map[string]*EQPreset),
+		models:        make([]HeadphoneModel, 0, 50),
+		resampleCache: make(map[string][]EQBand),
 	}
 	e.loadBuiltinPresets()
 	return e
@@ -133,6 +136,40 @@ func (e *Engine) GetEQPreset(modelID string) (*EQPreset, error) {
 		return nil, fmt.Errorf("headphone preset not found for ID: %s", modelID)
 	}
 	return preset, nil
+}
+
+// GetResampledPreset retrieves pre-computed or memoized resampled parametric EQ curves for a headphone model.
+func (e *Engine) GetResampledPreset(modelID string, targetFreqs []int) (*EQPreset, error) {
+	preset, err := e.GetEQPreset(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(targetFreqs) == 0 {
+		return preset, nil
+	}
+
+	cacheKey := fmt.Sprintf("%s:%v", strings.ToLower(modelID), targetFreqs)
+	e.resampleMu.RLock()
+	cachedBands, found := e.resampleCache[cacheKey]
+	e.resampleMu.RUnlock()
+
+	if found {
+		resampled := *preset
+		resampled.Bands = cachedBands
+		return &resampled, nil
+	}
+
+	// Compute and store in cache
+	bands := preset.ResampleCurve(targetFreqs)
+
+	e.resampleMu.Lock()
+	e.resampleCache[cacheKey] = bands
+	e.resampleMu.Unlock()
+
+	resampled := *preset
+	resampled.Bands = bands
+	return &resampled, nil
 }
 
 // loadBuiltinPresets registers industry-standard calibrated profiles.

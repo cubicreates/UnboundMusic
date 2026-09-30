@@ -140,3 +140,30 @@ func TestExpandedHeadphoneProfiles(t *testing.T) {
 		}
 	}
 }
+
+// TestGetResampledPresetCache validates caching and consistency of resampled curves.
+func TestGetResampledPresetCache(t *testing.T) {
+	engine := NewEngine()
+	targetFreqs := []int{60, 230, 910, 3600, 14000} // 5-band configuration
+
+	// First retrieval (computes & caches)
+	preset1, err := engine.GetResampledPreset("apple_airpods_pro_2", targetFreqs)
+	if err != nil {
+		t.Fatalf("first GetResampledPreset call failed: %v", err)
+	}
+	if len(preset1.Bands) != 5 {
+		t.Fatalf("expected 5 bands, got %d", len(preset1.Bands))
+	}
+
+	// Second retrieval (retrieves from cache)
+	preset2, err := engine.GetResampledPreset("apple_airpods_pro_2", targetFreqs)
+	if err != nil {
+		t.Fatalf("second GetResampledPreset call failed: %v", err)
+	}
+
+	for i := range preset1.Bands {
+		if preset1.Bands[i].GainDB != preset2.Bands[i].GainDB {
+			t.Errorf("cache inconsistency at band %d: %f != %f", i, preset1.Bands[i].GainDB, preset2.Bands[i].GainDB)
+		}
+	}
+}

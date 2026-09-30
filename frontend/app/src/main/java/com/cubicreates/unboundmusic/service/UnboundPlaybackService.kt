@@ -306,16 +306,30 @@ class UnboundPlaybackService : MediaSessionService() {
             }
         }
 
-        // 4. Aggressive LoadControl buffer (SimpMusic download-while-listening pattern):
-        // Buffers up to 15 minutes ahead so the whole song rapidly pre-caches within seconds.
+        // 4. Smart LoadControl buffer: Fast 1.5s playback start with network-aware lookahead
+        // Conserves cellular bandwidth while maintaining seamless playback without dropouts.
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val isUnmetered = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val network = connectivityManager?.activeNetwork
+            val capabilities = connectivityManager?.getNetworkCapabilities(network)
+            capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true ||
+            capabilities?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true
+        } else {
+            @Suppress("DEPRECATION")
+            connectivityManager?.activeNetworkInfo?.type == android.net.ConnectivityManager.TYPE_WIFI
+        }
+
+        val minBuffer = if (isUnmetered) 60_000 else 30_000
+        val maxBuffer = if (isUnmetered) 180_000 else 60_000
+
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                360_000, // minBufferMs: 6 minutes
-                900_000, // maxBufferMs: 15 minutes (full track pre-buffering)
+                minBuffer,
+                maxBuffer,
                 1_500,   // bufferForPlaybackMs: 1.5s fast start
                 3_000    // bufferForPlaybackAfterRebufferMs: 3.0s rebuffer start
             )
-            .setBackBuffer(120_000, /* retainBackBufferFromKeyframe = */ true)
+            .setBackBuffer(30_000, /* retainBackBufferFromKeyframe = */ true)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 

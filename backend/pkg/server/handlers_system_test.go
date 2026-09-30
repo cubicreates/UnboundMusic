@@ -10,6 +10,41 @@ import (
 	"time"
 )
 
+func TestServerPingEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45749,
+		DatabasePath:   filepath.Join(tempDir, "test_ping.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil)
+	w := httptest.NewRecorder()
+
+	srv.handlePing(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", resp.StatusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+
+	if payload["pong"] != true {
+		t.Errorf("expected pong: true, got %v", payload["pong"])
+	}
+}
+
 func TestServerHealthEndpoint(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := Config{

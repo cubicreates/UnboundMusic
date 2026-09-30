@@ -14,6 +14,14 @@ import (
 
 var serverStartTime = time.Now()
 
+// handlePing returns immediate 200 OK pong response for low-latency watchdog heartbeats.
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"pong":      true,
+		"timestamp": time.Now().UnixMilli(),
+	})
+}
+
 // handleHealth returns a lightweight health probe response for watchdogs.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{

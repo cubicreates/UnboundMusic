@@ -252,6 +252,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux := http.NewServeMux()
 
 	// --- 1. System & Health Watchdog ---
+	mux.HandleFunc("/api/v1/ping", s.handlePing)
 	mux.HandleFunc("/api/v1/health", s.handleHealth)
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/events", s.handleEvents)

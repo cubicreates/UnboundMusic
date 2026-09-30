@@ -123,6 +123,7 @@ class UnboundPlaybackService : MediaSessionService() {
     private val sleepFadeProcessor = SleepFadeAudioProcessor { activeSleepFadeGain }
 
     private var forwardingPlayer: UnboundForwardingPlayer? = null
+    private var daemonWatchdog: DaemonWatchdog? = null
 
     private fun buildRepeatCommandButton(repeatMode: Int): CommandButton {
         val (icon, displayName) = when (repeatMode) {
@@ -247,6 +248,18 @@ class UnboundPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Playback Service with SimpMusic audio streaming pipeline...")
+
+        // Embedded Daemon Watchdog Supervisor
+        // Runs inside the foreground service to ensure the Go daemon is actively monitored and auto-healed.
+        val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(this).client
+        daemonWatchdog = DaemonWatchdog(
+            client = daemonClient,
+            onRecoveryAction = {
+                Log.i(TAG, "DaemonWatchdog: Triggering native Go daemon auto-restart from foreground playback service...")
+                com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(applicationContext).startDaemonAuto(force = true)
+            }
+        )
+        daemonWatchdog?.start(intervalMs = 10_000L)
 
         // 0. Set up Foreground Notification Channel and MediaNotificationProvider (matching SimpMusic)
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -461,6 +474,8 @@ class UnboundPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "Destroying Unbound Playback Service.")
+        daemonWatchdog?.stop()
+        daemonWatchdog = null
         serviceScope.cancel()
         AudioEffectController.release()
         mediaSession?.run {

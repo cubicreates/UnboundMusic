@@ -167,6 +167,26 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
 
     // ==================== SECTION 1: System Health & Storage ====================
 
+    /** Rapid low-overhead keepalive ping. Returns true if daemon responds with 200 OK. */
+    suspend fun ping(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val (code, _) = get("/api/v1/ping")
+            code == 200
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Returns true if daemon health check responds 200 OK. */
+    suspend fun isHealthy(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val (code, _) = get("/api/v1/health")
+            code == 200
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Verifies daemon is online, returns engine version, storage mode, RAM, goroutines. */
     suspend fun getStatus(): Pair<Int, String> = withContext(Dispatchers.IO) {
         get("/api/v1/status")

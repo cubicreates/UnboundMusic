@@ -9,6 +9,8 @@
 package com.cubicreates.unboundmusic.data
 
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 
 /**
  * Represents a situational 24-hour time-aware recommendation card.
@@ -488,6 +490,45 @@ data class FallbackStatusDto(
     val verifiedFoundOn: String? = null,
     val sourceFormat: String? = null,
     val seeders: Int? = null
+)
+
+/**
+ * Type-safe @Serializable Track Metadata DTO from daemon /api/v1/search and /api/v1/stream endpoints.
+ */
+@Serializable
+data class TrackMetadataDto(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    @SerialName("duration_ms") val durationMs: Long = 0,
+    val thumbnail: String = "",
+    @SerialName("stream_url") val streamUrl: String = "",
+    val source: String = "youtube"
+) {
+    fun toTrackItem(): TrackItem {
+        return TrackItem(
+            id = id,
+            title = title,
+            artist = artist,
+            album = album,
+            durationMs = durationMs,
+            coverUrl = thumbnail,
+            streamUrl = streamUrl,
+            source = source
+        )
+    }
+}
+
+/**
+ * Type-safe @Serializable Search Response DTO from daemon /api/v1/search endpoint.
+ */
+@Serializable
+data class SearchResultDto(
+    val query: String = "",
+    val type: String = "all",
+    val count: Int = 0,
+    val tracks: List<TrackMetadataDto> = emptyList()
 )
 
 

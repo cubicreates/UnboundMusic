@@ -298,6 +298,23 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 			scaled[i] = s * 32767.0
 		}
 		samples = scaled
+		maxVal *= 32767.0
+	}
+
+	// AGC (Automatic Gain Control) for ambient microphone recordings:
+	// If audio is quiet (peak < 16,000), boost toward Shazam's optimal operating level (~20,000).
+	// Because Shazam's sub-bin frequency calculation is mathematically invariant to scalar gain,
+	// this lifts all 4 frequency bands cleanly above the 1/64 threshold.
+	if maxVal > 0 && maxVal < 16000 {
+		gain := float32(20000.0) / maxVal
+		if gain > 25.0 {
+			gain = 25.0 // cap gain at ~28dB to avoid lifting white noise
+		}
+		scaled := make([]float32, len(samples))
+		for i, s := range samples {
+			scaled[i] = s * gain
+		}
+		samples = scaled
 	}
 
 	durationMs := int64((float64(len(samples)) / float64(sampleRate)) * 1000)

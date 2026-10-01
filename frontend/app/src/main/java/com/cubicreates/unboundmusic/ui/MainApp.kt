@@ -97,6 +97,7 @@ fun MainApp(
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
+    val audioWaveAmplitude by viewModel.audioWaveAmplitude.collectAsStateWithLifecycle()
     val lastRecognizedTrack by viewModel.lastRecognizedTrack.collectAsStateWithLifecycle()
     val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
     val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
@@ -343,6 +344,7 @@ fun MainApp(
                             ShazamScreen(
                                 isYouTubeConnected = isYouTubeConnected,
                                 isListening = isListeningShazam,
+                                audioAmplitude = audioWaveAmplitude,
                                 statusMessage = recognizedMessage,
                                 accountName = accountName,
                                 lastRecognizedTrack = lastRecognizedTrack,

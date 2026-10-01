@@ -78,6 +78,7 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 fun GuestShazamScreen(
     modifier: Modifier = Modifier,
     isListening: Boolean = false,
+    audioAmplitude: Float = 0f,
     statusMessage: String? = null,
     lastRecognizedTrack: TrackItem? = null,
     shazamHistory: List<TrackItem> = emptyList(),
@@ -117,6 +118,11 @@ fun GuestShazamScreen(
         ),
         label = "wave_alpha"
     )
+
+    // Dynamic audio-reactive scale boost driven by real microphone energy
+    val reactiveScale1 = pulseScale1 + (if (isListening) audioAmplitude * 0.25f else 0f)
+    val reactiveScale2 = pulseScale2 + (if (isListening) audioAmplitude * 0.35f else 0f)
+    val reactiveAlpha = (waveAlpha + (if (isListening) audioAmplitude * 0.35f else 0f)).coerceIn(0f, 1f)
 
     LazyColumn(
         modifier = modifier
@@ -162,10 +168,10 @@ fun GuestShazamScreen(
                 Box(
                     modifier = Modifier
                         .size(190.dp)
-                        .scale(pulseScale2)
+                        .scale(reactiveScale2)
                         .border(
                             width = 1.5.dp,
-                            color = UnboundPrimary.copy(alpha = waveAlpha),
+                            color = UnboundPrimary.copy(alpha = reactiveAlpha),
                             shape = CircleShape
                         )
                 )
@@ -174,10 +180,10 @@ fun GuestShazamScreen(
                 Box(
                     modifier = Modifier
                         .size(150.dp)
-                        .scale(pulseScale1)
+                        .scale(reactiveScale1)
                         .border(
                             width = 2.dp,
-                            color = UnboundPrimary.copy(alpha = if (isListening) waveAlpha + 0.15f else 0.1f),
+                            color = UnboundPrimary.copy(alpha = if (isListening) (reactiveAlpha + 0.15f).coerceAtMost(1f) else 0.1f),
                             shape = CircleShape
                         )
                 )
@@ -213,7 +219,16 @@ fun GuestShazamScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            // Live Audio Waveform Visualizer
+            AcousticWaveformVisualizer(
+                isListening = isListening,
+                amplitude = audioAmplitude,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Live Status Text
             Text(

@@ -2,7 +2,7 @@
  * Package: com.cubicreates.unboundmusic.ui.shazam
  * File: ShazamScreen.kt
  * Purpose: Dual-mode coordinator routing to SignedInShazamScreen (for logged-in YouTube users)
- *          or GuestShazamScreen (for offline/guest users) with acoustic radar and recognition history.
+ *          or GuestShazamScreen (for offline/guest users) with acoustic radar, interactive waveform, and recognition history.
  * Subsystem: Domain UI / Acoustic Recognition Coordinator
  */
 
@@ -17,6 +17,7 @@ fun ShazamScreen(
     modifier: Modifier = Modifier,
     isYouTubeConnected: Boolean = false,
     isListening: Boolean = false,
+    audioAmplitude: Float = 0f,
     statusMessage: String? = null,
     accountName: String? = null,
     lastRecognizedTrack: TrackItem? = null,
@@ -35,6 +36,7 @@ fun ShazamScreen(
         SignedInShazamScreen(
             modifier = modifier,
             isListening = isListening,
+            audioAmplitude = audioAmplitude,
             statusMessage = statusMessage,
             accountName = accountName,
             lastRecognizedTrack = lastRecognizedTrack,
@@ -52,6 +54,7 @@ fun ShazamScreen(
         GuestShazamScreen(
             modifier = modifier,
             isListening = isListening,
+            audioAmplitude = audioAmplitude,
             statusMessage = statusMessage,
             lastRecognizedTrack = lastRecognizedTrack,
             shazamHistory = shazamHistory,

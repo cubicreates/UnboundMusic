@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"strings"
@@ -277,7 +278,9 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[SHAZAM] Extracted %d peaks from %d samples (sampleRate=%d, duration=%dms)", len(cmap.Peaks), len(samples), sampleRate, cmap.DurationMs)
 	if len(cmap.Peaks) == 0 {
+		log.Printf("[SHAZAM] Warning: zero landmarks extracted from audio stream (audio may be silence/zeros)")
 		writeJSON(w, http.StatusOK, map[string]any{
 			"matched": false,
 			"reason":  "low_signal",
@@ -289,6 +292,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 	// 2. Encode to Shazam binary signature
 	sig, err := shazam.EncodeConstellationToSignature(cmap)
 	if err != nil {
+		log.Printf("[SHAZAM] Error encoding signature: %v", err)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"matched": false,
 			"reason":  "insufficient_landmarks",
@@ -300,6 +304,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 	// 3. Query Shazam discovery gateway
 	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
 	if err != nil {
+		log.Printf("[SHAZAM] Cloud discovery failed: %v, checking offline vault", err)
 		// Fallback: Check local SQLite offline vault
 		offlineRes, offErr := shazam.MatchOffline(r.Context(), s.repo, "")
 		if offErr == nil && offlineRes != nil && offlineRes.Matched {
@@ -315,5 +320,6 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[SHAZAM] Recognition success: matched=%v, title=%s, artist=%s", res.Matched, res.Title, res.Artist)
 	writeJSON(w, http.StatusOK, res)
 }

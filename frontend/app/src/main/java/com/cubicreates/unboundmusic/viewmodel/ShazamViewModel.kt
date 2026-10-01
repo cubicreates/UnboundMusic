@@ -39,6 +39,8 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
     private val _isListeningShazam = MutableStateFlow(false)
     val isListeningShazam: StateFlow<Boolean> = _isListeningShazam.asStateFlow()
 
+    val audioWaveAmplitude: StateFlow<Float> = AmbientAudioRecorder.audioAmplitude
+
     private val _recognizedMessage = MutableStateFlow("")
     val recognizedMessage: StateFlow<String> = _recognizedMessage.asStateFlow()
 
@@ -74,7 +76,7 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val pcmData = AmbientAudioRecorder.recordPcm(4500)
+                val pcmData = AmbientAudioRecorder.recordPcm(5500)
                 if (pcmData == null || pcmData.isEmpty()) {
                     _recognizedMessage.value = "Could not record ambient audio."
                     return@launch

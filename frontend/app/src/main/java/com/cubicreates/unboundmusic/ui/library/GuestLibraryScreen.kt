@@ -193,7 +193,7 @@ fun GuestLibraryScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Scan & Refresh",
+                                    contentDescription = "Refresh Library",
                                     tint = UnboundPrimary,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -369,7 +369,7 @@ fun GuestLibraryScreen(
                             )
                         }
 
-                        // Utility Row: Folders, History, Shazam
+                        // Utility Row: Folders & Recent
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -392,17 +392,6 @@ fun GuestLibraryScreen(
                                 accentColor = Color(0xFF00E5FF),
                                 modifier = Modifier.weight(1f),
                                 onClick = { subView = LibrarySubView.RECENT_PLAYED }
-                            )
-
-                            ModernUtilityCompactCard(
-                                title = "Identify",
-                                count = "SCAN",
-                                subtitle = "Shazam",
-                                icon = Icons.Default.GraphicEq,
-                                accentColor = Color(0xFFB388FF),
-                                badgeText = "LIVE",
-                                modifier = Modifier.weight(1f),
-                                onClick = onStartShazam
                             )
                         }
 

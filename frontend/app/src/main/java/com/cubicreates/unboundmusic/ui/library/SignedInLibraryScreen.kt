@@ -392,7 +392,7 @@ fun SignedInLibraryScreen(
                             )
                         }
 
-                        // Utility Row: Folders, History, Shazam
+                        // Utility Row: Folders & Recent
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -415,17 +415,6 @@ fun SignedInLibraryScreen(
                                 accentColor = Color(0xFF00E5FF),
                                 modifier = Modifier.weight(1f),
                                 onClick = { subView = LibrarySubView.RECENT_PLAYED }
-                            )
-
-                            ModernUtilityCompactCard(
-                                title = "Identify",
-                                count = "SCAN",
-                                subtitle = "Shazam",
-                                icon = Icons.Default.GraphicEq,
-                                accentColor = Color(0xFFB388FF),
-                                badgeText = "LIVE",
-                                modifier = Modifier.weight(1f),
-                                onClick = onStartShazam
                             )
                         }
 

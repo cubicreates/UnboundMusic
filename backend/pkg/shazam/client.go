@@ -1,7 +1,7 @@
 /*
  * Package: shazam
  * File: client.go
- * Purpose: Public unauthenticated Shazam discovery client recognizing songs from binary signatures in < 800ms with $0.00 cloud cost.
+ * Purpose: Public unauthenticated Shazam discovery client recognizing songs from SigX binary signatures in < 800ms.
  * Subsystem: Shazam Audio Recognition
  * Concurrency: Thread-safe HTTP client with timeouts; safe for concurrent recognition queries.
  */
@@ -20,20 +20,20 @@ import (
 
 // MatchResult represents the recognized song metadata from Shazam.
 type MatchResult struct {
-	Matched     bool      `json:"matched"`
-	TrackID     string    `json:"track_id"`
-	Title       string    `json:"title"`
-	Artist      string    `json:"artist"`
-	Album       string    `json:"album"`
-	Genre       string    `json:"genre"`
-	ReleaseYear string    `json:"release_year"`
-	CoverArtURL string    `json:"cover_art_url"`
-	ISRC        string    `json:"isrc"`
-	ShazamURL   string    `json:"shazam_url"`
-	AppleMusicURL string  `json:"apple_music_url"`
-	SpotifyURL    string  `json:"spotify_url"`
-	LatencyMs   int64     `json:"latency_ms"`
-	Source      string    `json:"source"` // "SHAZAM_CLOUD" or "LOCAL_OFFLINE_VAULT"
+	Matched       bool   `json:"matched"`
+	TrackID       string `json:"track_id"`
+	Title         string `json:"title"`
+	Artist        string `json:"artist"`
+	Album         string `json:"album"`
+	Genre         string `json:"genre"`
+	ReleaseYear   string `json:"release_year"`
+	CoverArtURL   string `json:"cover_art_url"`
+	ISRC          string `json:"isrc"`
+	ShazamURL     string `json:"shazam_url"`
+	AppleMusicURL string `json:"apple_music_url"`
+	SpotifyURL    string `json:"spotify_url"`
+	LatencyMs     int64  `json:"latency_ms"`
+	Source        string `json:"source"` // "SHAZAM_CLOUD" or "LOCAL_OFFLINE_VAULT"
 }
 
 // Client coordinates Shazam recognition requests.
@@ -50,7 +50,7 @@ func NewClient() *Client {
 	}
 }
 
-// RecognizeSignature sends a signature payload to Shazam discovery and parses the matched track.
+// RecognizeSignature sends a SigX signature payload to Shazam discovery and parses the matched track.
 func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) (*MatchResult, error) {
 	if sig == nil || sig.Base64URI == "" {
 		return nil, fmt.Errorf("signature payload cannot be empty")
@@ -59,17 +59,29 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 	start := time.Now()
 	uuid1 := generateUUID()
 	uuid2 := generateUUID()
-	endpoint := fmt.Sprintf("https://amp.shazam.com/discovery/v5/en-US/US/android/-/tag/%s/%s", uuid1, uuid2)
 
-	// Shazam API request payload
+	endpoint := fmt.Sprintf(
+		"https://amp.shazam.com/discovery/v5/en-US/US/iphone/-/tag/%s/%s?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&hubv5minorversion=v5.1&hidelb=true&video=v3",
+		uuid1, uuid2,
+	)
+
+	nowMs := time.Now().UnixMilli()
+
+	// Shazam API request payload supporting both single signature object and array
 	reqBody := map[string]interface{}{
+		"timezone": "America/New_York",
+		"signature": map[string]interface{}{
+			"uri":      sig.Base64URI,
+			"samplems": sig.DurationMs,
+		},
 		"signatures": []map[string]interface{}{
 			{
 				"uri":      sig.Base64URI,
 				"samplems": sig.DurationMs,
 			},
 		},
-		"timezone": "America/New_York",
+		"timestamp": nowMs,
+		"context":   map[string]interface{}{},
 	}
 
 	jsonBytes, err := json.Marshal(reqBody)
@@ -83,8 +95,11 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Shazam/14.2.0 (Android; 14; Mobile; en-US)")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Shazam-Platform", "IPHONE")
+	req.Header.Set("X-Shazam-AppVersion", "14.1.0")
+	req.Header.Set("User-Agent", "Shazam/14.1.0 (iPhone; iOS 14.7.1; Scale/3.00)")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -108,13 +123,14 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 
 	type ShazamResponse struct {
 		Track struct {
-			Key       string `json:"key"`
-			Title     string `json:"title"`
-			Subtitle  string `json:"subtitle"`
-			Url       string `json:"url"`
-			ISRC      string `json:"isrc"`
-			Images    struct {
-				CoverArt string `json:"coverart"`
+			Key      string `json:"key"`
+			Title    string `json:"title"`
+			Subtitle string `json:"subtitle"`
+			Url      string `json:"url"`
+			ISRC     string `json:"isrc"`
+			Images   struct {
+				CoverArt   string `json:"coverart"`
+				CoverArtHQ string `json:"coverarthq"`
 			} `json:"images"`
 			Genres struct {
 				Primary string `json:"primary"`
@@ -126,6 +142,19 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 					Text  string `json:"text"`
 				} `json:"metadata"`
 			} `json:"sections"`
+			Hub struct {
+				Actions []struct {
+					Name string `json:"name"`
+					Type string `json:"type"`
+					URI  string `json:"uri"`
+				} `json:"actions"`
+				Providers []struct {
+					Type    string `json:"type"`
+					Actions []struct {
+						URI string `json:"uri"`
+					} `json:"actions"`
+				} `json:"providers"`
+			} `json:"hub"`
 		} `json:"track"`
 		Matches []struct {
 			ID string `json:"id"`
@@ -159,6 +188,31 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 		}
 	}
 
+	coverArt := parsed.Track.Images.CoverArtHQ
+	if coverArt == "" {
+		coverArt = parsed.Track.Images.CoverArt
+	}
+
+	spotifyURL := ""
+	for _, prov := range parsed.Track.Hub.Providers {
+		if prov.Type == "SPOTIFY" {
+			for _, act := range prov.Actions {
+				if act.URI != "" {
+					spotifyURL = act.URI
+					break
+				}
+			}
+		}
+	}
+
+	appleMusicURL := ""
+	for _, act := range parsed.Track.Hub.Actions {
+		if act.URI != "" {
+			appleMusicURL = act.URI
+			break
+		}
+	}
+
 	return &MatchResult{
 		Matched:       true,
 		TrackID:       parsed.Track.Key,
@@ -167,9 +221,11 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 		Album:         album,
 		Genre:         parsed.Track.Genres.Primary,
 		ReleaseYear:   year,
-		CoverArtURL:   parsed.Track.Images.CoverArt,
+		CoverArtURL:   coverArt,
 		ISRC:          parsed.Track.ISRC,
 		ShazamURL:     parsed.Track.Url,
+		SpotifyURL:    spotifyURL,
+		AppleMusicURL: appleMusicURL,
 		LatencyMs:     elapsed,
 		Source:        "SHAZAM_CLOUD",
 	}, nil

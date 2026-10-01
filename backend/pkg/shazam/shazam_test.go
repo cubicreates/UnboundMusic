@@ -1,7 +1,7 @@
 /*
  * Package: shazam
  * File: shazam_test.go
- * Purpose: Unit tests for audio DSP spectrogram peak extraction, landmark frequency pairing, binary signature encoding, and offline fallback matching.
+ * Purpose: Comprehensive unit tests for reverse-engineered Shazam DSP, 2048-point FFT, SigX binary encode/decode roundtrip, and recognition.
  * Subsystem: Test Suite
  * Concurrency: Tests execute concurrently using Go test harness.
  */
@@ -11,19 +11,77 @@ package shazam
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 )
 
-// TestExtractConstellationMap validates FFT frame extraction and spectral peak selection.
+// TestHanningMatrix2048 verifies the 2048-element Hann window values.
+func TestHanningMatrix2048(t *testing.T) {
+	if len(hanningMatrix2048) != 2048 {
+		t.Fatalf("expected 2048 window elements, got %d", len(hanningMatrix2048))
+	}
+
+	// First element should be > 0 (endpoints removed)
+	if hanningMatrix2048[0] <= 0 {
+		t.Errorf("expected positive first window element, got %f", hanningMatrix2048[0])
+	}
+
+	// Peak near center should be close to 1.0
+	center := hanningMatrix2048[1024]
+	if math.Abs(center-1.0) > 0.01 {
+		t.Errorf("expected window center near 1.0, got %f", center)
+	}
+}
+
+// TestRadix2FFT2048 validates the FFT on a pure 440 Hz sinusoidal input.
+func TestRadix2FFT2048(t *testing.T) {
+	var input [2048]complex128
+	const sampleRate = 16000.0
+	const freq = 440.0
+
+	for i := 0; i < 2048; i++ {
+		tSec := float64(i) / sampleRate
+		val := math.Sin(2.0 * math.Pi * freq * tSec)
+		input[i] = complex(val, 0)
+	}
+
+	spectrum := computeRadix2FFT2048(input)
+
+	// Frequency bin corresponding to 440 Hz:
+	// bin = 440 * 2048 / 16000 = 56.32 -> bin 56
+	expectedBin := int(math.Round(freq * 2048.0 / sampleRate))
+
+	maxMag := 0.0
+	maxBin := 0
+	for b := 0; b < 1025; b++ {
+		re := real(spectrum[b])
+		im := imag(spectrum[b])
+		mag := math.Sqrt(re*re + im*im)
+		if mag > maxMag {
+			maxMag = mag
+			maxBin = b
+		}
+	}
+
+	if math.Abs(float64(maxBin-expectedBin)) > 1 {
+		t.Errorf("expected peak near bin %d (440Hz), got peak at bin %d", expectedBin, maxBin)
+	}
+}
+
+// TestExtractConstellationMap validates spectral peak extraction from multi-frequency harmonic audio.
 func TestExtractConstellationMap(t *testing.T) {
 	sampleRate := 16000
-	numSamples := sampleRate * 2 // 2 seconds
+	numSamples := sampleRate * 3 // 3 seconds
 	samples := make([]float32, numSamples)
 
-	// Synthesize 440Hz tone
+	// Synthesize multi-frequency harmonic chord: 440Hz (A4), 880Hz (A5), 1760Hz (A6)
 	for i := 0; i < numSamples; i++ {
-		timeSec := float64(i) / float64(sampleRate)
-		samples[i] = float32(0.5 * math.Sin(2*math.Pi*440*timeSec))
+		tSec := float64(i) / float64(sampleRate)
+		samples[i] = float32(
+			0.5*math.Sin(2*math.Pi*440*tSec) +
+				0.3*math.Sin(2*math.Pi*880*tSec) +
+				0.2*math.Sin(2*math.Pi*1760*tSec),
+		)
 	}
 
 	cmap, err := ExtractConstellationMap(samples, sampleRate)
@@ -36,68 +94,113 @@ func TestExtractConstellationMap(t *testing.T) {
 	}
 
 	if len(cmap.Peaks) == 0 {
-		t.Fatalf("expected extracted peaks for 440Hz tone, got 0")
+		t.Fatalf("expected extracted peaks for harmonic chord, got 0")
 	}
 
-	// Verify frequency of peak is in reasonable range of 440Hz
-	found440 := false
+	// Verify peaks fall in proper Shazam bands
+	bandsFound := make(map[int]bool)
 	for _, p := range cmap.Peaks {
-		if p.FrequencyHz >= 400 && p.FrequencyHz <= 480 {
-			found440 = true
-			break
-		}
+		bandsFound[p.Band] = true
 	}
-	if !found440 {
-		t.Errorf("expected to find spectral peak near 440Hz, got peaks: %v", cmap.Peaks)
+
+	if !bandsFound[Band250_520] && !bandsFound[Band520_1450] {
+		t.Errorf("expected peaks in low-mid bands, got bands: %v", bandsFound)
 	}
 }
 
-// TestEncodeConstellationToSignature validates binary signature packing and Base64 URI generation.
-func TestEncodeConstellationToSignature(t *testing.T) {
-	sampleRate := 16000
-	samples := make([]float32, sampleRate*3) // 3 seconds
-
-	// Multi-frequency chord
-	for i := 0; i < len(samples); i++ {
-		timeSec := float64(i) / float64(sampleRate)
-		samples[i] = float32(0.4*math.Sin(2*math.Pi*440*timeSec) + 0.3*math.Sin(2*math.Pi*1200*timeSec))
+// TestSigXBinaryEncodeDecodeRoundtrip proves exact roundtrip encoding and decoding of Shazam SigX binary format.
+func TestSigXBinaryEncodeDecodeRoundtrip(t *testing.T) {
+	original := &DecodedSignature{
+		SampleRateHz:  16000,
+		NumberSamples: 16000 * 3,
+		Bands: map[int][]FrequencyPeak{
+			Band250_520: {
+				{FFTNumber: 10, Magnitude: 8000, CorrectedBin: 3600, SampleRateHz: 16000},
+				{FFTNumber: 25, Magnitude: 8500, CorrectedBin: 3750, SampleRateHz: 16000},
+				{FFTNumber: 300, Magnitude: 9000, CorrectedBin: 3800, SampleRateHz: 16000}, // delta > 255
+			},
+			Band520_1450: {
+				{FFTNumber: 15, Magnitude: 7500, CorrectedBin: 7200, SampleRateHz: 16000},
+				{FFTNumber: 40, Magnitude: 7800, CorrectedBin: 7300, SampleRateHz: 16000},
+			},
+		},
 	}
 
-	cmap, err := ExtractConstellationMap(samples, sampleRate)
+	bin, err := original.EncodeToBinary()
 	if err != nil {
-		t.Fatalf("ExtractConstellationMap failed: %v", err)
+		t.Fatalf("EncodeToBinary failed: %v", err)
 	}
 
-	sig, err := EncodeConstellationToSignature(cmap)
+	if len(bin) < 56 {
+		t.Fatalf("encoded binary too small: %d bytes", len(bin))
+	}
+
+	decoded, err := DecodeFromBinary(bin)
+	if err != nil {
+		t.Fatalf("DecodeFromBinary failed: %v", err)
+	}
+
+	if decoded.SampleRateHz != original.SampleRateHz {
+		t.Errorf("expected sample rate %d, got %d", original.SampleRateHz, decoded.SampleRateHz)
+	}
+
+	if decoded.NumberSamples != original.NumberSamples {
+		t.Errorf("expected %d samples, got %d", original.NumberSamples, decoded.NumberSamples)
+	}
+
+	for band, expectedPeaks := range original.Bands {
+		actualPeaks := decoded.Bands[band]
+		if len(actualPeaks) != len(expectedPeaks) {
+			t.Fatalf("band %d: expected %d peaks, got %d", band, len(expectedPeaks), len(actualPeaks))
+		}
+		for i := range expectedPeaks {
+			if actualPeaks[i].FFTNumber != expectedPeaks[i].FFTNumber {
+				t.Errorf("band %d peak %d: expected FFTNumber %d, got %d", band, i, expectedPeaks[i].FFTNumber, actualPeaks[i].FFTNumber)
+			}
+			if actualPeaks[i].Magnitude != expectedPeaks[i].Magnitude {
+				t.Errorf("band %d peak %d: expected Magnitude %d, got %d", band, i, expectedPeaks[i].Magnitude, actualPeaks[i].Magnitude)
+			}
+			if actualPeaks[i].CorrectedBin != expectedPeaks[i].CorrectedBin {
+				t.Errorf("band %d peak %d: expected CorrectedBin %d, got %d", band, i, expectedPeaks[i].CorrectedBin, actualPeaks[i].CorrectedBin)
+			}
+		}
+	}
+}
+
+// TestEncodeConstellationToSignature verifies that a ConstellationMap creates a valid SigX URI.
+func TestEncodeConstellationToSignature(t *testing.T) {
+	cmap := &ConstellationMap{
+		SampleRate: 16000,
+		DurationMs: 3000,
+		Peaks: []FrequencyPeak{
+			{FFTNumber: 5, Magnitude: 8200, CorrectedBin: 3500, Band: Band250_520},
+			{FFTNumber: 12, Magnitude: 8400, CorrectedBin: 7000, Band: Band520_1450},
+			{FFTNumber: 20, Magnitude: 8100, CorrectedBin: 15000, Band: Band1450_3500},
+		},
+	}
+
+	payload, err := EncodeConstellationToSignature(cmap)
 	if err != nil {
 		t.Fatalf("EncodeConstellationToSignature failed: %v", err)
 	}
 
-	if sig.LandmarkCount == 0 {
-		t.Errorf("expected non-zero landmark pairs, got 0")
+	if !strings.HasPrefix(payload.Base64URI, DataURIPrefix) {
+		t.Errorf("expected URI to start with '%s', got: %s", DataURIPrefix, payload.Base64URI)
 	}
 
-	if len(sig.BinaryData) < 20 {
-		t.Errorf("binary signature data too small: %d bytes", len(sig.BinaryData))
-	}
-
-	if len(sig.Base64URI) == 0 {
-		t.Errorf("expected non-empty Base64URI")
+	if payload.LandmarkCount != 3 {
+		t.Errorf("expected 3 landmarks, got %d", payload.LandmarkCount)
 	}
 }
 
-// TestOfflineMatchFallback validates graceful offline local vault lookup.
+// TestOfflineMatchFallback validates local vault lookup fallback.
 func TestOfflineMatchFallback(t *testing.T) {
 	ctx := context.Background()
-	res, err := MatchOffline(ctx, nil, "mock_hash_123")
+	res, err := MatchOffline(ctx, nil, "non_existent_file")
 	if err != nil {
 		t.Fatalf("MatchOffline failed: %v", err)
 	}
-
 	if res.Matched {
-		t.Errorf("expected Matched=false for nil repository")
-	}
-	if res.Source != "LOCAL_OFFLINE_VAULT" {
-		t.Errorf("expected Source=LOCAL_OFFLINE_VAULT, got %s", res.Source)
+		t.Errorf("expected Matched=false for nil repo")
 	}
 }

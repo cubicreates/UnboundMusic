@@ -42,16 +42,34 @@ object AmbientAudioRecorder {
         var audioRecord: AudioRecord? = null
 
         try {
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                bufferSize
+            val sources = intArrayOf(
+                MediaRecorder.AudioSource.UNPROCESSED,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.MIC
             )
+            for (source in sources) {
+                try {
+                    val record = AudioRecord(
+                        source,
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        AUDIO_FORMAT,
+                        bufferSize
+                    )
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        audioRecord = record
+                        Log.i(TAG, "AudioRecord initialized with source $source")
+                        break
+                    } else {
+                        record.release()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioSource $source initialization failed: ${e.message}")
+                }
+            }
 
-            if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord failed to initialize (state=${audioRecord.state})")
+            if (audioRecord == null || audioRecord.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord failed to initialize across all available sources")
                 return@withContext null
             }
 

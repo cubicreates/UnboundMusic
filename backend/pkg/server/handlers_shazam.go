@@ -30,10 +30,10 @@ func (s *Server) handleShazamDSP(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < numSamples; i++ {
 		tSec := float64(i) / float64(sampleRate)
 		samples[i] = float32(
-			0.4*math.Sin(2*math.Pi*440*tSec) +
+			(0.4*math.Sin(2*math.Pi*440*tSec) +
 				0.3*math.Sin(2*math.Pi*660*tSec) +
 				0.2*math.Sin(2*math.Pi*1108*tSec) +
-				0.1*math.Sin(2*math.Pi*2349*tSec),
+				0.1*math.Sin(2*math.Pi*2349*tSec)) * 20000.0,
 		)
 	}
 
@@ -129,7 +129,7 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 	// 2. Synthesize audio buffer and query Shazam recognition
 	dummySamples := make([]float32, 16000*4)
 	for i := range dummySamples {
-		dummySamples[i] = 0.1
+		dummySamples[i] = 1000.0
 	}
 
 	cmap, err := shazam.ExtractConstellationMap(dummySamples, 16000)
@@ -178,7 +178,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		samples = make([]float32, numSamples)
 		for i := 0; i < numSamples; i++ {
 			raw := int16(binary.LittleEndian.Uint16(pcmBytes[i*2 : i*2+2]))
-			samples[i] = float32(raw) / 32768.0
+			samples[i] = float32(raw)
 		}
 	} else {
 		// Try JSON decode (supports samples array, pcm_base64, or signature_uri)
@@ -227,6 +227,21 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 
 		if len(req.Samples) > 0 {
 			samples = req.Samples
+			maxAbs := float32(0)
+			for _, s := range samples {
+				abs := s
+				if abs < 0 {
+					abs = -abs
+				}
+				if abs > maxAbs {
+					maxAbs = abs
+				}
+			}
+			if maxAbs <= 1.0 && maxAbs > 0 {
+				for i := range samples {
+					samples[i] *= 32767.0
+				}
+			}
 		} else if req.PCMBase64 != "" {
 			rawBytes, err := base64.StdEncoding.DecodeString(req.PCMBase64)
 			if err != nil || len(rawBytes) < 3200 {
@@ -237,7 +252,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 			samples = make([]float32, numSamples)
 			for i := 0; i < numSamples; i++ {
 				raw := int16(binary.LittleEndian.Uint16(rawBytes[i*2 : i*2+2]))
-				samples[i] = float32(raw) / 32768.0
+				samples[i] = float32(raw)
 			}
 		}
 	}

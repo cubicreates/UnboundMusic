@@ -281,6 +281,25 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 		sampleRate = 16000
 	}
 
+	// Auto-scale normalized float samples in [-1.0, 1.0] to full 16-bit PCM integer range [-32768, 32767]
+	maxVal := float32(0)
+	for _, s := range samples {
+		abs := s
+		if abs < 0 {
+			abs = -abs
+		}
+		if abs > maxVal {
+			maxVal = abs
+		}
+	}
+	if maxVal <= 1.0 && maxVal > 0 {
+		scaled := make([]float32, len(samples))
+		for i, s := range samples {
+			scaled[i] = s * 32767.0
+		}
+		samples = scaled
+	}
+
 	durationMs := int64((float64(len(samples)) / float64(sampleRate)) * 1000)
 
 	// Primary pass: standard Shazam threshold (1/64)

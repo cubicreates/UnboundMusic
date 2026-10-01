@@ -74,19 +74,24 @@ func TestExtractConstellationMap(t *testing.T) {
 	numSamples := sampleRate * 3 // 3 seconds
 	samples := make([]float32, numSamples)
 
-	// Synthesize multi-frequency harmonic chord: 440Hz (A4), 880Hz (A5), 1760Hz (A6)
+	// Synthesize multi-frequency harmonic chord with raw int16 amplitude scale (20000)
 	for i := 0; i < numSamples; i++ {
 		tSec := float64(i) / float64(sampleRate)
 		samples[i] = float32(
-			0.5*math.Sin(2*math.Pi*440*tSec) +
+			(0.5*math.Sin(2*math.Pi*440*tSec) +
 				0.3*math.Sin(2*math.Pi*880*tSec) +
-				0.2*math.Sin(2*math.Pi*1760*tSec),
+				0.2*math.Sin(2*math.Pi*1760*tSec)) * 20000.0,
 		)
 	}
 
 	cmap, err := ExtractConstellationMap(samples, sampleRate)
 	if err != nil {
 		t.Fatalf("ExtractConstellationMap failed: %v", err)
+	}
+
+	t.Logf("Extracted %d total peaks from harmonic chord", len(cmap.Peaks))
+	for _, p := range cmap.Peaks {
+		t.Logf("  band=%d fft=%d mag=%d bin=%d freq=%.1fHz", p.Band, p.FFTNumber, p.Magnitude, p.CorrectedBin, p.FrequencyHz)
 	}
 
 	if cmap.SampleRate != 16000 {
@@ -103,8 +108,8 @@ func TestExtractConstellationMap(t *testing.T) {
 		bandsFound[p.Band] = true
 	}
 
-	if !bandsFound[Band250_520] && !bandsFound[Band520_1450] {
-		t.Errorf("expected peaks in low-mid bands, got bands: %v", bandsFound)
+	if !bandsFound[Band250_520] || !bandsFound[Band520_1450] || !bandsFound[Band1450_3500] {
+		t.Errorf("expected peaks in bands 0, 1, 2, got bands: %v", bandsFound)
 	}
 }
 

@@ -56,6 +56,9 @@ android {
             include("arm64-v8a", "x86_64")
         }
     }
+    androidResources {
+        noCompress += listOf("gguf", "onnx", "zst")
+    }
     testOptions {
         unitTests.isReturnDefaultValues = true
     }

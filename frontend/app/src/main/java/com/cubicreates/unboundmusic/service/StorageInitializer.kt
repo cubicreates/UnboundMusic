@@ -68,6 +68,22 @@ object StorageInitializer {
                         }
                     }
                     Log.i(TAG, "Bundled test model extracted (${primaryModel.length()} bytes).")
+
+                    val hasAssetOnnx = try {
+                        context.assets.list("payload")?.contains("model_quantized.onnx") == true
+                    } catch (_: Exception) { false }
+                    if (hasAssetOnnx) {
+                        val onnxModel = File(modelsDir, "model_quantized.onnx")
+                        if (!onnxModel.exists() || onnxModel.length() == 0L) {
+                            Log.i(TAG, "Testing phase: Extracting bundled model_quantized.onnx from APK assets...")
+                            context.assets.open("payload/model_quantized.onnx").use { input ->
+                                FileOutputStream(onnxModel).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            Log.i(TAG, "Bundled ONNX model extracted (${onnxModel.length()} bytes).")
+                        }
+                    }
                 } else if (hasAssetZst) {
                     Log.i(TAG, "Testing phase: Unpacking bundled models.zst from APK assets...")
                     val zstFile = File(modelsDir, "models.zst")

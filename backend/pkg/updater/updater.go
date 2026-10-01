@@ -13,17 +13,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
 // UpdateInfo holds version details and download URLs.
 type UpdateInfo struct {
-	CurrentVersion  string `json:"current_version"`
-	LatestVersion   string `json:"latest_version"`
-	HasUpdate       bool   `json:"has_update"`
-	ReleaseNotes    string `json:"release_notes"`
-	DownloadURL     string `json:"download_url"`
-	PublishedAt     string `json:"published_at"`
+	CurrentVersion string `json:"current_version"`
+	LatestVersion  string `json:"latest_version"`
+	HasUpdate      bool   `json:"has_update"`
+	ReleaseNotes   string `json:"release_notes"`
+	DownloadURL    string `json:"download_url"`
+	PublishedAt    string `json:"published_at"`
 }
 
 // Updater coordinates GitHub release checks.
@@ -37,7 +38,7 @@ type Updater struct {
 // NewUpdater initializes the GitHub release checker.
 func NewUpdater(currentVersion string) *Updater {
 	if currentVersion == "" {
-		currentVersion = "1.0.0"
+		currentVersion = "2.0.0"
 	}
 	return &Updater{
 		currentVersion: currentVersion,
@@ -47,22 +48,30 @@ func NewUpdater(currentVersion string) *Updater {
 	}
 }
 
-// CheckForUpdates queries GitHub Releases API for the latest tag.
+// CheckForUpdates queries GitHub Releases API for the latest tag using default version.
 func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
+	return u.CheckForUpdatesWithVersion(ctx, u.currentVersion)
+}
+
+// CheckForUpdatesWithVersion queries GitHub Releases API and compares with the given client version.
+func (u *Updater) CheckForUpdatesWithVersion(ctx context.Context, clientVersion string) (*UpdateInfo, error) {
+	if clientVersion == "" {
+		clientVersion = u.currentVersion
+	}
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", u.repoOwner, u.repoName)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "UnboundMusic-Android/1.0.0")
+	req.Header.Set("User-Agent", "UnboundMusic-Android/"+clientVersion)
 
 	resp, err := u.httpClient.Do(req)
 	if err != nil {
 		// Return offline update status without error
 		return &UpdateInfo{
-			CurrentVersion: u.currentVersion,
-			LatestVersion:  u.currentVersion,
+			CurrentVersion: clientVersion,
+			LatestVersion:  clientVersion,
 			HasUpdate:      false,
 			ReleaseNotes:   "Offline or unable to connect to GitHub.",
 		}, nil
@@ -71,8 +80,8 @@ func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		return &UpdateInfo{
-			CurrentVersion: u.currentVersion,
-			LatestVersion:  u.currentVersion,
+			CurrentVersion: clientVersion,
+			LatestVersion:  clientVersion,
 			HasUpdate:      false,
 			ReleaseNotes:   "Up to date.",
 		}, nil
@@ -89,14 +98,17 @@ func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
 
 	_ = json.NewDecoder(resp.Body).Decode(&ghRelease)
 
-	hasUpdate := ghRelease.TagName != "" && ghRelease.TagName != "v"+u.currentVersion && ghRelease.TagName != u.currentVersion
+	cleanTag := strings.TrimPrefix(ghRelease.TagName, "v")
+	cleanCurrent := strings.TrimPrefix(clientVersion, "v")
+
+	hasUpdate := ghRelease.TagName != "" && cleanTag != cleanCurrent
 	downloadURL := ghRelease.HTMLURL
 	if len(ghRelease.Assets) > 0 {
 		downloadURL = ghRelease.Assets[0].BrowserDownloadURL
 	}
 
 	return &UpdateInfo{
-		CurrentVersion: u.currentVersion,
+		CurrentVersion: clientVersion,
 		LatestVersion:  ghRelease.TagName,
 		HasUpdate:      hasUpdate,
 		ReleaseNotes:   ghRelease.Body,

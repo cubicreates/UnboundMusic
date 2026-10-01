@@ -46,6 +46,7 @@ import com.cubicreates.unboundmusic.ui.account.YouTubeDeviceAuthSheet
 import com.cubicreates.unboundmusic.ui.account.YouTubeLoginSheet
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistScreen
 import com.cubicreates.unboundmusic.ui.artist.ArtistScreen
+import com.cubicreates.unboundmusic.ui.dialogs.UpdateAvailableDialog
 import com.cubicreates.unboundmusic.ui.downloads.DownloadsScreen
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqPickerDialog
 import com.cubicreates.unboundmusic.ui.equalizer.EqualizerScreen
@@ -166,6 +167,7 @@ fun MainOverlayHost(
     val activeCustomPlaylist by viewModel.activeCustomPlaylist.collectAsStateWithLifecycle()
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
+    val availableUpdate by viewModel.availableUpdate.collectAsStateWithLifecycle()
 
     LaunchedEffect(isYouTubeConnected) {
         if (isYouTubeConnected) {
@@ -217,6 +219,7 @@ fun MainOverlayHost(
             onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
             onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
             onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
+            onCheckUpdateClick = { viewModel.checkForAppUpdates(manual = true) },
             onExportBackupClick = onExportBackupClick,
             onRestoreBackupClick = onRestoreBackupClick
         )
@@ -572,6 +575,14 @@ fun MainOverlayHost(
                 viewModel.addTrackToCustomPlaylist(newPlaylist.id, track)
                 viewModel.hideAddToPlaylist()
             }
+        )
+    }
+
+    // Modal: App Update Available Dialog
+    availableUpdate?.let { info ->
+        UpdateAvailableDialog(
+            updateInfo = info,
+            onDismiss = { viewModel.dismissUpdateDialog() }
         )
     }
 

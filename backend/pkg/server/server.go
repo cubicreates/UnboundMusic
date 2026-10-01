@@ -189,7 +189,7 @@ func NewServer(cfg Config) (*Server, error) {
 	ytExploreEngine := ytmusic.NewExploreEngine(repo)
 	artistEngine := artist.NewEngine(ytClient)
 	sleepTimerMgr := sleeptimer.NewTimer()
-	appUpdater := updater.NewUpdater("1.0.0")
+	appUpdater := updater.NewUpdater("2.0.0")
 
 	indexer := storage.NewIndexer(repo)
 	downloadDir := os.TempDir()
@@ -1100,7 +1100,8 @@ func (s *Server) handleSleepTimerStatus(w http.ResponseWriter, r *http.Request) 
 
 // handleUpdaterCheck queries GitHub Releases for updates.
 func (s *Server) handleUpdaterCheck(w http.ResponseWriter, r *http.Request) {
-	info, err := s.updater.CheckForUpdates(r.Context())
+	clientVer := r.URL.Query().Get("version")
+	info, err := s.updater.CheckForUpdatesWithVersion(r.Context(), clientVer)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

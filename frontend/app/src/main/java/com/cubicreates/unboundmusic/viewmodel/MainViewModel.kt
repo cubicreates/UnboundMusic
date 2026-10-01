@@ -37,6 +37,7 @@ import com.cubicreates.unboundmusic.data.DownloadUiStatus
 import com.cubicreates.unboundmusic.data.LocalPlaylistStore
 import com.cubicreates.unboundmusic.data.MediaStoreAudioBridge
 import com.cubicreates.unboundmusic.data.GenreItemDto
+import com.cubicreates.unboundmusic.data.AppUpdateInfo
 import com.cubicreates.unboundmusic.data.GenreSectionDto
 import com.cubicreates.unboundmusic.data.LocalTrack
 import com.cubicreates.unboundmusic.data.MixDto
@@ -297,6 +298,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearShazamHistory() {
         _shazamHistory.value = emptyList()
+    }
+
+    // ==================== Application Lifecycle & Update State ====================
+
+    private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
+
+    private val _isCheckingUpdate = MutableStateFlow(false)
+    val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
+
+    fun dismissUpdateDialog() {
+        _availableUpdate.value = null
+    }
+
+    fun checkForAppUpdates(manual: Boolean = false) {
+        viewModelScope.launch {
+            _isCheckingUpdate.value = true
+            try {
+                val currentVer = "2.0.0"
+                val res = withContext(Dispatchers.IO) {
+                    client.checkForUpdates(currentVer)
+                }
+                if (res.first in 200..299 && res.second.isNotBlank()) {
+                    val info = AppUpdateInfo.fromJson(res.second)
+                    if (info != null && info.hasUpdate && info.latestVersion.isNotBlank()) {
+                        _availableUpdate.value = info
+                    } else if (manual) {
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "Unbound Music is up to date (v$currentVer)"
+                            )
+                        }
+                    }
+                } else if (manual) {
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Unable to reach update server"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                if (manual) {
+                    withContext(Dispatchers.Main) {
+                        com.cubicreates.unboundmusic.util.UnboundToast.show(
+                            getApplication(),
+                            "Update check error: ${e.message}"
+                        )
+                    }
+                }
+            } finally {
+                _isCheckingUpdate.value = false
+            }
+        }
     }
 
     // ==================== Library & Storage State ====================
@@ -695,6 +751,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _startupPhase.value = "READY"
                 delay(200)
                 _isAppReady.value = true
+                checkForAppUpdates(manual = false)
             }
         }
     }

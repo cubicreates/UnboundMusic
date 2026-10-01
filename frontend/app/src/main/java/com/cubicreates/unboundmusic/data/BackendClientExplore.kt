@@ -843,6 +843,7 @@ suspend fun BackendClient.getPeers(): Pair<Int, String> = withContext(Dispatcher
 }
 
 /** Check for app updates from GitHub releases. */
-suspend fun BackendClient.checkForUpdates(): Pair<Int, String> = withContext(Dispatchers.IO) {
-    get("/api/v1/updater/check")
+suspend fun BackendClient.checkForUpdates(version: String? = null): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val query = if (!version.isNullOrBlank()) "?version=${java.net.URLEncoder.encode(version, "UTF-8")}" else ""
+    get("/api/v1/updater/check$query")
 }

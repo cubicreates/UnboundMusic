@@ -43,7 +43,7 @@ import com.cubicreates.unboundmusic.ui.components.rememberMainOverlayState
 import com.cubicreates.unboundmusic.ui.home.HomeScreen
 import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
-import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
+import com.cubicreates.unboundmusic.ui.shazam.ShazamScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 
@@ -72,9 +72,6 @@ fun MainApp(
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
-    val autoDownloadLikedSongs by viewModel.autoDownloadLikedSongs.collectAsStateWithLifecycle()
-    val skipSilenceEnabled by viewModel.skipSilenceEnabled.collectAsStateWithLifecycle()
-    val normalizeVolumeEnabled by viewModel.normalizeVolumeEnabled.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
@@ -92,9 +89,6 @@ fun MainApp(
     val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
     val homeVibeState by viewModel.homeVibeState.collectAsStateWithLifecycle()
     val searchVibeState by viewModel.searchVibeState.collectAsStateWithLifecycle()
-    val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
-    val customEqPresets by viewModel.customEqPresets.collectAsStateWithLifecycle()
-    val cachePurgeStatus by viewModel.cachePurgeStatus.collectAsStateWithLifecycle()
     val genreSections by viewModel.genreSections.collectAsStateWithLifecycle()
 
     val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
@@ -103,14 +97,13 @@ fun MainApp(
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
+    val lastRecognizedTrack by viewModel.lastRecognizedTrack.collectAsStateWithLifecycle()
+    val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
+    val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
 
-    val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
     val isMoodLoading by viewModel.isMoodLoading.collectAsStateWithLifecycle()
-
-    val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
-    val downloadQuality by viewModel.downloadQuality.collectAsStateWithLifecycle()
 
     val launchYouTubeAuth: () -> Unit = {
         overlayState.showYouTubeLoginSheet = true
@@ -193,7 +186,9 @@ fun MainApp(
                     userAvatarUrl = userAvatarUrl,
                     accountName = accountName,
                     isLoggedIn = isYouTubeConnected,
-                    onProfileClick = { selectedTab = NavigationTab.YOU }
+                    activeDownloadsCount = downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" },
+                    onProfileClick = { overlayState.showSettings = true },
+                    onDownloadsClick = { overlayState.showDownloadsScreen = true }
                 )
             },
             bottomBar = {
@@ -219,12 +214,7 @@ fun MainApp(
 
                     UnboundBottomNavBar(
                         currentTab = selectedTab,
-                        userAvatarUrl = userAvatarUrl,
-                        accountName = accountName,
-                        isLoggedIn = isYouTubeConnected,
-                        isProfileActive = (selectedTab == NavigationTab.YOU),
-                        onTabSelected = { tab -> selectedTab = tab },
-                        onProfileClick = { selectedTab = NavigationTab.YOU }
+                        onTabSelected = { tab -> selectedTab = tab }
                     )
                 }
             }
@@ -278,7 +268,7 @@ fun MainApp(
                                     viewModel.playTrackWithQueue(track, queue)
                                     overlayState.isPlayerExpanded = true
                                 },
-                                onProfileClick = { selectedTab = NavigationTab.YOU },
+                                onProfileClick = { overlayState.showSettings = true },
                                 onMenuClick = {
                                     viewModel.loadRecap()
                                     overlayState.showRecap = true
@@ -349,6 +339,31 @@ fun MainApp(
                                 isListeningAudio = isListeningShazam
                             )
                         }
+                        NavigationTab.SHAZAM -> {
+                            ShazamScreen(
+                                isYouTubeConnected = isYouTubeConnected,
+                                isListening = isListeningShazam,
+                                statusMessage = recognizedMessage,
+                                accountName = accountName,
+                                lastRecognizedTrack = lastRecognizedTrack,
+                                shazamHistory = shazamHistory,
+                                isFavorite = lastRecognizedTrack?.let { it.id == currentTrack.id && isFavorite } ?: false,
+                                onStartListening = { viewModel.startAmbientShazamRecognition() },
+                                onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
+                                onPlayTrack = { track ->
+                                    viewModel.playTrack(track)
+                                    overlayState.isPlayerExpanded = true
+                                },
+                                onStartRadio = { track ->
+                                    viewModel.startRadio(track)
+                                    overlayState.isPlayerExpanded = true
+                                },
+                                onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
+                                onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
+                                onDownload = { track -> viewModel.startTrackDownload(track) },
+                                onConnectYouTubeClick = { launchYouTubeAuth() }
+                            )
+                        }
                         NavigationTab.LIBRARY -> {
                             LibraryScreen(
                                 isYouTubeConnected = isYouTubeConnected,
@@ -380,7 +395,7 @@ fun MainApp(
                                     overlayState.isPlayerExpanded = true
                                 },
                                 onRefresh = { viewModel.refreshLibrary() },
-                                onProfileClick = { selectedTab = NavigationTab.YOU },
+                                onProfileClick = { overlayState.showSettings = true },
                                 favoriteTracks = favoriteTracks,
                                 recentlyPlayedTracks = recentlyPlayedTracks,
                                 onOpenEqualizer = { overlayState.showEqualizer = true },
@@ -389,39 +404,6 @@ fun MainApp(
                                 onStartShazam = { viewModel.startAmbientShazamRecognition() },
                                 onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
                                 onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
-                            )
-                        }
-                        NavigationTab.YOU -> {
-                            SettingsScreen(
-                                onClose = { selectedTab = NavigationTab.HOME },
-                                onEqualizerClick = { overlayState.showEqualizer = true },
-                                onAutoEqClick = { overlayState.showAutoEqPicker = true },
-                                isYouTubeConnected = isYouTubeConnected,
-                                accountName = accountName,
-                                userAvatarUrl = userAvatarUrl,
-                                currentTheme = selectedTheme,
-                                cachePurgeStatus = cachePurgeStatus,
-                                onThemeSelected = { viewModel.setTheme(it) },
-                                onYouTubeSyncClick = { launchYouTubeAuth() },
-                                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
-                                onPurgeCacheClick = { viewModel.purgeCache() },
-                                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
-                                autoDownloadLikedSongs = autoDownloadLikedSongs,
-                                skipSilenceEnabled = skipSilenceEnabled,
-                                normalizeVolumeEnabled = normalizeVolumeEnabled,
-                                sponsorBlockEnabled = sponsorBlockEnabled,
-                                streamingQuality = streamingQuality,
-                                downloadQuality = downloadQuality,
-                                onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
-                                onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
-                                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
-                                onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
-                                onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
-                                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
-                                onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
-                                onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
-                                onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
-                                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
                             )
                         }
                     }
@@ -433,7 +415,9 @@ fun MainApp(
         MainOverlayHost(
             overlayState = overlayState,
             viewModel = viewModel,
-            launchYouTubeAuth = launchYouTubeAuth
+            launchYouTubeAuth = launchYouTubeAuth,
+            onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
+            onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
         )
     }
 }

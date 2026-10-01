@@ -285,6 +285,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _recognizedMessage = MutableStateFlow<String?>(null)
     val recognizedMessage: StateFlow<String?> = _recognizedMessage.asStateFlow()
 
+    private val _lastRecognizedTrack = MutableStateFlow<TrackItem?>(null)
+    val lastRecognizedTrack: StateFlow<TrackItem?> = _lastRecognizedTrack.asStateFlow()
+
+    private val _shazamHistory = MutableStateFlow<List<TrackItem>>(emptyList())
+    val shazamHistory: StateFlow<List<TrackItem>> = _shazamHistory.asStateFlow()
+
+    fun clearLastRecognizedTrack() {
+        _lastRecognizedTrack.value = null
+    }
+
+    fun clearShazamHistory() {
+        _shazamHistory.value = emptyList()
+    }
+
     // ==================== Library & Storage State ====================
 
     private val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
@@ -1910,6 +1924,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val trackTitle = json.optString("title", json.optString("track_title", ""))
                     val artist = json.optString("artist", "")
                     if (matched && trackTitle.isNotBlank()) {
+                        val trackId = json.optString("id", json.optString("track_id", "shazam_${System.currentTimeMillis()}"))
+                        val cover = json.optString("cover_url", json.optString("thumbnail", ""))
+                        val matchedTrack = TrackItem(
+                            id = trackId,
+                            title = trackTitle,
+                            artist = artist,
+                            album = json.optString("album", ""),
+                            durationMs = json.optLong("duration_ms", 0L),
+                            coverUrl = cover,
+                            source = "shazam"
+                        )
+                        _lastRecognizedTrack.value = matchedTrack
+                        _shazamHistory.value = listOf(matchedTrack) + _shazamHistory.value.filter { it.title != trackTitle || it.artist != artist }
+
                         val displayMsg = if (artist.isNotBlank()) "Recognized: $trackTitle - $artist" else "Recognized: $trackTitle"
                         _recognizedMessage.value = displayMsg
                         withContext(Dispatchers.Main) {
@@ -1919,8 +1947,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 isLong = true
                             )
                         }
-                        // Search for the recognized track
-                        onSearchQueryChanged("$trackTitle $artist".trim())
                     } else {
                         _recognizedMessage.value = "Could not recognize audio. Try again."
                         withContext(Dispatchers.Main) {

@@ -55,6 +55,7 @@ import com.cubicreates.unboundmusic.ui.player.SleepTimerSheet
 import com.cubicreates.unboundmusic.ui.playlist.AddToPlaylistSheet
 import com.cubicreates.unboundmusic.ui.playlist.CustomPlaylistScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
+import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.tools.RingtoneCutterScreen
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 
@@ -69,6 +70,7 @@ class MainOverlayState(
     showYouTubeLoginSheet: Boolean = false,
     showYouTubeDeviceAuthSheet: Boolean = false,
     showDownloadsScreen: Boolean = false,
+    showSettings: Boolean = false,
     viewingArtist: String? = null,
     viewingGenre: GenreItemDto? = null,
     ringtoneCutterTrack: TrackItem? = null,
@@ -81,6 +83,7 @@ class MainOverlayState(
     var showYouTubeLoginSheet by mutableStateOf(showYouTubeLoginSheet)
     var showYouTubeDeviceAuthSheet by mutableStateOf(showYouTubeDeviceAuthSheet)
     var showDownloadsScreen by mutableStateOf(showDownloadsScreen)
+    var showSettings by mutableStateOf(showSettings)
     var viewingArtist by mutableStateOf(viewingArtist)
     var viewingGenre by mutableStateOf(viewingGenre)
     var ringtoneCutterTrack by mutableStateOf(ringtoneCutterTrack)
@@ -99,9 +102,21 @@ fun rememberMainOverlayState(): MainOverlayState = remember { MainOverlayState()
 fun MainOverlayHost(
     overlayState: MainOverlayState,
     viewModel: MainViewModel,
-    launchYouTubeAuth: () -> Unit
+    launchYouTubeAuth: () -> Unit,
+    onExportBackupClick: () -> Unit = {},
+    onRestoreBackupClick: () -> Unit = {}
 ) {
     val isYouTubeConnected by viewModel.isYouTubeConnected.collectAsStateWithLifecycle()
+    val accountName by viewModel.accountName.collectAsStateWithLifecycle()
+    val userAvatarUrl by viewModel.userAvatarUrl.collectAsStateWithLifecycle()
+    val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
+    val cachePurgeStatus by viewModel.cachePurgeStatus.collectAsStateWithLifecycle()
+    val autoDownloadLikedSongs by viewModel.autoDownloadLikedSongs.collectAsStateWithLifecycle()
+    val skipSilenceEnabled by viewModel.skipSilenceEnabled.collectAsStateWithLifecycle()
+    val normalizeVolumeEnabled by viewModel.normalizeVolumeEnabled.collectAsStateWithLifecycle()
+    val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
+    val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
+    val downloadQuality by viewModel.downloadQuality.collectAsStateWithLifecycle()
     val deviceAuthData by viewModel.deviceAuthData.collectAsStateWithLifecycle()
     val isStartingDeviceAuth by viewModel.isStartingDeviceAuth.collectAsStateWithLifecycle()
     val isPollingDeviceAuth by viewModel.isPollingDeviceAuth.collectAsStateWithLifecycle()
@@ -171,6 +186,41 @@ fun MainOverlayHost(
         else -> DownloadUiStatus.NOT_DOWNLOADED
     }
     val currentDownloadProgress = currentTask?.progress ?: 0.0
+
+    // Modal: Settings Screen (Launched via top bar profile avatar)
+    if (overlayState.showSettings) {
+        SettingsScreen(
+            onClose = { overlayState.showSettings = false },
+            onEqualizerClick = { overlayState.showEqualizer = true },
+            onAutoEqClick = { overlayState.showAutoEqPicker = true },
+            isYouTubeConnected = isYouTubeConnected,
+            accountName = accountName,
+            userAvatarUrl = userAvatarUrl,
+            currentTheme = selectedTheme,
+            cachePurgeStatus = cachePurgeStatus,
+            onThemeSelected = { viewModel.setTheme(it) },
+            onYouTubeSyncClick = { launchYouTubeAuth() },
+            onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
+            onPurgeCacheClick = { viewModel.purgeCache() },
+            onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
+            autoDownloadLikedSongs = autoDownloadLikedSongs,
+            skipSilenceEnabled = skipSilenceEnabled,
+            normalizeVolumeEnabled = normalizeVolumeEnabled,
+            sponsorBlockEnabled = sponsorBlockEnabled,
+            streamingQuality = streamingQuality,
+            downloadQuality = downloadQuality,
+            onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
+            onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
+            onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
+            onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
+            onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
+            onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+            onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
+            onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
+            onExportBackupClick = onExportBackupClick,
+            onRestoreBackupClick = onRestoreBackupClick
+        )
+    }
 
     // Modal: Sleep Timer from Settings
     if (overlayState.showSleepTimerFromSettings) {

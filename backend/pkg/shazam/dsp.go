@@ -99,7 +99,7 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 				}
 			}
 
-			if maxMag > 0.05 {
+			if maxMag > 0.005 {
 				freqHz := float64(bestBin) * float64(sampleRate) / float64(frameSize)
 				allPeaks = append(allPeaks, FrequencyPeak{
 					TimeMs:      timeMs,

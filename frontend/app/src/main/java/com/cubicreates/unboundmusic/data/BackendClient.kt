@@ -74,13 +74,13 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
     val isUnixSocket: Boolean = baseUrlInput.startsWith("unix:")
     val socketPath: String? = if (isUnixSocket) baseUrlInput.removePrefix("unix:") else null
 
-    private val baseUrl: String = when {
+    internal val baseUrl: String = when {
         isUnixSocket -> "http://localhost"
         baseUrlInput.startsWith("http://") || baseUrlInput.startsWith("https://") -> baseUrlInput.trimEnd('/')
         else -> "http://${baseUrlInput.trimEnd('/')}"
     }
 
-    private val httpClient: OkHttpClient = if (isUnixSocket && socketPath != null) {
+    internal val httpClient: OkHttpClient = if (isUnixSocket && socketPath != null) {
         sharedOkHttpClient.newBuilder()
             .socketFactory(UnixDomainSocketFactory(File(socketPath)))
             .dns(object : Dns {

@@ -94,6 +94,14 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 
 	elapsed := time.Since(start).Milliseconds()
 
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNoContent {
+		return &MatchResult{
+			Matched:   false,
+			LatencyMs: elapsed,
+			Source:    "SHAZAM_CLOUD",
+		}, nil
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("shazam discovery returned status %d", resp.StatusCode)
 	}

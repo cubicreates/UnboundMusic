@@ -105,3 +105,43 @@ func TestShazamIdentifyJSONSamples(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", resp.StatusCode, w.Body.String())
 	}
 }
+
+func TestShazamIdentifySilentPCM(t *testing.T) {
+	tempDir := t.TempDir()
+	srv, err := NewServer(Config{
+		Port:           45793,
+		DatabasePath:   filepath.Join(tempDir, "test_shazam_silent.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	})
+	if err != nil {
+		t.Fatalf("failed creating server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// Synthesize 2 seconds of pure silence (all 0s)
+	sampleRate := 16000
+	numSamples := sampleRate * 2
+	pcmBytes := make([]byte, numSamples*2) // all zeros
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/shazam/identify", bytes.NewReader(pcmBytes))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	w := httptest.NewRecorder()
+
+	srv.handleShazamIdentify(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200 on quiet audio, got %d: %s", resp.StatusCode, w.Body.String())
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("failed decoding response JSON: %v", err)
+	}
+
+	if matched, ok := result["matched"].(bool); !ok || matched {
+		t.Errorf("expected matched=false for silent audio, got %v", result)
+	}
+}
+

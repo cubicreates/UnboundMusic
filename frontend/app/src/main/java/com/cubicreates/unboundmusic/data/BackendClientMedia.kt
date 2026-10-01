@@ -190,13 +190,13 @@ suspend fun BackendClient.getCanvas(title: String, artist: String): Pair<Int, St
 suspend fun BackendClient.identifyPcmAudio(pcmData: ByteArray): Pair<Int, String> = withContext(Dispatchers.IO) {
     val mediaType = "application/octet-stream".toMediaType()
     val body = pcmData.toRequestBody(mediaType)
-    val endpoint = if (isUnixSocket) "http://localhost/api/v1/shazam/identify" else "http://127.0.0.1:45731/api/v1/shazam/identify"
+    val endpoint = "$baseUrl/api/v1/shazam/identify"
     val req = Request.Builder()
         .url(endpoint)
         .post(body)
         .build()
     try {
-        BackendClient.sharedOkHttpClient.newCall(req).execute().use { resp ->
+        httpClient.newCall(req).execute().use { resp ->
             Pair(resp.code, resp.body?.string() ?: "")
         }
     } catch (e: Exception) {

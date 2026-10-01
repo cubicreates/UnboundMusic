@@ -93,13 +93,14 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
                             onTrackRecognized?.invoke(trackTitle, artist)
                         }
                     } else {
-                        _recognizedMessage.value = "Could not recognize audio. Try again."
+                        val reasonMsg = json.optString("message", "No acoustic match found. Try again closer to the speaker.")
+                        _recognizedMessage.value = reasonMsg
                     }
                 } else {
-                    _recognizedMessage.value = "Recognition service unavailable ($code)."
+                    _recognizedMessage.value = "Could not recognize audio. Try playing louder or closer to the audio source."
                 }
             } catch (e: Exception) {
-                _recognizedMessage.value = "Recognition error: ${e.message}"
+                _recognizedMessage.value = "Could not recognize audio. Try again."
             } finally {
                 _isListeningShazam.value = false
             }

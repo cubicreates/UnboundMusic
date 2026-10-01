@@ -92,7 +92,15 @@ func (s *Server) handleShazamRecognize(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		offlineRes, offErr := shazam.MatchOffline(r.Context(), s.repo, "")
+		if offErr == nil && offlineRes != nil && offlineRes.Matched {
+			writeJSON(w, http.StatusOK, offlineRes)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"error":   err.Error(),
+		})
 		return
 	}
 
@@ -126,13 +134,13 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 
 	cmap, err := shazam.ExtractConstellationMap(dummySamples, 16000)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeJSON(w, http.StatusOK, offlineRes)
 		return
 	}
 
 	sig, err := shazam.EncodeConstellationToSignature(cmap)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeJSON(w, http.StatusOK, offlineRes)
 		return
 	}
 
@@ -202,7 +210,15 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 			}
 			res, err := s.shazamClient.RecognizeSignature(r.Context(), sig)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+				offlineRes, offErr := shazam.MatchOffline(r.Context(), s.repo, "")
+				if offErr == nil && offlineRes != nil && offlineRes.Matched {
+					writeJSON(w, http.StatusOK, offlineRes)
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{
+					"matched": false,
+					"error":   err.Error(),
+				})
 				return
 			}
 			writeJSON(w, http.StatusOK, res)
@@ -227,21 +243,42 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(samples) == 0 {
-		writeError(w, http.StatusBadRequest, "no valid audio samples extracted")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"reason":  "no_samples",
+			"message": "No valid audio samples extracted.",
+		})
 		return
 	}
 
 	// 1. Extract spectrogram peak constellation map
 	cmap, err := shazam.ExtractConstellationMap(samples, sampleRate)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed extracting constellation map: "+err.Error())
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"reason":  "audio_processing_error",
+			"message": "Audio sample could not be analyzed.",
+		})
+		return
+	}
+
+	if len(cmap.Peaks) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"reason":  "low_signal",
+			"message": "No audible musical landmarks detected. Please move closer to the audio source.",
+		})
 		return
 	}
 
 	// 2. Encode to Shazam binary signature
 	sig, err := shazam.EncodeConstellationToSignature(cmap)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed encoding signature: "+err.Error())
+		writeJSON(w, http.StatusOK, map[string]any{
+			"matched": false,
+			"reason":  "insufficient_landmarks",
+			"message": "No distinct musical patterns found. Try playing louder or closer to the microphone.",
+		})
 		return
 	}
 
@@ -257,6 +294,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		// Return friendly unrecognised result instead of 500 error
 		writeJSON(w, http.StatusOK, map[string]any{
 			"matched": false,
+			"message": "No acoustic match found on Shazam.",
 			"error":   err.Error(),
 		})
 		return

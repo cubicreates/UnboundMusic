@@ -404,10 +404,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _mixedAudioTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val mixedAudioTracks: StateFlow<List<TrackItem>> = _mixedAudioTracks.asStateFlow()
 
+    private val _artistPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    val artistPlaylists: StateFlow<List<CustomPlaylist>> = _artistPlaylists.asStateFlow()
+
+    fun synthesizeArtistPlaylists(tracks: List<TrackItem>): List<CustomPlaylist> {
+        val pureTracks = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        val grouped = pureTracks
+            .filter { it.artist.isNotBlank() && !it.artist.equals("Unknown Artist", ignoreCase = true) && !it.artist.equals("Unknown", ignoreCase = true) }
+            .groupBy { it.artist.trim() }
+
+        val playlists = grouped
+            .filter { (_, artistTracks) -> artistTracks.size >= 2 }
+            .map { (artistName, artistTracks) ->
+                val safeId = "artist_${artistName.lowercase().replace(Regex("[^a-z0-9]"), "_")}"
+                CustomPlaylist(
+                    id = safeId,
+                    title = "$artistName - Essentials",
+                    description = "Smart artist mix featuring ${artistTracks.size} downloaded tracks",
+                    coverUrl = artistTracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: "",
+                    tracks = artistTracks,
+                    playlistType = SmartPlaylistType.ARTIST_SMART,
+                    targetArtist = artistName
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+
+        _artistPlaylists.value = playlists
+        return playlists
+    }
+
     private fun setLibraryTracks(tracks: List<TrackItem>) {
         _libraryTracks.value = tracks
-        _musicTracks.value = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        val music = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        _musicTracks.value = music
         _mixedAudioTracks.value = tracks.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+        synthesizeArtistPlaylists(music)
     }
 
     private val _savedGB = MutableStateFlow(0.0)

@@ -47,7 +47,9 @@ enum class AudioCategory {
 enum class SmartPlaylistType {
     USER_CUSTOM,
     ARTIST_COLLECTION,
-    ALBUMIC
+    ALBUMIC,
+    ARTIST_SMART,
+    ALBUMIC_SMART
 }
 
 /**
@@ -61,11 +63,13 @@ data class AlbumCompletionStatus(
     val downloadedTracks: List<TrackItem> = emptyList(),
     val missingTracks: List<TrackItem> = emptyList(),
     val totalOfficialTracks: Int = 0,
-    val completionRatio: Float = 0.0f
+    val completionRatio: Float = 0.0f,
+    val downloadedCount: Int = downloadedTracks.size,
+    val officialTotalCount: Int = if (totalOfficialTracks > 0) totalOfficialTracks else downloadedTracks.size
 ) {
     /** True if within the 50% to 75% prompt threshold */
     val isEligibleForPrompt: Boolean
-        get() = completionRatio in 0.50f..0.75f && missingTracks.isNotEmpty()
+        get() = completionRatio in 0.50f..0.75f && (missingTracks.isNotEmpty() || (officialTotalCount > downloadedCount && downloadedCount > 0))
 
     /** Total percentage formatted (e.g. "58%") */
     val percentageString: String

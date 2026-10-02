@@ -151,4 +151,103 @@ class AudioClassificationTest {
         assertEquals("v1", audioOnly.first().id)
         assertFalse(musicOnly.any { it.id == "v1" })
     }
+
+    @Test
+    fun testAlbumCompletionEligibilityInFiftyToSeventyFivePercentRange() {
+        // 1. 60% completion (6/10) -> Eligible
+        val status60 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 6,
+            officialTotalCount = 10,
+            completionRatio = 0.60f
+        )
+        assertTrue(status60.isEligibleForPrompt)
+
+        // 2. 50% boundary -> Eligible
+        val status50 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 5,
+            officialTotalCount = 10,
+            completionRatio = 0.50f
+        )
+        assertTrue(status50.isEligibleForPrompt)
+
+        // 3. 75% boundary -> Eligible
+        val status75 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 9,
+            officialTotalCount = 12,
+            completionRatio = 0.75f
+        )
+        assertTrue(status75.isEligibleForPrompt)
+
+        // 4. 40% completion -> Not eligible (< 50%)
+        val status40 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 4,
+            officialTotalCount = 10,
+            completionRatio = 0.40f
+        )
+        assertFalse(status40.isEligibleForPrompt)
+
+        // 5. 80% completion -> Not eligible (> 75%)
+        val status80 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 8,
+            officialTotalCount = 10,
+            completionRatio = 0.80f
+        )
+        assertFalse(status80.isEligibleForPrompt)
+
+        // 6. 100% completion -> Not eligible (already complete)
+        val status100 = com.cubicreates.unboundmusic.data.AlbumCompletionStatus(
+            albumTitle = "Random Access Memories",
+            artistName = "Daft Punk",
+            downloadedCount = 10,
+            officialTotalCount = 10,
+            completionRatio = 1.0f
+        )
+        assertFalse(status100.isEligibleForPrompt)
+    }
+
+    @Test
+    fun testSmartPlaylistTypeAttributesAndHelpers() {
+        val albumic = com.cubicreates.unboundmusic.data.CustomPlaylist(
+            id = "album_1",
+            title = "Starboy",
+            playlistType = com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC_SMART,
+            targetAlbum = "Starboy",
+            targetArtist = "The Weeknd",
+            officialTrackCount = 18,
+            completionRatio = 0.61f
+        )
+        assertTrue(albumic.isAlbumic)
+        assertTrue(albumic.isSmart)
+        assertFalse(albumic.isArtistSmart)
+        assertEquals(0.61f, albumic.completionRatio)
+
+        val artistSmart = com.cubicreates.unboundmusic.data.CustomPlaylist(
+            id = "artist_1",
+            title = "Daft Punk - Essentials",
+            playlistType = com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_SMART,
+            targetArtist = "Daft Punk"
+        )
+        assertTrue(artistSmart.isArtistSmart)
+        assertTrue(artistSmart.isSmart)
+        assertFalse(artistSmart.isAlbumic)
+
+        val userCustom = com.cubicreates.unboundmusic.data.CustomPlaylist(
+            id = "custom_1",
+            title = "Chill Evening",
+            playlistType = com.cubicreates.unboundmusic.data.SmartPlaylistType.USER_CUSTOM
+        )
+        assertFalse(userCustom.isSmart)
+        assertFalse(userCustom.isAlbumic)
+        assertFalse(userCustom.isArtistSmart)
+    }
 }

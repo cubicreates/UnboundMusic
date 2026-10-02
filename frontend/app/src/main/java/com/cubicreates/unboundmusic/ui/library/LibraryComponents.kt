@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -731,22 +732,24 @@ fun PlaylistCard(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        if (playlist.isAlbumic && playlist.completionRatio != null && playlist.officialTrackCount != null && playlist.officialTrackCount!! > 0) {
+        val completionRatio = playlist.completionRatio
+        val officialCount = playlist.officialTrackCount
+        if (playlist.isAlbumic && completionRatio != null && officialCount != null && officialCount > 0) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${playlist.tracks.size}/${playlist.officialTrackCount} tracks",
+                    text = "${playlist.tracks.size}/$officialCount tracks",
                     fontSize = 11.sp,
                     color = OnSurfaceVariant
                 )
                 Text(
-                    text = "${(playlist.completionRatio!! * 100).toInt()}%",
+                    text = "${(completionRatio * 100).toInt()}%",
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (playlist.completionRatio!! >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                    color = if (completionRatio >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
                 )
             }
             Spacer(modifier = Modifier.height(3.dp))
@@ -759,11 +762,11 @@ fun PlaylistCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(playlist.completionRatio!!.coerceIn(0f, 1f))
+                        .fillMaxWidth(completionRatio.coerceIn(0f, 1f))
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(1.5.dp))
                         .background(
-                            if (playlist.completionRatio!! >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                            if (completionRatio >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
                         )
                 )
             }
@@ -783,9 +786,11 @@ fun SmartPlaylistBadge(
     modifier: Modifier = Modifier
 ) {
     val (label, icon, color) = when (type) {
-        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_SMART -> Triple("ARTIST", Icons.Default.Person, Color(0xFF8B5CF6))
-        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC_SMART -> Triple("ALBUM", Icons.Default.Album, UnboundPrimary)
-        else -> Triple("CUSTOM", Icons.Default.QueueMusic, Color.Gray)
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_SMART,
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_COLLECTION -> Triple("ARTIST", Icons.Default.GraphicEq, Color(0xFF8B5CF6))
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC_SMART,
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC -> Triple("ALBUM", Icons.Default.MusicNote, UnboundPrimary)
+        else -> Triple("CUSTOM", Icons.AutoMirrored.Filled.QueueMusic, Color.Gray)
     }
 
     Box(
@@ -1484,7 +1489,7 @@ fun CompleteAlbumBanner(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Album,
+                                imageVector = Icons.Default.MusicNote,
                                 contentDescription = null,
                                 tint = UnboundPrimary,
                                 modifier = Modifier.size(18.dp)
@@ -1502,7 +1507,7 @@ fun CompleteAlbumBanner(
                                 text = status.albumTitle,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextPrimary,
+                                color = OnSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1529,7 +1534,7 @@ fun CompleteAlbumBanner(
                 Text(
                     text = "You have ${status.downloadedCount} of ${status.officialTotalCount} songs downloaded. Why not download the rest of the album if you're liking it?",
                     fontSize = 13.sp,
-                    color = TextSecondary,
+                    color = OnSurfaceVariant,
                     lineHeight = 18.sp
                 )
 
@@ -1569,7 +1574,7 @@ fun CompleteAlbumBanner(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Download,
+                            imageVector = Icons.Default.PlayArrow,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
                             tint = Color.Black

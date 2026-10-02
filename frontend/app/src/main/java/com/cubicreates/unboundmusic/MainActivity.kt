@@ -34,6 +34,10 @@ import com.cubicreates.unboundmusic.ui.splash.SplashScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundMusicTheme
 import com.cubicreates.unboundmusic.viewmodel.MainViewModel
 
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
 /**
  * Primary Activity hosting Unbound Music with animated startup gatekeeper.
  */
@@ -53,7 +57,9 @@ class MainActivity : ComponentActivity() {
             permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] == true
         }
         if (audioGranted) {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+            lifecycleScope.launch(Dispatchers.IO) {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+            }
             mainViewModel.rescanLocalStorage()
         }
         promptBatteryOptimizationIfNeeded()
@@ -68,8 +74,10 @@ class MainActivity : ComponentActivity() {
         serviceConnection = ServiceConnection.getInstance(this)
         serviceConnection.connect()
 
-        // Unconditionally deploy visible Unbound storage directory structure for File Manager
-        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+        // Deploy visible Unbound storage asynchronously in background to ensure zero main-thread blockage
+        lifecycleScope.launch(Dispatchers.IO) {
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+        }
 
         // Check & request runtime audio and notification permissions
         checkAndRequestPermissions()
@@ -134,7 +142,9 @@ class MainActivity : ComponentActivity() {
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+            lifecycleScope.launch(Dispatchers.IO) {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+            }
             mainViewModel.rescanLocalStorage()
             promptBatteryOptimizationIfNeeded()
         }

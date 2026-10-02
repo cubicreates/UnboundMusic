@@ -10,6 +10,8 @@ package com.cubicreates.unboundmusic.ui.shazam
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
+import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 
 @Composable
@@ -21,8 +23,12 @@ fun ShazamScreen(
     statusMessage: String? = null,
     accountName: String? = null,
     lastRecognizedTrack: TrackItem? = null,
+    recognizedVariants: List<RecognizedTrackVariant> = emptyList(),
     shazamHistory: List<TrackItem> = emptyList(),
     isFavorite: Boolean = false,
+    shazamMode: ShazamMode = ShazamMode.ACOUSTIC,
+    onModeChange: (ShazamMode) -> Unit = {},
+    onLaunchGoogleSoundSearch: () -> Unit = {},
     onStartListening: () -> Unit = {},
     onDismissRecognized: () -> Unit = {},
     onPlayTrack: (TrackItem) -> Unit = {},
@@ -40,8 +46,12 @@ fun ShazamScreen(
             statusMessage = statusMessage,
             accountName = accountName,
             lastRecognizedTrack = lastRecognizedTrack,
+            recognizedVariants = recognizedVariants,
             shazamHistory = shazamHistory,
             isFavorite = isFavorite,
+            shazamMode = shazamMode,
+            onModeChange = onModeChange,
+            onLaunchGoogleSoundSearch = onLaunchGoogleSoundSearch,
             onStartListening = onStartListening,
             onDismissRecognized = onDismissRecognized,
             onPlayTrack = onPlayTrack,
@@ -57,7 +67,11 @@ fun ShazamScreen(
             audioAmplitude = audioAmplitude,
             statusMessage = statusMessage,
             lastRecognizedTrack = lastRecognizedTrack,
+            recognizedVariants = recognizedVariants,
             shazamHistory = shazamHistory,
+            shazamMode = shazamMode,
+            onModeChange = onModeChange,
+            onLaunchGoogleSoundSearch = onLaunchGoogleSoundSearch,
             onStartListening = onStartListening,
             onDismissRecognized = onDismissRecognized,
             onPlayTrack = onPlayTrack,

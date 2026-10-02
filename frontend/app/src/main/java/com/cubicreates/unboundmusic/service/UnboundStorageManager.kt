@@ -132,29 +132,10 @@ object UnboundStorageManager {
     }
 
     /**
-     * Cleans up legacy /Music/Unbound and /Unbound folders from earlier development versions.
+     * Legacy storage cleanup stub. Never deletes user-visible storage directories to avoid freezing the app or data loss.
      */
     fun cleanupLegacyStorageFolders() {
-        try {
-            val extStorage = Environment.getExternalStorageDirectory()
-            if (extStorage != null && extStorage.exists()) {
-                val oldMusic = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)
-                if (oldMusic != null && oldMusic.exists()) {
-                    val oldMusicUnbound = File(oldMusic, "Unbound")
-                    if (oldMusicUnbound.exists()) {
-                        Log.i(TAG, "Removing obsolete legacy folder: ${oldMusicUnbound.absolutePath}")
-                        oldMusicUnbound.deleteRecursively()
-                    }
-                }
-                val oldRootUnbound = File(extStorage, "Unbound")
-                if (oldRootUnbound.exists()) {
-                    Log.i(TAG, "Removing obsolete legacy root mirror: ${oldRootUnbound.absolutePath}")
-                    oldRootUnbound.deleteRecursively()
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Legacy storage cleanup notice: ${e.message}")
-        }
+        // Safe no-op: preserve all user-created files and prevent main-thread I/O stalls
     }
 
     /**

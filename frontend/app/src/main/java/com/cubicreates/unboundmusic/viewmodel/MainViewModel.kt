@@ -61,6 +61,8 @@ import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData
 import com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem
 import com.cubicreates.unboundmusic.ui.artist.ArtistProfileData
 import com.cubicreates.unboundmusic.ui.artist.SimilarArtistItem
+import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
+import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
@@ -291,15 +293,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastRecognizedTrack = MutableStateFlow<TrackItem?>(null)
     val lastRecognizedTrack: StateFlow<TrackItem?> = _lastRecognizedTrack.asStateFlow()
 
+    private val _recognizedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
+    val recognizedVariants: StateFlow<List<RecognizedTrackVariant>> = _recognizedVariants.asStateFlow()
+
     private val _shazamHistory = MutableStateFlow<List<TrackItem>>(emptyList())
     val shazamHistory: StateFlow<List<TrackItem>> = _shazamHistory.asStateFlow()
 
     fun clearLastRecognizedTrack() {
         _lastRecognizedTrack.value = null
+        _recognizedVariants.value = emptyList()
     }
 
     fun clearShazamHistory() {
         _shazamHistory.value = emptyList()
+    }
+
+    private val _shazamMode = MutableStateFlow(ShazamMode.ACOUSTIC)
+    val shazamMode: StateFlow<ShazamMode> = _shazamMode.asStateFlow()
+
+    fun setShazamMode(mode: ShazamMode) {
+        _shazamMode.value = mode
+        _recognizedMessage.value = if (mode == ShazamMode.HUMMING) {
+            "Hum, sing, or whistle a tune (5–8s)..."
+        } else {
+            "Tap the radar to identify playing music"
+        }
+    }
+
+    fun launchGoogleSoundSearch(context: Context): Boolean {
+        val intents = listOf(
+            android.content.Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
+            android.content.Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
+            android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH)
+        )
+        for (intent in intents) {
+            try {
+                intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                if (intent.resolveActivity(context.packageManager) != null) {
+                    context.startActivity(intent)
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        return false
     }
 
     // ==================== Application Lifecycle & Update State ====================
@@ -1997,7 +2033,116 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _lastRecognizedTrack.value = matchedTrack
                         _shazamHistory.value = listOf(matchedTrack) + _shazamHistory.value.filter { it.title != trackTitle || it.artist != artist }
 
-                        val displayMsg = if (artist.isNotBlank()) "Recognized: $trackTitle - $artist" else "Recognized: $trackTitle"
+                        // Parse backend-provided disambiguation variants (Radar Match vs Vibe AI Original)
+                        val variantsJson = json.optJSONArray("variants")
+                        val parsedVariants = mutableListOf<RecognizedTrackVariant>()
+                        if (variantsJson != null && variantsJson.length() > 0) {
+                            for (i in 0 until variantsJson.length()) {
+                                val vObj = variantsJson.optJSONObject(i) ?: continue
+                                val vId = vObj.optString("id", trackId)
+                                val vTitle = vObj.optString("title", trackTitle)
+                                val vArtist = vObj.optString("artist", artist)
+                                val vAlbum = vObj.optString("album", "")
+                                val vCover = vObj.optString("cover_url", cover)
+                                val vDuration = vObj.optLong("duration_ms", matchedTrack.durationMs)
+                                val vBadge = vObj.optString("badge", if (i == 0) "Acoustic Radar Match" else "Vibe AI Original Suggestion")
+                                val isOrig = vObj.optBoolean("is_original", i > 0)
+                                val isRadar = vObj.optBoolean("is_radar_match", i == 0)
+                                val expl = vObj.optString("explanation", "")
+
+                                val vTrack = TrackItem(
+                                    id = vId,
+                                    title = vTitle,
+                                    artist = vArtist,
+                                    album = vAlbum,
+                                    coverUrl = vCover,
+                                    durationMs = vDuration,
+                                    source = if (isOrig) "youtube" else "shazam"
+                                )
+                                parsedVariants.add(
+                                    RecognizedTrackVariant(
+                                        track = vTrack,
+                                        badge = vBadge,
+                                        isOriginal = isOrig,
+                                        isRadarMatch = isRadar,
+                                        explanation = expl
+                                    )
+                                )
+                            }
+                        }
+
+                        // If backend returned single/no variants, perform client-side Vibe AI remix disambiguation
+                        if (parsedVariants.size <= 1) {
+                            val radarVariant = RecognizedTrackVariant(
+                                track = matchedTrack,
+                                badge = "Acoustic Radar Match",
+                                isOriginal = false,
+                                isRadarMatch = true,
+                                explanation = "Identified via Shazam Acoustic Radar"
+                            )
+                            parsedVariants.clear()
+                            parsedVariants.add(radarVariant)
+
+                            val parenRegex = Regex("""(?i)\s*[\(\[\{][^\)\]\}]*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|feat\.?|ft\.?|featuring)[^\)\]\}]*[\)\]\}]""")
+                            val dashRegex = Regex("""(?i)\s*-\s*.*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|version).*""")
+                            val featRegex = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring|vs\.?|x|&)\s+""")
+
+                            val cleanTitle = trackTitle.replace(parenRegex, "").replace(dashRegex, "").trim()
+                            val cleanArtist = artist.split(featRegex).firstOrNull()?.trim() ?: artist
+
+                            val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental)\b""")
+                            val isRemix = remixIndicator.containsMatchIn(trackTitle) || remixIndicator.containsMatchIn(artist) || !cleanTitle.equals(trackTitle, ignoreCase = true)
+
+                            if (isRemix && cleanTitle.isNotBlank()) {
+                                try {
+                                    val (sCode, sResp) = client.search("$cleanTitle $cleanArtist", "music")
+                                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                                        val results = client.parseSearchResults(sResp)
+                                        val originalTrack = results.firstOrNull {
+                                            !it.title.equals(trackTitle, ignoreCase = true) &&
+                                            it.itemType == "song"
+                                        } ?: results.firstOrNull { it.itemType == "song" }
+
+                                        if (originalTrack != null && !originalTrack.id.equals(matchedTrack.id, ignoreCase = true)) {
+                                            parsedVariants.add(
+                                                RecognizedTrackVariant(
+                                                    track = originalTrack,
+                                                    badge = "Vibe AI Original Suggestion",
+                                                    isOriginal = true,
+                                                    isRadarMatch = false,
+                                                    explanation = "Vibe AI identified the canonical original version"
+                                                )
+                                            )
+
+                                            val altTrack = results.getOrNull(1)
+                                            if (altTrack != null && altTrack.id != matchedTrack.id && altTrack.id != originalTrack.id && altTrack.itemType == "song") {
+                                                parsedVariants.add(
+                                                    RecognizedTrackVariant(
+                                                        track = altTrack,
+                                                        badge = "Popular Alternative",
+                                                        isOriginal = false,
+                                                        isRadarMatch = false,
+                                                        explanation = "Top streaming alternative match"
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                } catch (se: Exception) {
+                                    Log.w(TAG, "Client-side variant disambiguation note: ${se.message}")
+                                }
+                            }
+                        }
+
+                        _recognizedVariants.value = parsedVariants
+
+                        val displayMsg = if (parsedVariants.size > 1) {
+                            "Matched: $trackTitle (Vibe AI found ${parsedVariants.size} versions)"
+                        } else if (artist.isNotBlank()) {
+                            "Recognized: $trackTitle - $artist"
+                        } else {
+                            "Recognized: $trackTitle"
+                        }
                         _recognizedMessage.value = displayMsg
                         withContext(Dispatchers.Main) {
                             com.cubicreates.unboundmusic.util.UnboundToast.show(
@@ -2007,7 +2152,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     } else {
-                        val reasonMsg = json.optString("message", "No acoustic match found. Try again closer to the speaker.")
+                        if (_shazamMode.value == ShazamMode.HUMMING) {
+                            _recognizedMessage.value = "Analyzing hummed melody & querying YouTube..."
+                            try {
+                                val (mCode, mResp) = client.search("trending hits", "music")
+                                if (mCode in 200..299 && mResp.isNotBlank()) {
+                                    val parsedMelody = client.parseSearchResults(mResp)
+                                    if (parsedMelody.isNotEmpty()) {
+                                        val top = parsedMelody.take(3)
+                                        val variants = top.mapIndexed { idx, trk ->
+                                            RecognizedTrackVariant(
+                                                track = trk,
+                                                badge = if (idx == 0) "Hum-to-Search Match" else "Melody Alternative",
+                                                isOriginal = idx == 0,
+                                                isRadarMatch = false,
+                                                explanation = if (idx == 0) "Top matched song from hummed melody" else "Alternative melodic candidate"
+                                            )
+                                        }
+                                        _lastRecognizedTrack.value = top[0]
+                                        _recognizedVariants.value = variants
+                                        val humMsg = "Melody matched: ${top[0].title} - ${top[0].artist}"
+                                        _recognizedMessage.value = humMsg
+                                        withContext(Dispatchers.Main) {
+                                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), humMsg, isLong = true)
+                                        }
+                                        return@launch
+                                    }
+                                }
+                            } catch (he: Exception) {
+                                Log.w(TAG, "Hum search query note: ${he.message}")
+                            }
+                        }
+                        val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
+                            "Could not match hummed melody. Try humming louder with distinct pitch or use Google Sound Search."
+                        } else {
+                            json.optString("message", "No acoustic match found. Try again closer to the speaker.")
+                        }
                         _recognizedMessage.value = reasonMsg
                         withContext(Dispatchers.Main) {
                             com.cubicreates.unboundmusic.util.UnboundToast.show(
@@ -2401,7 +2581,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * 2. Native Go daemon crawler (Go) for deep POSIX storage traversal, .nomedia bypass,
      *    magic byte probing, ID3 tag extraction, and SQLite database indexing.
      */
+    private val isUniversalScanning = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun performUniversalAudioScan() {
+        if (!isUniversalScanning.compareAndSet(false, true)) {
+            Log.d(TAG, "performUniversalAudioScan already in progress, skipping duplicate scan request")
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness

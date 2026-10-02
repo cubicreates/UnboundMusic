@@ -47,6 +47,26 @@ data class TrackItem(
     val year: String = ""
 )
 
+/**
+ * Represents a song version candidate in Shazam acoustic disambiguation
+ * (e.g. Acoustic Radar Match vs Vibe AI Canonical Original vs Alternative Version).
+ */
+data class RecognizedTrackVariant(
+    val track: TrackItem,
+    val badge: String,
+    val isOriginal: Boolean = false,
+    val isRadarMatch: Boolean = false,
+    val explanation: String = ""
+)
+
+/**
+ * Mode of recognition: ACOUSTIC (music playing in environment) vs HUMMING (hum/whistle/sing).
+ */
+enum class ShazamMode {
+    ACOUSTIC,
+    HUMMING
+}
+
 val defaultTopTracks = listOf(
     TrackItem(
         id = "T6eK-2OQtew",

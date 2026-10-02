@@ -8,13 +8,16 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
@@ -321,5 +324,137 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[SHAZAM] Recognition success: matched=%v, title=%s, artist=%s", res.Matched, res.Title, res.Artist)
-	writeJSON(w, http.StatusOK, res)
+
+	variants := s.resolveAcousticVariants(r.Context(), res.Title, res.Artist, res.Album, res.CoverArtURL, res.TrackID)
+
+	resp := map[string]any{
+		"matched":         res.Matched,
+		"track_id":        res.TrackID,
+		"id":              res.TrackID,
+		"title":           res.Title,
+		"artist":          res.Artist,
+		"album":           res.Album,
+		"genre":           res.Genre,
+		"release_year":    res.ReleaseYear,
+		"cover_art_url":   res.CoverArtURL,
+		"cover_url":       res.CoverArtURL,
+		"thumbnail":       res.CoverArtURL,
+		"isrc":            res.ISRC,
+		"shazam_url":      res.ShazamURL,
+		"apple_music_url": res.AppleMusicURL,
+		"spotify_url":     res.SpotifyURL,
+		"latency_ms":      res.LatencyMs,
+		"source":          res.Source,
+		"variants":        variants,
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+var (
+	remixKeywordRegex = regexp.MustCompile(`(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental)\b`)
+	parenRemixRegex   = regexp.MustCompile(`(?i)\s*[\(\[\{][^\)\]\}]*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|feat\.?|ft\.?|featuring)[^\)\]\}]*[\)\]\}]`)
+	dashRemixRegex    = regexp.MustCompile(`(?i)\s*-\s*.*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|version).*`)
+	featArtistRegex   = regexp.MustCompile(`(?i)\s+(?:feat\.?|ft\.?|featuring|vs\.?|x|&)\s+`)
+)
+
+func cleanRemixTitle(title string) string {
+	res := parenRemixRegex.ReplaceAllString(title, "")
+	res = dashRemixRegex.ReplaceAllString(res, "")
+	return strings.TrimSpace(res)
+}
+
+func cleanRemixArtist(artist string) string {
+	parts := featArtistRegex.Split(artist, 2)
+	if len(parts) > 0 {
+		return strings.TrimSpace(parts[0])
+	}
+	return strings.TrimSpace(artist)
+}
+
+func isRemixIndicator(s string) bool {
+	return remixKeywordRegex.MatchString(s)
+}
+
+// resolveAcousticVariants generates 2 to 3 disambiguated version choices:
+// 1. Acoustic Radar Match (Shazam match, e.g. Remix)
+// 2. Vibe AI Original Suggestion (Canonical master found via catalog search)
+// 3. Optional top streaming alternative match
+func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, album, coverURL, trackID string) []map[string]any {
+	var variants []map[string]any
+
+	// 1. Primary Acoustic Match (Shazam detection)
+	radarVariant := map[string]any{
+		"id":             trackID,
+		"title":          title,
+		"artist":         artist,
+		"album":          album,
+		"cover_url":      coverURL,
+		"badge":          "Acoustic Radar Match",
+		"is_original":    false,
+		"is_radar_match": true,
+		"explanation":    "Identified via Shazam Acoustic Radar",
+		"source":         "shazam",
+	}
+	variants = append(variants, radarVariant)
+
+	// 2. Check for remix/cover patterns and detect canonical original version
+	cleanTitle := cleanRemixTitle(title)
+	cleanArtist := cleanRemixArtist(artist)
+
+	isRemixOrVariant := !strings.EqualFold(cleanTitle, title) || isRemixIndicator(title) || isRemixIndicator(artist)
+
+	if s.ytClient != nil && cleanTitle != "" {
+		searchQuery := fmt.Sprintf("%s %s", cleanTitle, cleanArtist)
+		tracks, err := s.ytClient.SearchWithCategory(ctx, searchQuery, "song")
+		if err == nil && len(tracks) > 0 {
+			var origFound bool
+			for _, t := range tracks {
+				if t.ItemType == "album" || t.ItemType == "artist" || t.ItemType == "playlist" ||
+					strings.HasPrefix(t.ID, "UC") || strings.HasPrefix(t.ID, "MPREb_") {
+					continue
+				}
+
+				// Check if this candidate is the canonical original (distinct from the remix title)
+				if !origFound && (!strings.EqualFold(t.Title, title) || isRemixOrVariant) {
+					origVariant := map[string]any{
+						"id":             t.ID,
+						"title":          t.Title,
+						"artist":         t.Artist,
+						"album":          t.Album,
+						"cover_url":      t.ThumbnailURL,
+						"duration_ms":    t.DurationMs,
+						"badge":          "Vibe AI Original Suggestion",
+						"is_original":    true,
+						"is_radar_match": false,
+						"explanation":    "Vibe AI identified the canonical original version",
+						"source":         "vibe_ai",
+					}
+					variants = append(variants, origVariant)
+					origFound = true
+					continue
+				}
+
+				// 3. Optional third alternative variant
+				if origFound && len(variants) < 3 && !strings.EqualFold(t.Title, title) && !strings.EqualFold(t.Title, cleanTitle) {
+					altVariant := map[string]any{
+						"id":             t.ID,
+						"title":          t.Title,
+						"artist":         t.Artist,
+						"album":          t.Album,
+						"cover_url":      t.ThumbnailURL,
+						"duration_ms":    t.DurationMs,
+						"badge":          "Popular Alternative",
+						"is_original":    false,
+						"is_radar_match": false,
+						"explanation":    "Top streaming alternative match",
+						"source":         "vibe_ai",
+					}
+					variants = append(variants, altVariant)
+					break
+				}
+			}
+		}
+	}
+
+	return variants
 }

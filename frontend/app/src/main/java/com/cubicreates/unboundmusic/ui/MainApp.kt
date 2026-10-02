@@ -99,8 +99,10 @@ fun MainApp(
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
     val audioWaveAmplitude by viewModel.audioWaveAmplitude.collectAsStateWithLifecycle()
     val lastRecognizedTrack by viewModel.lastRecognizedTrack.collectAsStateWithLifecycle()
+    val recognizedVariants by viewModel.recognizedVariants.collectAsStateWithLifecycle()
     val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
     val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
+    val shazamMode by viewModel.shazamMode.collectAsStateWithLifecycle()
 
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
@@ -348,8 +350,12 @@ fun MainApp(
                                 statusMessage = recognizedMessage,
                                 accountName = accountName,
                                 lastRecognizedTrack = lastRecognizedTrack,
+                                recognizedVariants = recognizedVariants,
                                 shazamHistory = shazamHistory,
                                 isFavorite = lastRecognizedTrack?.let { it.id == currentTrack.id && isFavorite } ?: false,
+                                shazamMode = shazamMode,
+                                onModeChange = { viewModel.setShazamMode(it) },
+                                onLaunchGoogleSoundSearch = { viewModel.launchGoogleSoundSearch(context) },
                                 onStartListening = { viewModel.startAmbientShazamRecognition() },
                                 onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
                                 onPlayTrack = { track ->

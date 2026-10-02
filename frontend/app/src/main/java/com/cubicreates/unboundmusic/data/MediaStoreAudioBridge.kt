@@ -138,6 +138,16 @@ object MediaStoreAudioBridge {
                             ).toString()
                         }
 
+                        val (audioCategory, isIdentified) = classifyAudioCategory(
+                            rawPath = rawPath,
+                            sourceFolder = sourceFolder,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            durationMs = duration,
+                            hasCoverArt = resolvedCover.isNotBlank()
+                        )
+
                         tracks.add(
                             LocalTrack(
                                 id = trackId,
@@ -153,7 +163,9 @@ object MediaStoreAudioBridge {
                                 sourceFolder = sourceFolder,
                                 dateIndexed = System.currentTimeMillis() / 1000,
                                 mtime = dateMod,
-                                coverUrl = resolvedCover
+                                coverUrl = resolvedCover,
+                                audioCategory = audioCategory,
+                                isIdentifiedMusic = isIdentified
                             )
                         )
                     } catch (_: Exception) {}
@@ -265,5 +277,62 @@ object MediaStoreAudioBridge {
         } catch (_: Exception) {
             path.hashCode().toString()
         }
+    }
+
+    /**
+     * Determines whether an audio item is a pure musical track vs a mixed voice recording,
+     * WhatsApp note, Telegram voice memo, ringtone, or unidentified random clip.
+     * Returns Pair(AudioCategory, isIdentified).
+     */
+    fun classifyAudioCategory(
+        rawPath: String,
+        sourceFolder: String,
+        title: String,
+        artist: String,
+        album: String,
+        durationMs: Long,
+        hasCoverArt: Boolean
+    ): Pair<AudioCategory, Boolean> {
+        val lowerPath = rawPath.lowercase(Locale.ROOT)
+        val lowerTitle = title.lowercase(Locale.ROOT)
+        val lowerArtist = artist.lowercase(Locale.ROOT)
+        val lowerFolder = sourceFolder.lowercase(Locale.ROOT)
+
+        // 1. Explicit voice/chat app folders -> Mixed Audio
+        if (lowerFolder.contains("whatsapp") ||
+            lowerPath.contains("whatsapp") ||
+            lowerFolder.contains("telegram") ||
+            lowerPath.contains("telegram") ||
+            lowerFolder.contains("recording") ||
+            lowerPath.contains("recording") ||
+            lowerPath.contains("voice notes") ||
+            lowerPath.contains("call_rec") ||
+            lowerPath.contains("sound_recorder")
+        ) {
+            return Pair(AudioCategory.MIXED_AUDIO, false)
+        }
+
+        // 2. Chat audio filename patterns: AUD-2024..., PTT-2024..., Voice 001..., Rec_...
+        val isVoiceFilename = lowerTitle.matches(Regex("^(aud|ptt)-\\d{8}-wa\\d+.*")) ||
+                lowerTitle.matches(Regex("^(voice|rec|recording|audio)[_\\-\\s]?\\d+.*")) ||
+                lowerTitle.startsWith("ptt-") || lowerTitle.startsWith("aud-")
+        if (isVoiceFilename) {
+            return Pair(AudioCategory.MIXED_AUDIO, false)
+        }
+
+        // 3. Short clips without artist or album (< 40 seconds)
+        val isUnknownArtist = lowerArtist.isBlank() || lowerArtist == "unknown artist" || lowerArtist == "<unknown>"
+        val isUnknownAlbum = album.isBlank() || album.equals("unknown", ignoreCase = true)
+        if (durationMs in 1..40_000L && isUnknownArtist && isUnknownAlbum && !hasCoverArt) {
+            return Pair(AudioCategory.MIXED_AUDIO, false)
+        }
+
+        // 4. If artist is unknown and duration is short or folder is not Music
+        if (isUnknownArtist && !hasCoverArt && !lowerFolder.contains("music") && !lowerFolder.contains("unbound") && !lowerPath.contains("/music/")) {
+            return Pair(AudioCategory.MIXED_AUDIO, false)
+        }
+
+        // 5. Verified music: Valid artist and/or album, or from Music/Downloads/Unbound with standard duration
+        return Pair(AudioCategory.MUSIC, true)
     }
 }

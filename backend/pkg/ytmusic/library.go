@@ -1430,3 +1430,48 @@ func parsePlaylistOrAlbumResponse(id string, data []byte) (*models.AlbumPlaylist
 	return result, nil
 }
 
+// ResolveAlbumDetails resolves full album details either by browseId or by searching artist and album title.
+func (c *Client) ResolveAlbumDetails(ctx context.Context, id, artist, albumTitle string) (*models.AlbumPlaylist, error) {
+	id = strings.TrimSpace(id)
+	if id != "" {
+		return c.FetchPlaylistOrAlbum(ctx, id)
+	}
+
+	artist = strings.TrimSpace(artist)
+	albumTitle = strings.TrimSpace(albumTitle)
+	if albumTitle == "" {
+		return nil, fmt.Errorf("album title or browseId must be provided")
+	}
+
+	query := albumTitle
+	if artist != "" {
+		query = fmt.Sprintf("%s %s", artist, albumTitle)
+	}
+
+	// 1. Search album tracks
+	tracks, err := c.SearchWithCategory(ctx, query, "album")
+	if err == nil && len(tracks) > 0 {
+		for _, t := range tracks {
+			if t.BrowseID != "" {
+				res, err := c.FetchPlaylistOrAlbum(ctx, t.BrowseID)
+				if err == nil && res != nil && len(res.Tracks) > 0 {
+					return res, nil
+				}
+			}
+		}
+		// If tracks found but no browseID on track, package tracks into synthetic AlbumPlaylist
+		return &models.AlbumPlaylist{
+			ID:           "search_" + query,
+			Title:        albumTitle,
+			Subtitle:     artist,
+			ThumbnailURL: tracks[0].ThumbnailURL,
+			IsAlbum:      true,
+			TrackCount:   len(tracks),
+			Tracks:       tracks,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("could not resolve album '%s'", query)
+}
+
+

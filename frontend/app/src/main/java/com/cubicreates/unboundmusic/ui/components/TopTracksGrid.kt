@@ -180,7 +180,7 @@ fun TopTracksGrid(
                     TrackCard(
                         track = track,
                         modifier = Modifier.weight(1f),
-                        onClick = { onTrackClick(track, tracks) }
+                        onClick = { onTrackClick(track, listOf(track)) }
                     )
                 }
                 if (rowItems.size == 1) {

@@ -334,7 +334,11 @@ fun MainApp(
                                 onVibeTagClick = { tag -> viewModel.submitSearchVibeQuery(tag.removePrefix("#")) },
                                 onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },
                                 onTrackSelect = { track, queue ->
-                                    viewModel.playTrackWithQueue(track, queue)
+                                    if (queue.size > 1) {
+                                        viewModel.playTrackWithQueue(track, queue)
+                                    } else {
+                                        viewModel.playTrack(track)
+                                    }
                                     overlayState.isPlayerExpanded = true
                                 },
                                 onAlbumClick = { id, title, coverUrl ->

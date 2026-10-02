@@ -411,7 +411,7 @@ fun SignedInSearchScreen(
                                         isAlbum -> onAlbumClick(track.browseId, track.title, track.coverUrl)
                                         isArtist -> onArtistClick(track.artist)
                                         isPlaylist -> onAlbumClick(track.browseId, track.title, track.coverUrl)
-                                        else -> onTrackSelect(track, displayTracks)
+                                        else -> onTrackSelect(track, listOf(track))
                                     }
                                 },
                                 onPlayNext = { onPlayNextSingle(track) },
@@ -452,7 +452,7 @@ fun SignedInSearchScreen(
                                     SearchResultItem(
                                         track = track,
                                         isCurrentPlaying = track.id == currentTrackId && isPlaying,
-                                        onClick = { onTrackSelect(track, chartTracks) },
+                                        onClick = { onTrackSelect(track, listOf(track)) },
                                         onPlayNext = { onPlayNextSingle(track) },
                                         onAddToQueue = { onAddToQueueSingle(track) },
                                         onStartRadio = { onStartRadioSingle(track) },

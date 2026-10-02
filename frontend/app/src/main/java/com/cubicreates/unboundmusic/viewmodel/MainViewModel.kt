@@ -1388,10 +1388,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
      */
-    fun playTrack(track: TrackItem) {
+    fun playTrack(track: TrackItem, preserveQueue: Boolean = false) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             viewModelScope.launch(Dispatchers.Main) {
-                playTrack(track)
+                playTrack(track, preserveQueue)
             }
             return
         }
@@ -1419,14 +1419,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
         }
 
-        // If track is already part of an existing multi-track queue (e.g. Album, Playlist, or 50-track mix), keep queue
-        val currentQ = _currentQueue.value
-        val trackInQueue = currentQ.any {
-            (it.id.isNotBlank() && it.id == targetTrack.id) ||
-            (it.title.isNotBlank() && it.title.equals(targetTrack.title, ignoreCase = true))
-        }
-        if (currentQ.size > 1 && trackInQueue) {
-            serviceConnection.setQueue(currentQ)
+        // If an explicit album/playlist requested queue preservation, retain it
+        if (preserveQueue && _currentQueue.value.size > 1) {
+            serviceConnection.setQueue(_currentQueue.value)
         } else {
             val initialQ = listOf(targetTrack)
             _currentQueue.value = initialQ
@@ -1709,23 +1704,104 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (queue.size > 1) {
             _currentQueue.value = queue
             serviceConnection.setQueue(queue)
-            playTrack(track)
+            playTrack(track, preserveQueue = true)
         } else {
-            // Single track playback: seed with this track and prepare next 50 singles from the algorithm
-            val initialQ = listOf(track)
-            _currentQueue.value = initialQ
-            serviceConnection.setQueue(initialQ)
-            playTrack(track)
-            if (!_isYouTubeConnected.value) {
-                fetchGuestAlgorithmicRadio(track)
-            } else {
-                fetchAutomixQueue(track)
-            }
+            playTrack(track, preserveQueue = false)
         }
         saveCurrentPlaybackState(0L)
     }
 
     private var guestRadioJob: Job? = null
+
+    /**
+     * Sanitizes and normalizes song titles by stripping off YouTube metadata annotations,
+     * video descriptors (Official Video, Lyric Video, Audio), featured artists, and punctuation.
+     */
+    private fun cleanSongTitle(raw: String): String {
+        if (raw.isBlank()) return ""
+        var title = raw
+        val splitRegex = Regex("""\s*[-–—:]\s*""")
+        if (splitRegex.containsMatchIn(title)) {
+            val parts = title.split(splitRegex)
+            if (parts.size >= 2 && parts[0].length <= 35) {
+                title = parts.drop(1).joinToString(" - ")
+            }
+        }
+        return title
+            .replace(Regex("""(?i)\(official\s*(music)?\s*video\)"""), "")
+            .replace(Regex("""(?i)\[official\s*(music)?\s*video\]"""), "")
+            .replace(Regex("""(?i)\(lyric\s*video\)"""), "")
+            .replace(Regex("""(?i)\[lyric\s*video\]"""), "")
+            .replace(Regex("""(?i)\(official\s*audio\)"""), "")
+            .replace(Regex("""(?i)\[official\s*audio\]"""), "")
+            .replace(Regex("""(?i)\(full\s*audio\)"""), "")
+            .replace(Regex("""(?i)\[full\s*audio\]"""), "")
+            .replace(Regex("""(?i)\(audio\)"""), "")
+            .replace(Regex("""(?i)\[audio\]"""), "")
+            .replace(Regex("""(?i)\(visualizer\)"""), "")
+            .replace(Regex("""(?i)\[visualizer\]"""), "")
+            .replace(Regex("""(?i)\(video\)"""), "")
+            .replace(Regex("""(?i)\(live[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[live[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(acoustic[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[acoustic[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(remix[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[remix[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(slowed[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[slowed[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(reverb[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[reverb[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(feat[^\)]*\)"""), "")
+            .replace(Regex("""(?i)\[feat[^\]]*\]"""), "")
+            .replace(Regex("""(?i)\(from\s+[^)]+\)"""), "")
+            .replace(Regex("""(?i)\[from\s+[^\]]+\]"""), "")
+            .replace(Regex("""[^\p{L}\p{Nd}\s]"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .lowercase()
+            .trim()
+    }
+
+    /**
+     * Determines whether two TrackItems represent the exact same musical song or versions of it.
+     */
+    private fun isSameSong(a: TrackItem, b: TrackItem): Boolean {
+        if (a.id.isNotBlank() && b.id.isNotBlank() && a.id == b.id) return true
+        val titleA = cleanSongTitle(a.title)
+        val titleB = cleanSongTitle(b.title)
+        if (titleA.isBlank() || titleB.isBlank()) return false
+        if (titleA == titleB) return true
+        if (titleA.length >= 4 && titleB.length >= 4) {
+            if (titleA.contains(titleB) || titleB.contains(titleA)) return true
+        }
+        return false
+    }
+
+    /**
+     * Cleans up channel noise from artist names (e.g. " - Topic", "VEVO", "Official").
+     */
+    private fun extractArtistName(track: TrackItem): String {
+        var rawArtist = track.artist.trim()
+        if (rawArtist.isBlank() || rawArtist.equals("Unknown Artist", ignoreCase = true) || rawArtist.equals("Unknown", ignoreCase = true)) {
+            val splitRegex = Regex("""\s*[-–—:]\s*""")
+            if (splitRegex.containsMatchIn(track.title)) {
+                val parts = track.title.split(splitRegex)
+                if (parts.size >= 2) {
+                    val candidate = parts[0].trim()
+                    if (candidate.isNotBlank() && candidate.length <= 40) {
+                        rawArtist = candidate
+                    }
+                }
+            }
+        }
+        return rawArtist
+            .replace(Regex("""(?i)\s*-\s*topic"""), "")
+            .replace(Regex("""(?i)\s*official"""), "")
+            .replace(Regex("""(?i)\s*vevo"""), "")
+            .replace(Regex("""(?i)\s*records"""), "")
+            .replace(Regex("""(?i)\s*music"""), "")
+            .replace(Regex("""(?i)\s*channel"""), "")
+            .trim()
+    }
 
     /**
      * Extracts movie, album, or soundtrack context from track metadata and title annotations.
@@ -1760,32 +1836,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Builds a 50-track hierarchical affinity queue matching the user's affinity architecture:
      * Tier 1: Seed track
-     * Tier 2: 1-2 tracks by the same artist
-     * Tier 3: 3-5 tracks from the same movie / soundtrack / album (if applicable)
-     * Tier 4: 15-20 tracks from the same genre / sonic acoustic profile
-     * Tier 5: Algorithmic serendipity & discovery tracks to complete a 50-track queue
+     * Tier 2: 1-2 tracks by the same artist (excluding the seed track)
+     * Tier 3: 3-5 tracks from the same movie / soundtrack / album (if applicable, excluding seed track)
+     * Tier 4: 15-20 tracks from the same genre / sonic acoustic profile (excluding seed track)
+     * Tier 5: Algorithmic serendipity & discovery tracks to complete a 50-track queue (excluding seed track)
      */
     suspend fun buildHierarchicalAffinityQueue(seedTrack: TrackItem): List<TrackItem> {
         val result = mutableListOf<TrackItem>()
         val seenIds = mutableSetOf<String>()
         val seenTitles = mutableSetOf<String>()
 
-        fun addTrack(t: TrackItem): Boolean {
+        fun addTrack(t: TrackItem, allowSeedDuplicate: Boolean = false): Boolean {
             if (t.title.isBlank()) return false
-            val cleanTitle = t.title.lowercase().trim()
+            if (!allowSeedDuplicate && isSameSong(t, seedTrack)) return false
+            val clean = cleanSongTitle(t.title)
+            if (clean.isBlank()) return false
             if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
-            if (seenTitles.contains(cleanTitle)) return false
+            if (seenTitles.contains(clean)) return false
+            if (seenTitles.any { it.length >= 4 && clean.length >= 4 && (it.contains(clean) || clean.contains(it)) }) {
+                return false
+            }
             if (t.id.isNotBlank()) seenIds.add(t.id)
-            seenTitles.add(cleanTitle)
+            seenTitles.add(clean)
             result.add(t)
             return true
         }
 
-        addTrack(seedTrack)
+        // Tier 0: Seed track itself (always first in queue)
+        addTrack(seedTrack, allowSeedDuplicate = true)
 
-        val cleanArtist = seedTrack.artist.trim()
+        val cleanArtist = extractArtistName(seedTrack)
 
-        // 1. Tier 1: Same Artist Popular Tracks (1-2 tracks)
+        // 1. Tier 1: Same Artist Popular Tracks (1-2 other tracks by same artist)
         if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
             try {
                 var artistTracks = emptyList<TrackItem>()
@@ -1795,7 +1877,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val tracksArr = json.optJSONArray("top_tracks")
                     if (tracksArr != null) {
                         val parsed = mutableListOf<TrackItem>()
-                        for (i in 0 until minOf(tracksArr.length(), 6)) {
+                        for (i in 0 until minOf(tracksArr.length(), 10)) {
                             val obj = tracksArr.getJSONObject(i)
                             val vId = obj.optString("id").ifBlank { obj.optString("video_id", "") }
                             parsed.add(
@@ -1812,7 +1894,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 if (artistTracks.isEmpty()) {
-                    val (sCode, sResp) = client.search(cleanArtist, type = "song")
+                    val (sCode, sResp) = client.search("$cleanArtist top songs", type = "song")
                     if (sCode in 200..299 && sResp.isNotBlank()) {
                         artistTracks = client.parseSearchResults(sResp)
                     }
@@ -1831,7 +1913,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val movieOrAlbum = extractMovieOrAlbumContext(seedTrack)
         if (!movieOrAlbum.isNullOrBlank()) {
             try {
-                val searchQuery = "$movieOrAlbum songs"
+                val searchQuery = "$movieOrAlbum soundtrack songs"
                 val (code, resp) = client.search(searchQuery, type = "song")
                 if (code in 200..299 && resp.isNotBlank()) {
                     val albumTracks = client.parseSearchResults(resp)
@@ -1882,6 +1964,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 4. Tier 4: Algorithmic Expansion / Fresh Discoveries up to 50 tracks
+        if (result.size < 50) {
+            val discoveryAnchor = result.drop(1).firstOrNull { 
+                it.artist.isNotBlank() && !it.artist.equals(cleanArtist, ignoreCase = true) && it.id.isNotBlank() && !it.id.startsWith("local:")
+            } ?: result.lastOrNull()
+
+            if (discoveryAnchor != null && discoveryAnchor.id.isNotBlank() && !discoveryAnchor.id.startsWith("local:")) {
+                try {
+                    val (code, resp) = client.getRadioNext(discoveryAnchor.id)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val anchorRadio = client.parseRadioNext(resp)
+                        for (t in anchorRadio) {
+                            if (result.size >= 50) break
+                            addTrack(t)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         if (result.size < 50 && cleanArtist.isNotBlank()) {
             try {
                 val (code, resp) = client.search("$cleanArtist mix", type = "song")

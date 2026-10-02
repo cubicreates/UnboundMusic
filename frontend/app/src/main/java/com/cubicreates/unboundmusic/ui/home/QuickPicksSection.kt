@@ -246,7 +246,7 @@ fun QuickPicksSection(
                     track = track,
                     isCurrentTrack = isCurrent,
                     isPlaying = isPlaying,
-                    onClick = { onTrackSelect(track, tracks) },
+                    onClick = { onTrackSelect(track, listOf(track)) },
                     onPlayNext = { onPlayNext(track) },
                     onAddToQueue = { onAddToQueue(track) },
                     onDownload = { onDownload(track) },

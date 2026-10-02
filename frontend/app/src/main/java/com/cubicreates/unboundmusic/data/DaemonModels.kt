@@ -34,6 +34,14 @@ data class DaypartingState(
 )
 
 /**
+ * Category classifying pure musical tracks vs mixed voice notes/recordings/clips.
+ */
+enum class AudioCategory {
+    MUSIC,
+    MIXED_AUDIO
+}
+
+/**
  * Physical audio track indexed on device storage with Chromaprint / AcoustID metadata.
  */
 data class LocalTrack(
@@ -48,7 +56,9 @@ data class LocalTrack(
     val sourceFolder: String = "music",
     val dateIndexed: Long = 0,
     val mtime: Long = 0,
-    val coverUrl: String = ""
+    val coverUrl: String = "",
+    val audioCategory: AudioCategory = AudioCategory.MUSIC,
+    val isIdentifiedMusic: Boolean = true
 ) {
     fun toTrackItem(): TrackItem {
         val stream = when {
@@ -78,7 +88,9 @@ data class LocalTrack(
             id = id,
             album = album,
             durationMs = durationMs,
-            source = sourceFolder
+            source = sourceFolder,
+            audioCategory = audioCategory,
+            isIdentifiedMusic = isIdentifiedMusic
         )
     }
 }

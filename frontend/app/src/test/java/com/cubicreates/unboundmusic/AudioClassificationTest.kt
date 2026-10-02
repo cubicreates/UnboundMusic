@@ -98,4 +98,57 @@ class AudioClassificationTest {
         assertEquals(AudioCategory.MUSIC, category)
         assertTrue(isIdentified)
     }
+
+    @Test
+    fun testTrackGraduationFromAudioToMusic() {
+        // Initial state: unidentified voice clip
+        val initialTrack = com.cubicreates.unboundmusic.ui.components.TrackItem(
+            id = "wa_001",
+            title = "AUD-20241001-WA0001",
+            artist = "Unknown Artist",
+            coverUrl = "",
+            streamUrl = "file:///storage/emulated/0/WhatsApp/Media/WhatsApp Audio/AUD-20241001-WA0001.mp3",
+            audioCategory = AudioCategory.MIXED_AUDIO,
+            isIdentifiedMusic = false
+        )
+        assertEquals(AudioCategory.MIXED_AUDIO, initialTrack.audioCategory)
+        assertFalse(initialTrack.isIdentifiedMusic)
+
+        // After identification: graduated to Music
+        val graduatedTrack = initialTrack.copy(
+            title = "Starboy",
+            artist = "The Weeknd",
+            album = "Starboy",
+            audioCategory = AudioCategory.MUSIC,
+            isIdentifiedMusic = true
+        )
+        assertEquals(AudioCategory.MUSIC, graduatedTrack.audioCategory)
+        assertTrue(graduatedTrack.isIdentifiedMusic)
+        assertEquals("The Weeknd", graduatedTrack.artist)
+    }
+
+    @Test
+    fun testFilteringPartitionsMusicAndMixedAudio() {
+        val song1 = com.cubicreates.unboundmusic.ui.components.TrackItem(
+            id = "s1", title = "Song 1", artist = "Artist 1", coverUrl = "",
+            audioCategory = AudioCategory.MUSIC, isIdentifiedMusic = true
+        )
+        val voice1 = com.cubicreates.unboundmusic.ui.components.TrackItem(
+            id = "v1", title = "Voice 1", artist = "Unknown Artist", coverUrl = "",
+            audioCategory = AudioCategory.MIXED_AUDIO, isIdentifiedMusic = false
+        )
+        val song2 = com.cubicreates.unboundmusic.ui.components.TrackItem(
+            id = "s2", title = "Song 2", artist = "Artist 2", coverUrl = "",
+            audioCategory = AudioCategory.MUSIC, isIdentifiedMusic = true
+        )
+        val all = listOf(song1, voice1, song2)
+
+        val musicOnly = all.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        val audioOnly = all.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+
+        assertEquals(2, musicOnly.size)
+        assertEquals(1, audioOnly.size)
+        assertEquals("v1", audioOnly.first().id)
+        assertFalse(musicOnly.any { it.id == "v1" })
+    }
 }

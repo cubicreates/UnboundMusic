@@ -169,6 +169,7 @@ fun MainOverlayHost(
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
     val trackToAddToPlaylist by viewModel.trackToAddToPlaylist.collectAsStateWithLifecycle()
     val availableUpdate by viewModel.availableUpdate.collectAsStateWithLifecycle()
+    val currentQueue by viewModel.currentQueue.collectAsStateWithLifecycle()
 
     LaunchedEffect(isYouTubeConnected) {
         if (isYouTubeConnected) {
@@ -400,7 +401,7 @@ fun MainOverlayHost(
             onRomanizationModeChange = { viewModel.setRomanizationMode(it) },
             onTimingOffsetChange = { viewModel.setLyricsTimingOffsetMs(it) },
             canvasArtUrl = canvasArtUrl,
-            queue = playbackState.queue,
+            queue = if (currentQueue.isNotEmpty()) currentQueue else playbackState.queue,
             playbackMode = playbackState.playbackMode,
             onCollapse = {
                 overlayState.isPlayerExpanded = false

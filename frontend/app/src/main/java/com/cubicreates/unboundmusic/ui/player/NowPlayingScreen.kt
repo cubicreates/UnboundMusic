@@ -12,6 +12,8 @@ package com.cubicreates.unboundmusic.ui.player
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -75,6 +77,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -331,6 +334,35 @@ fun NowPlayingScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop
                                 )
+
+                                // Subtle bottom pill indicating flip to lyrics affordance
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    border = BorderStroke(1.dp, BorderGlass),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lyrics,
+                                            contentDescription = null,
+                                            tint = UnboundPrimary,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Text(
+                                            text = "Tap for Lyrics",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color.White.copy(alpha = 0.9f)
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -381,8 +413,8 @@ fun NowPlayingScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Text(text = "Cover", fontSize = 11.sp, color = OnSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = OnSurfaceVariant, modifier = Modifier.size(12.dp))
+                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(12.dp))
+                                                Text(text = "Artwork", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                                             }
                                         }
                                     }
@@ -456,8 +488,8 @@ fun NowPlayingScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Text(text = "Cover", fontSize = 11.sp, color = OnSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = OnSurfaceVariant, modifier = Modifier.size(12.dp))
+                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(12.dp))
+                                                Text(text = "Artwork", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                                             }
                                         }
                                     }
@@ -543,8 +575,8 @@ fun NowPlayingScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Text(text = "Cover", fontSize = 11.sp, color = OnSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = OnSurfaceVariant, modifier = Modifier.size(12.dp))
+                                                Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(12.dp))
+                                                Text(text = "Artwork", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.SemiBold)
                                             }
                                         }
                                     }
@@ -643,6 +675,7 @@ fun NowPlayingScreen(
 
             // ==================== COMPACT SECONDARY ACTION ROW (3 ACTIONS) ====================
             // Positioned between center stage and progress bar
+            // USER ORDER: 1. Lyrics, 2. Queue, 3. Settings
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -650,18 +683,7 @@ fun NowPlayingScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Settings Pill
-                SecondaryActionDeckPill(
-                    icon = Icons.Default.Tune,
-                    label = "Settings",
-                    isActive = centerDeckView == CenterDeckView.SETTINGS,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        centerDeckView = if (centerDeckView == CenterDeckView.SETTINGS) CenterDeckView.ARTWORK else CenterDeckView.SETTINGS
-                    }
-                )
-
-                // 2. Lyrics Pill
+                // 1. Lyrics Pill
                 SecondaryActionDeckPill(
                     icon = Icons.Default.Lyrics,
                     label = "Lyrics",
@@ -672,7 +694,7 @@ fun NowPlayingScreen(
                     }
                 )
 
-                // 3. Queue Pill
+                // 2. Queue Pill
                 SecondaryActionDeckPill(
                     icon = Icons.AutoMirrored.Filled.QueueMusic,
                     label = if (queue.isNotEmpty()) "Queue (${queue.size})" else "Queue",
@@ -680,6 +702,17 @@ fun NowPlayingScreen(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         centerDeckView = if (centerDeckView == CenterDeckView.QUEUE) CenterDeckView.ARTWORK else CenterDeckView.QUEUE
+                    }
+                )
+
+                // 3. Settings Pill
+                SecondaryActionDeckPill(
+                    icon = Icons.Default.Tune,
+                    label = "Settings",
+                    isActive = centerDeckView == CenterDeckView.SETTINGS,
+                    modifier = Modifier.weight(1f),
+                    onClick = {
+                        centerDeckView = if (centerDeckView == CenterDeckView.SETTINGS) CenterDeckView.ARTWORK else CenterDeckView.SETTINGS
                     }
                 )
             }

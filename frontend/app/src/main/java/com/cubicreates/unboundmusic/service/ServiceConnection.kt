@@ -197,8 +197,14 @@ class ServiceConnection private constructor(private val context: Context) {
             )
             .build()
 
-        originalQueue.clear()
-        originalQueue.add(track)
+        val alreadyInQueue = originalQueue.any { 
+            (it.id.isNotBlank() && it.id == track.id) || 
+            (it.title.isNotBlank() && it.title.equals(track.title, ignoreCase = true)) 
+        }
+        if (!alreadyInQueue || originalQueue.isEmpty()) {
+            originalQueue.clear()
+            originalQueue.add(track)
+        }
 
         val ctrl = controller
         if (ctrl == null) {
@@ -544,20 +550,15 @@ class ServiceConnection private constructor(private val context: Context) {
         val frac = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
         val remaining = (duration - position).coerceAtLeast(0)
 
-        val queueList = mutableListOf<TrackItem>()
-        for (i in 0 until ctrl.mediaItemCount) {
-            val item = ctrl.getMediaItemAt(i)
-            val meta = item.mediaMetadata
-            val effectiveId = if (item.mediaId.isNotBlank()) item.mediaId else (item.localConfiguration?.uri?.toString() ?: "")
-            val orig = originalQueue.find { 
-                (effectiveId.isNotBlank() && it.id == effectiveId) || 
-                (item.localConfiguration?.uri?.toString()?.isNotBlank() == true && it.streamUrl == item.localConfiguration?.uri?.toString()) ||
-                (meta.title?.toString()?.isNotBlank() == true && it.title == meta.title?.toString())
-            }
-            if (orig != null) {
-                queueList.add(orig)
-            } else {
-                queueList.add(
+        val queueList = if (originalQueue.isNotEmpty()) {
+            originalQueue.toList()
+        } else {
+            val list = mutableListOf<TrackItem>()
+            for (i in 0 until ctrl.mediaItemCount) {
+                val item = ctrl.getMediaItemAt(i)
+                val meta = item.mediaMetadata
+                val effectiveId = if (item.mediaId.isNotBlank()) item.mediaId else (item.localConfiguration?.uri?.toString() ?: "")
+                list.add(
                     TrackItem(
                         id = effectiveId,
                         title = meta.title?.toString() ?: "Track ${i + 1}",
@@ -568,6 +569,7 @@ class ServiceConnection private constructor(private val context: Context) {
                     )
                 )
             }
+            list
         }
 
         val curItem = ctrl.currentMediaItem

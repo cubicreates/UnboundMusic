@@ -1326,13 +1326,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
         }
 
-        // If track is not part of an existing multi-track queue, seed with this track and auto-hydrate YouTube automix
+        // If track is already part of an existing multi-track queue (e.g. Album, Playlist, or 50-track mix), keep queue
         val currentQ = _currentQueue.value
         val trackInQueue = currentQ.any {
             (it.id.isNotBlank() && it.id == targetTrack.id) ||
             (it.title.isNotBlank() && it.title.equals(targetTrack.title, ignoreCase = true))
         }
-        if (currentQ.size <= 1 || !trackInQueue) {
+        if (currentQ.size > 1 && trackInQueue) {
+            serviceConnection.setQueue(currentQ)
+        } else {
             val initialQ = listOf(targetTrack)
             _currentQueue.value = initialQ
             serviceConnection.setQueue(initialQ)
@@ -1610,34 +1612,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
-        if (!_isYouTubeConnected.value) {
-            // Guest Mode Strategy A: YouTube Native Dynamic Radio Graph algorithm.
-            // Check if user explicitly clicked inside an album playlist detail view
-            val isExplicitAlbumOrPlaylist = albumPlaylistData.value?.let { it.tracks == queue } == true
-            if (!isExplicitAlbumOrPlaylist) {
-                // Dynamically shift upcoming playback queue to YouTube's native algorithmic radio graph
-                // matching this song's artist, genre, and vibe (Strategy A).
-                val initialQ = listOf(track)
-                _currentQueue.value = initialQ
-                serviceConnection.setQueue(initialQ)
-                playTrack(track)
-                fetchGuestAlgorithmicRadio(track)
-                saveCurrentPlaybackState(0L)
-                return
-            }
-        }
-
-        // Signed-in Mode (or Explicit Album Detail): Preserve user's personal queue
+        // If queue has multiple tracks (e.g. an Album or Playlist), preserve the entire album queue
         if (queue.size > 1) {
             _currentQueue.value = queue
             serviceConnection.setQueue(queue)
             playTrack(track)
         } else {
+            // Single track playback: seed with this track and prepare next 50 singles from the algorithm
             val initialQ = listOf(track)
             _currentQueue.value = initialQ
             serviceConnection.setQueue(initialQ)
             playTrack(track)
-            fetchAutomixQueue(track)
+            if (!_isYouTubeConnected.value) {
+                fetchGuestAlgorithmicRadio(track)
+            } else {
+                fetchAutomixQueue(track)
+            }
         }
         saveCurrentPlaybackState(0L)
     }
@@ -1681,6 +1671,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         radioTracks = client.parseSearchResults(sResp).filter {
                             it.id != seedTrack.id && it.title.isNotBlank()
                         }
+                    }
+                }
+
+                // Hydrate up to 50 tracks to create a rich mix queue like YouTube Music
+                if (radioTracks.size in 1..40 && seedTrack.title.isNotBlank()) {
+                    val query = "${seedTrack.artist} mix".trim()
+                    val (sCode, sResp) = client.search(query, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        val extra = client.parseSearchResults(sResp).filter { ex ->
+                            ex.id != seedTrack.id && ex.title.isNotBlank() && radioTracks.none { r -> r.id == ex.id }
+                        }
+                        radioTracks = (radioTracks + extra).take(50)
                     }
                 }
 
@@ -1750,6 +1752,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val (sCode, sResp) = client.search(query, type = "song")
                     if (sCode in 200..299 && sResp.isNotBlank()) {
                         nextTracks = client.parseSearchResults(sResp).filter { it.id != seedTrack.id }
+                    }
+                }
+
+                // Hydrate up to 50 tracks to create a rich mix queue like YouTube Music
+                if (nextTracks.size in 1..40 && seedTrack.title.isNotBlank()) {
+                    val query = "${seedTrack.artist} mix".trim()
+                    val (sCode, sResp) = client.search(query, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        val extra = client.parseSearchResults(sResp).filter { ex ->
+                            ex.id != seedTrack.id && ex.title.isNotBlank() && nextTracks.none { r -> r.id == ex.id }
+                        }
+                        nextTracks = (nextTracks + extra).take(50)
                     }
                 }
 
@@ -4717,17 +4731,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playQueueTrack(index: Int) {
-        val q = serviceConnection.playbackState.value.queue
+        val q = getEffectiveQueue()
         if (index in q.indices) {
             playTrack(q[index])
         }
     }
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val currentQueueList = _currentQueue.value.toMutableList()
+        if (fromIndex in currentQueueList.indices && toIndex in currentQueueList.indices) {
+            val item = currentQueueList.removeAt(fromIndex)
+            currentQueueList.add(toIndex, item)
+            _currentQueue.value = currentQueueList
+            serviceConnection.setQueue(currentQueueList)
+        }
         serviceConnection.moveQueueItem(fromIndex, toIndex)
     }
 
     fun removeQueueItem(index: Int) {
+        val currentQueueList = _currentQueue.value.toMutableList()
+        if (index in currentQueueList.indices) {
+            currentQueueList.removeAt(index)
+            _currentQueue.value = currentQueueList
+            serviceConnection.setQueue(currentQueueList)
+        }
         serviceConnection.removeQueueItem(index)
     }
 

@@ -26,17 +26,19 @@ class UnboundApplication : Application() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Music Production Application...")
 
-        // Configure high-performance image caching to eliminate UI lag & stutter
+        // Configure high-performance, low-RAM image caching to eliminate UI lag & stutter
         val imageLoader = ImageLoader.Builder(this)
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+            .allowRgb565(true)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.10)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(50L * 1024 * 1024)
+                    .maxSizeBytes(256L * 1024 * 1024)
                     .build()
             }
             .crossfade(true)
@@ -52,5 +54,19 @@ class UnboundApplication : Application() {
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@UnboundApplication)
         }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            Coil.imageLoader(this).memoryCache?.clear()
+            DaemonManager.getInstance(this).trimMemory()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        Coil.imageLoader(this).memoryCache?.clear()
+        DaemonManager.getInstance(this).trimMemory()
     }
 }

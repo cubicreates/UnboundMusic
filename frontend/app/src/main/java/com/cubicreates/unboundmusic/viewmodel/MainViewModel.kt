@@ -78,6 +78,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -113,6 +117,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Reactive playback state from the Media3 foreground service. */
     val playbackState: StateFlow<PlaybackUiState> = serviceConnection.playbackState
+
+    /** Isolated playback boolean stream to prevent ticking position from triggering recompositions across the app tree */
+    val isPlaying: StateFlow<Boolean> = serviceConnection.playbackState
+        .map { it.isPlaying }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Isolated active track / session existence stream to toggle mini player without position ticker recompositions */
+    val hasActivePlayback: StateFlow<Boolean> = serviceConnection.playbackState
+        .map { it.isPlaying || it.currentPositionMs > 0 || it.currentTrack != null }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // ==================== Playback State ====================
 
@@ -974,6 +990,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadCustomEqPresets()
                     loadMoodsAndGenres(userCountry, userLanguage)
                     checkForAppUpdates(manual = false)
+                    try {
+                        daemonManager.trimMemory()
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -2906,6 +2925,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.d(TAG, "Universal audio scan note: ${e.message}")
             } finally {
                 isUniversalScanning.set(false)
+                try {
+                    daemonManager.trimMemory()
+                } catch (_: Exception) {}
             }
         }
     }

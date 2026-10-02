@@ -65,6 +65,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -440,7 +442,11 @@ private fun EqualizerWaveBars(isPlaying: Boolean) {
             Box(
                 modifier = Modifier
                     .width(3.dp)
-                    .height(if (isPlaying) (12.dp * h.value).coerceAtLeast(3.dp) else 3.dp)
+                    .height(12.dp)
+                    .graphicsLayer {
+                        scaleY = if (isPlaying) h.value.coerceIn(0.25f, 1f) else 0.25f
+                        transformOrigin = TransformOrigin(0.5f, 1f)
+                    }
                     .clip(RoundedCornerShape(1.dp))
                     .background(UnboundPrimary)
             )

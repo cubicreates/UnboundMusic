@@ -704,7 +704,7 @@ private fun PersonalizedLikedCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(tracks) { track ->
+            items(tracks, key = { it.id.ifBlank { "${it.title}_${it.artist}" } }) { track ->
                 PersonalizedTrackCard(track = track, onClick = { onTrackClick(track) })
             }
         }
@@ -902,7 +902,7 @@ private fun PersonalizedMixesSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(mixes) { mix ->
+            items(mixes, key = { it.id.ifBlank { it.title } }) { mix ->
                 PersonalizedMixCard(mix = mix, onClick = { onMixClick(mix) })
             }
         }
@@ -1041,7 +1041,7 @@ private fun PersonalizedCapsulesSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(state.capsules) { capsule ->
+            items(state.capsules, key = { "${it.tag}_${it.title}" }) { capsule ->
                 PersonalizedCapsuleCard(capsule = capsule, onClick = { onCapsuleClick(capsule) })
             }
         }

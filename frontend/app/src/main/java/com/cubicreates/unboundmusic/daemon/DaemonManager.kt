@@ -69,6 +69,15 @@ class DaemonManager private constructor(private val context: Context) {
     private external fun stopEngineNative(): Int
     private external fun trimEngineMemoryNative(): Int
 
+    fun trimMemory() {
+        try {
+            trimEngineMemoryNative()
+            Log.d(TAG, "Native Go engine memory trimmed explicitly")
+        } catch (e: Throwable) {
+            Log.w(TAG, "trimEngineMemoryNative unavailable: ${e.message}")
+        }
+    }
+
     init {
         context.registerComponentCallbacks(object : ComponentCallbacks2 {
             override fun onTrimMemory(level: Int) {

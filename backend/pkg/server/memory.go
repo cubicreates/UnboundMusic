@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	// DefaultMemoryLimitBytes defines the 128 MiB soft heap ceiling for mobile environments.
-	DefaultMemoryLimitBytes = 128 * 1024 * 1024
-	// DefaultGCPercent defines an aggressive collection cycle (50%) to prevent heap spikes.
-	DefaultGCPercent = 50
+	// DefaultMemoryLimitBytes defines the 48 MiB soft heap ceiling for mobile environments.
+	DefaultMemoryLimitBytes = 48 * 1024 * 1024
+	// DefaultGCPercent defines an aggressive collection cycle (20%) to prevent heap spikes.
+	DefaultGCPercent = 20
 )
 
 // ConfigureMemoryCeiling establishes a bounded heap ceiling and collection target.

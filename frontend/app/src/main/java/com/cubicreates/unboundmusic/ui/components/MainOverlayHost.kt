@@ -124,7 +124,7 @@ fun MainOverlayHost(
     val deviceAuthError by viewModel.deviceAuthError.collectAsStateWithLifecycle()
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
-    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val lyricsLines by viewModel.lyricsLines.collectAsStateWithLifecycle()
     val lyricsSource by viewModel.lyricsSource.collectAsStateWithLifecycle()
@@ -319,7 +319,7 @@ fun MainOverlayHost(
             },
             downloadedTrackIds = downloadedTrackIds,
             currentTrackId = currentTrack.id,
-            isPlaying = playbackState.isPlaying,
+            isPlaying = isPlaying,
             onPlayNext = { track -> viewModel.playNext(track) },
             onAddToQueue = { track -> viewModel.addToQueue(track) },
             onStartRadio = { track ->
@@ -375,6 +375,7 @@ fun MainOverlayHost(
 
     // Full Screen Immersive Now Playing Overlay
     if (overlayState.isPlayerExpanded) {
+        val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
         NowPlayingScreen(
             track = currentTrack,
             isPlaying = playbackState.isPlaying,
@@ -556,7 +557,7 @@ fun MainOverlayHost(
             onStartDownload = { track -> viewModel.startTrackDownload(track) },
             downloadedTrackIds = downloadedTrackIds,
             currentTrackId = currentTrack.id,
-            isPlaying = playbackState.isPlaying
+            isPlaying = isPlaying
         )
     }
 

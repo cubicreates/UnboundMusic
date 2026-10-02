@@ -72,7 +72,8 @@ fun MainApp(
 
     val currentTrack by viewModel.currentTrack.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
-    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val hasActivePlayback by viewModel.hasActivePlayback.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val libraryTracks by viewModel.libraryTracks.collectAsStateWithLifecycle()
@@ -206,12 +207,12 @@ fun MainApp(
                         .fillMaxWidth()
                         .background(UnboundBackground)
                 ) {
-                    if (currentTrack.title.isNotBlank() && (playbackState.isPlaying || playbackState.currentPositionMs > 0) && !overlayState.isPlayerExpanded) {
+                    if (currentTrack.title.isNotBlank() && hasActivePlayback && !overlayState.isPlayerExpanded) {
                         FloatingMiniPlayer(
                             title = currentTrack.title,
                             artist = currentTrack.artist,
                             coverUrl = currentTrack.coverUrl,
-                            isPlaying = playbackState.isPlaying,
+                            isPlaying = isPlaying,
                             isFavorite = isFavorite,
                             onPlayPauseToggle = { viewModel.togglePlayPause() },
                             onFavoriteToggle = { viewModel.toggleFavorite() },
@@ -283,7 +284,7 @@ fun MainApp(
                                     overlayState.showRecap = true
                                 },
                                 currentTrackId = currentTrack.id,
-                                isPlaying = playbackState.isPlaying,
+                                isPlaying = isPlaying,
                                 onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
                                 onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
                                 onDownload = { track -> viewModel.downloadBatch(listOf(track)) },
@@ -312,7 +313,7 @@ fun MainApp(
                                 searchSuggestions = searchSuggestions,
                                 searchHistory = searchHistory,
                                 currentTrackId = currentTrack.id,
-                                isPlaying = playbackState.isPlaying,
+                                isPlaying = isPlaying,
                                 onCategorySelected = { viewModel.setSearchCategory(it) },
                                 onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
                                 onSearchSubmit = { viewModel.submitSearch(it) },

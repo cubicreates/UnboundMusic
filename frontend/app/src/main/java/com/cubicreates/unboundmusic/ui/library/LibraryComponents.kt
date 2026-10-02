@@ -89,6 +89,7 @@ import java.io.File
 enum class LibrarySubView {
     HUB,
     TRACKS,
+    AUDIOS,
     FOLDERS,
     FOLDER_TRACKS,
     FAVORITES,

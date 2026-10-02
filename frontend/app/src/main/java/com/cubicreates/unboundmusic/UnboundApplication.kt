@@ -26,33 +26,87 @@ class UnboundApplication : Application() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Music Production Application...")
 
-        // Configure high-performance, low-RAM image caching to eliminate UI lag & stutter
-        val imageLoader = ImageLoader.Builder(this)
-            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
-            .allowRgb565(true)
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.10)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(256L * 1024 * 1024)
-                    .build()
-            }
-            .crossfade(true)
-            .respectCacheHeaders(false)
-            .build()
+        // 1. Install global uncaught exception handler to prevent silent crash exits and diagnose failures
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                Log.e(TAG, "CRASH DETECTED on thread ${thread.name}: ${throwable.message}", throwable)
+                val sw = java.io.StringWriter()
+                val pw = java.io.PrintWriter(sw)
+                throwable.printStackTrace(pw)
+                val crashReport = buildString {
+                    appendLine("=========================================")
+                    appendLine("UNBOUND MUSIC CRASH REPORT")
+                    appendLine("Time: ${java.util.Date()}")
+                    appendLine("Thread: ${thread.name} (id=${thread.id})")
+                    appendLine("Exception: ${throwable.javaClass.name}: ${throwable.message}")
+                    appendLine("Cause: ${throwable.cause?.javaClass?.name}: ${throwable.cause?.message}")
+                    appendLine("Stacktrace:")
+                    appendLine(sw.toString())
+                    appendLine("=========================================")
+                }
 
-        Coil.setImageLoader(imageLoader)
+                // Write to internal files directory
+                try {
+                    val crashFile = java.io.File(filesDir, "crash_dump.txt")
+                    crashFile.writeText(crashReport)
+                } catch (_: Throwable) {}
 
-        // Configure global appContext for BackendClient telemetry & in-app alerting
+                // Attempt writing to public Unbound directory if accessible
+                try {
+                    val publicDir = com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
+                    if (publicDir.exists()) {
+                        java.io.File(publicDir, "crash_dump.txt").writeText(crashReport)
+                    }
+                } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed writing crash dump: ${e.message}")
+            }
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        // 2. Clean up any stale sockets or locks left over from previous process
+        try {
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.cleanupStaleSocket(this)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Stale socket cleanup note: ${e.message}")
+        }
+
+        // 3. Configure high-performance, low-RAM image caching to eliminate UI lag & stutter
+        try {
+            val imageLoader = ImageLoader.Builder(this)
+                .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
+                .allowRgb565(true)
+                .memoryCache {
+                    MemoryCache.Builder(this)
+                        .maxSizePercent(0.10)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(256L * 1024 * 1024)
+                        .build()
+                }
+                .crossfade(true)
+                .respectCacheHeaders(false)
+                .build()
+
+            Coil.setImageLoader(imageLoader)
+        } catch (e: Throwable) {
+            Log.e(TAG, "ImageLoader init note: ${e.message}")
+        }
+
+        // 4. Configure global appContext for BackendClient telemetry & in-app alerting
         com.cubicreates.unboundmusic.data.BackendClient.appContext = this
 
-        // Automatically deploy canonical Unbound folder in background coroutine to eliminate cold-start I/O stalls
+        // 5. Automatically deploy canonical Unbound folder in background coroutine to eliminate cold-start I/O stalls
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@UnboundApplication)
+            try {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@UnboundApplication)
+            } catch (e: Throwable) {
+                Log.w(TAG, "Background deployUnboundStorage note: ${e.message}")
+            }
         }
     }
 

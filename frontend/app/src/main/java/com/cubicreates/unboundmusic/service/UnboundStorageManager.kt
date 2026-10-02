@@ -205,6 +205,22 @@ object UnboundStorageManager {
     }
 
     /**
+     * Cleans up any stale daemon.sock left behind by an unexpectedly killed process or app update.
+     */
+    fun cleanupStaleSocket(context: Context) {
+        try {
+            val backendDir = getBackendStorageRoot(context)
+            val sock = File(backendDir, "daemon.sock")
+            if (sock.exists()) {
+                Log.i(TAG, "Cleaning up stale daemon.sock: ${sock.absolutePath}")
+                sock.delete()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error cleaning up daemon.sock: ${e.message}")
+        }
+    }
+
+    /**
      * Deploys and provisions the complete visible Unbound storage structure on install / cold start.
      * Provisions the single public Unbound folder under /storage/emulated/0/Download/Unbound
      * with Downloads/, Music/, Playlists/, Recaps/, and README.txt.

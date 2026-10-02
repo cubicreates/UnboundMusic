@@ -881,83 +881,121 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val unboundFolderPrompt: StateFlow<UnboundFolderPromptState?> = _unboundFolderPrompt.asStateFlow()
 
     init {
-        // Connect to Media3 playback service
-        serviceConnection.connect()
+        // Connect to Media3 playback service safely
+        try {
+            serviceConnection.connect()
+        } catch (e: Throwable) {
+            Log.e(TAG, "serviceConnection.connect failed: ${e.message}")
+        }
 
         // Start position ticker for smooth progress bar updates
-        startPositionTicker()
+        try {
+            startPositionTicker()
+        } catch (_: Throwable) {}
 
         // Sync current track and reload lyrics on track change
         viewModelScope.launch {
-            serviceConnection.playbackState.collect { state ->
-                state.currentTrack?.let { track ->
-                    if (track.title != "Unknown" && track.title.isNotBlank()) {
-                        val prev = _currentTrack.value
-                        val changed = prev.id != track.id || !prev.title.equals(track.title, ignoreCase = true)
-                        if (changed) {
-                            _currentTrack.value = track
-                            _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title)
-                            loadLyricsForTrack(track)
-                            launch(Dispatchers.IO) {
-                                fetchCanvas(track)
-                                fetchSkipSegments(track)
-                                fetchRydVotes(track)
-                            }
-                            saveCurrentPlaybackState(0L)
+            try {
+                serviceConnection.playbackState.collect { state ->
+                    state.currentTrack?.let { track ->
+                        if (track.title != "Unknown" && track.title.isNotBlank()) {
+                            val prev = _currentTrack.value
+                            val changed = prev.id != track.id || !prev.title.equals(track.title, ignoreCase = true)
+                            if (changed) {
+                                _currentTrack.value = track
+                                _isFavorite.value = try {
+                                    PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title)
+                                } catch (_: Throwable) { false }
+                                loadLyricsForTrack(track)
+                                launch(Dispatchers.IO) {
+                                    try {
+                                        fetchCanvas(track)
+                                        fetchSkipSegments(track)
+                                        fetchRydVotes(track)
+                                    } catch (_: Throwable) {}
+                                }
+                                saveCurrentPlaybackState(0L)
 
-                            // Guest Mode Strategy A: proactively extend radio queue when approaching the end
-                            if (!_isYouTubeConnected.value && track.id.isNotBlank() && !track.id.startsWith("local:")) {
-                                val q = _currentQueue.value
-                                val idx = q.indexOfFirst { it.id == track.id }
-                                if (idx >= 0 && idx >= q.size - 3) {
-                                    fetchGuestAlgorithmicRadio(track, append = true)
+                                // Guest Mode Strategy A: proactively extend radio queue when approaching the end
+                                if (!_isYouTubeConnected.value && track.id.isNotBlank() && !track.id.startsWith("local:")) {
+                                    val q = _currentQueue.value
+                                    val idx = q.indexOfFirst { it.id == track.id }
+                                    if (idx >= 0 && idx >= q.size - 3) {
+                                        fetchGuestAlgorithmicRadio(track, append = true)
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Playback state collector loop note: ${e.message}")
             }
         }
 
         // Restore persistent YouTube Music session from local disk store immediately
-        val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(application)
-        if (sessionStore.hasActiveSession) {
-            _isYouTubeConnected.value = true
-            sessionStore.accountName?.let { _accountName.value = it }
-            sessionStore.avatarUrl?.let { _userAvatarUrl.value = it }
+        try {
+            val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(application)
+            if (sessionStore.hasActiveSession) {
+                _isYouTubeConnected.value = true
+                sessionStore.accountName?.let { _accountName.value = it }
+                sessionStore.avatarUrl?.let { _userAvatarUrl.value = it }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "SessionStore init note: ${e.message}")
         }
 
         // Load Playback Quality & Automation Preferences
-        _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(application)
-        _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(application)
-        _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(application)
-        _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(application)
-        if (_normalizeVolumeEnabled.value) {
-            serviceConnection.setLoudness(1000)
-        }
-        if (_skipSilenceEnabled.value) {
-            serviceConnection.setSkipSilence(true)
+        try {
+            _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(application)
+            _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(application)
+            _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(application)
+            _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(application)
+            if (_normalizeVolumeEnabled.value) {
+                serviceConnection.setLoudness(1000)
+            }
+            if (_skipSilenceEnabled.value) {
+                serviceConnection.setSkipSilence(true)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Playback automation prefs note: ${e.message}")
         }
 
-        // Restore persistent queue and active track across app restarts
-        restoreLastPlaybackState()
+        // Restore persistent queue and active track across app restarts safely
+        try {
+            restoreLastPlaybackState()
+        } catch (e: Throwable) {
+            Log.e(TAG, "restoreLastPlaybackState failed: ${e.message}")
+        }
 
         // Load persistent search history
-        loadSearchHistory()
+        try {
+            loadSearchHistory()
+        } catch (_: Throwable) {}
 
         // Orchestrate startup hydration with splash screen telemetry
-        startStartupHydration()
+        try {
+            startStartupHydration()
+        } catch (e: Throwable) {
+            Log.e(TAG, "startStartupHydration failed: ${e.message}")
+            _isAppReady.value = true
+        }
 
         // Resume download polling if previous active tasks exist
-        startDownloadPollingLoop()
-        loadDownloadedMusicFiles()
-        updateStorageMetrics()
-        loadCustomPlaylists()
+        try {
+            startDownloadPollingLoop()
+            loadDownloadedMusicFiles()
+            updateStorageMetrics()
+            loadCustomPlaylists()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Background tasks init note: ${e.message}")
+        }
+
         try {
             _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(application)
             _favoriteTracks.value = PlaybackStateStore.getFavoriteTracks(application)
             refreshAdaptiveQuickPicks()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
 
         // Auto-advance to next track when playback of current song ends
         serviceConnection.onTrackEndedListener = {
@@ -978,13 +1016,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun restoreLastPlaybackState() {
-        val saved = PlaybackStateStore.loadPlaybackState(getApplication()) ?: return
-        if (saved.track.id.isNotBlank() || saved.track.title.isNotBlank()) {
-            _currentTrack.value = saved.track
-            if (saved.queue.isNotEmpty()) {
-                _currentQueue.value = saved.queue
-                serviceConnection.setQueue(saved.queue)
+        try {
+            val saved = PlaybackStateStore.loadPlaybackState(getApplication()) ?: return
+            if (saved.track.id.isNotBlank() || saved.track.title.isNotBlank()) {
+                _currentTrack.value = saved.track
+                if (saved.queue.isNotEmpty()) {
+                    _currentQueue.value = saved.queue
+                    try {
+                        serviceConnection.setQueue(saved.queue)
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "Failed restoring queue in ServiceConnection: ${e.message}")
+                    }
+                }
             }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed restoring last playback state: ${e.message}")
+            try {
+                PlaybackStateStore.clearPlaybackState(getApplication())
+            } catch (_: Throwable) {}
         }
     }
 
@@ -5064,26 +5113,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadCustomPlaylists() {
         viewModelScope.launch(Dispatchers.IO) {
-            var playlists = client.getPlaylists()
-            if (playlists.isEmpty()) {
-                val legacy = LocalPlaylistStore.getPlaylists(getApplication())
-                if (legacy.isNotEmpty()) {
-                    Log.i(TAG, "Migrating ${legacy.size} legacy playlists to Go SQLite backend...")
-                    for (p in legacy) {
-                        client.createPlaylist(p.title, p.description, p.coverUrl, p.tracks, p.id)
+            try {
+                var playlists = try { client.getPlaylists() } catch (_: Throwable) { emptyList() }
+                if (playlists.isEmpty()) {
+                    val legacy = try { LocalPlaylistStore.getPlaylists(getApplication()) } catch (_: Throwable) { emptyList() }
+                    if (legacy.isNotEmpty()) {
+                        Log.i(TAG, "Migrating ${legacy.size} legacy playlists to Go SQLite backend...")
+                        for (p in legacy) {
+                            try {
+                                client.createPlaylist(p.title, p.description, p.coverUrl, p.tracks, p.id)
+                            } catch (_: Throwable) {}
+                        }
+                        playlists = try { client.getPlaylists() } catch (_: Throwable) { emptyList() }
                     }
-                    playlists = client.getPlaylists()
                 }
-            }
-            if (playlists.isEmpty()) {
-                playlists = LocalPlaylistStore.getPlaylists(getApplication())
-            }
-            withContext(Dispatchers.Main) {
-                _customPlaylists.value = playlists
-                val currentActive = _activeCustomPlaylist.value
-                if (currentActive != null) {
-                    _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
+                if (playlists.isEmpty()) {
+                    playlists = try { LocalPlaylistStore.getPlaylists(getApplication()) } catch (_: Throwable) { emptyList() }
                 }
+                withContext(Dispatchers.Main) {
+                    _customPlaylists.value = playlists
+                    val currentActive = _activeCustomPlaylist.value
+                    if (currentActive != null) {
+                        _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "loadCustomPlaylists note: ${e.message}")
             }
         }
     }

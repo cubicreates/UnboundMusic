@@ -67,16 +67,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
-        enableEdgeToEdge()
+        try {
+            volumeControlStream = android.media.AudioManager.STREAM_MUSIC
+            enableEdgeToEdge()
+        } catch (e: Throwable) {
+            android.util.Log.w("MainActivity", "Audio stream / edge-to-edge configuration note: ${e.message}")
+        }
 
-        // Connect Media3 playback service
-        serviceConnection = ServiceConnection.getInstance(this)
-        serviceConnection.connect()
+        // Connect Media3 playback service safely
+        try {
+            serviceConnection = ServiceConnection.getInstance(this)
+            serviceConnection.connect()
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "ServiceConnection connect error: ${e.message}")
+        }
 
         // Deploy visible Unbound storage asynchronously in background to ensure zero main-thread blockage
         lifecycleScope.launch(Dispatchers.IO) {
-            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+            try {
+                com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+            } catch (_: Throwable) {}
         }
 
         // Check & request runtime audio and notification permissions
@@ -142,48 +152,57 @@ class MainActivity : ComponentActivity() {
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
+            // Permissions already granted (app update scenario)
             lifecycleScope.launch(Dispatchers.IO) {
-                com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+                try {
+                    com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
+                } catch (_: Throwable) {}
             }
-            mainViewModel.rescanLocalStorage()
-            promptBatteryOptimizationIfNeeded()
+            // Defer battery optimization until UI is fully mounted and rendered
+            lifecycleScope.launch(Dispatchers.Main) {
+                kotlinx.coroutines.delay(1500)
+                promptBatteryOptimizationIfNeeded()
+            }
         }
     }
 
     private fun promptBatteryOptimizationIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
-            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
-                val prefs = getSharedPreferences("unbound_prefs", MODE_PRIVATE)
-                val alreadyPrompted = prefs.getBoolean("battery_optimization_prompted", false)
-                if (!alreadyPrompted) {
-                    prefs.edit().putBoolean("battery_optimization_prompted", true).apply()
-                    try {
-                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
-                        startActivity(intent)
-                    } catch (e: Exception) {
+            try {
+                val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+                if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                    val prefs = getSharedPreferences("unbound_prefs", MODE_PRIVATE)
+                    val alreadyPrompted = prefs.getBoolean("battery_optimization_prompted", false)
+                    if (!alreadyPrompted) {
+                        prefs.edit().putBoolean("battery_optimization_prompted", true).apply()
                         try {
-                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
                             startActivity(intent)
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            try {
+                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(intent)
+                            } catch (_: Exception) {}
+                        }
                     }
                 }
+            } catch (e: Throwable) {
+                android.util.Log.w("MainActivity", "Battery optimization check note: ${e.message}")
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        DaemonManager.getInstance(this).startDaemonAuto(force = false)
-        val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-        }
-        if (audioGranted) {
-            mainViewModel.rescanLocalStorage()
+        try {
+            DaemonManager.getInstance(this).startDaemonAuto(force = false)
+        } catch (e: Throwable) {
+            android.util.Log.w("MainActivity", "Daemon auto-start onResume note: ${e.message}")
         }
     }
 

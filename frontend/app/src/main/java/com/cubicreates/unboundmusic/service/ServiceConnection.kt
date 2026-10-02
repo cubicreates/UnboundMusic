@@ -298,8 +298,12 @@ class ServiceConnection private constructor(private val context: Context) {
             mainHandler.post { setQueue(tracks) }
             return
         }
-        originalQueue = tracks.toMutableList()
-        syncState()
+        try {
+            originalQueue = tracks.toMutableList()
+            syncState()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Error in setQueue: ${e.message}")
+        }
     }
 
     fun setPlaybackMode(mode: PlaybackMode) {
@@ -543,82 +547,86 @@ class ServiceConnection private constructor(private val context: Context) {
             mainHandler.post { syncState() }
             return
         }
-        val ctrl = controller ?: return
-        val metadata = ctrl.mediaMetadata
-        val duration = ctrl.duration.coerceAtLeast(0)
-        val position = ctrl.currentPosition.coerceAtLeast(0)
-        val frac = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
-        val remaining = (duration - position).coerceAtLeast(0)
+        try {
+            val ctrl = controller ?: return
+            val metadata = ctrl.mediaMetadata
+            val duration = ctrl.duration.coerceAtLeast(0)
+            val position = ctrl.currentPosition.coerceAtLeast(0)
+            val frac = if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+            val remaining = (duration - position).coerceAtLeast(0)
 
-        val queueList = if (originalQueue.isNotEmpty()) {
-            originalQueue.toList()
-        } else {
-            val list = mutableListOf<TrackItem>()
-            for (i in 0 until ctrl.mediaItemCount) {
-                val item = ctrl.getMediaItemAt(i)
-                val meta = item.mediaMetadata
-                val effectiveId = if (item.mediaId.isNotBlank()) item.mediaId else (item.localConfiguration?.uri?.toString() ?: "")
-                list.add(
-                    TrackItem(
-                        id = effectiveId,
-                        title = meta.title?.toString() ?: "Track ${i + 1}",
-                        artist = meta.artist?.toString() ?: "Artist",
-                        coverUrl = meta.artworkUri?.toString() ?: "",
-                        streamUrl = item.localConfiguration?.uri?.toString() ?: "",
-                        durationMs = 0L
+            val queueList = if (originalQueue.isNotEmpty()) {
+                originalQueue.toList()
+            } else {
+                val list = mutableListOf<TrackItem>()
+                for (i in 0 until ctrl.mediaItemCount) {
+                    val item = ctrl.getMediaItemAt(i)
+                    val meta = item.mediaMetadata
+                    val effectiveId = if (item.mediaId.isNotBlank()) item.mediaId else (item.localConfiguration?.uri?.toString() ?: "")
+                    list.add(
+                        TrackItem(
+                            id = effectiveId,
+                            title = meta.title?.toString() ?: "Track ${i + 1}",
+                            artist = meta.artist?.toString() ?: "Artist",
+                            coverUrl = meta.artworkUri?.toString() ?: "",
+                            streamUrl = item.localConfiguration?.uri?.toString() ?: "",
+                            durationMs = 0L
+                        )
                     )
-                )
+                }
+                list
             }
-            list
-        }
 
-        val curItem = ctrl.currentMediaItem
-        val currentTrackId = if (!curItem?.mediaId.isNullOrBlank()) curItem.mediaId else (curItem?.localConfiguration?.uri?.toString() ?: "")
-        val curUri = curItem?.localConfiguration?.uri?.toString() ?: ""
-        val curTitle = metadata.title?.toString() ?: ""
-        val origCurrent = originalQueue.find { 
-            (currentTrackId.isNotBlank() && it.id == currentTrackId) ||
-            (curUri.isNotBlank() && it.streamUrl == curUri) ||
-            (curTitle.isNotBlank() && it.title == curTitle)
-        }
+            val curItem = ctrl.currentMediaItem
+            val currentTrackId = if (!curItem?.mediaId.isNullOrBlank()) curItem.mediaId else (curItem?.localConfiguration?.uri?.toString() ?: "")
+            val curUri = curItem?.localConfiguration?.uri?.toString() ?: ""
+            val curTitle = metadata.title?.toString() ?: ""
+            val origCurrent = originalQueue.find { 
+                (currentTrackId.isNotBlank() && it.id == currentTrackId) ||
+                (curUri.isNotBlank() && it.streamUrl == curUri) ||
+                (curTitle.isNotBlank() && it.title == curTitle)
+            }
 
-        val resolvedCurrent = if (origCurrent != null) {
-            origCurrent.copy(
-                id = if (origCurrent.id.isNotBlank()) origCurrent.id else currentTrackId,
-                durationMs = if (duration > 0) duration else origCurrent.durationMs,
-                streamUrl = if (curUri.isNotBlank()) curUri else origCurrent.streamUrl
+            val resolvedCurrent = if (origCurrent != null) {
+                origCurrent.copy(
+                    id = if (origCurrent.id.isNotBlank()) origCurrent.id else currentTrackId,
+                    durationMs = if (duration > 0) duration else origCurrent.durationMs,
+                    streamUrl = if (curUri.isNotBlank()) curUri else origCurrent.streamUrl
+                )
+            } else if (curItem != null && (currentTrackId.isNotBlank() || curTitle.isNotBlank())) {
+                TrackItem(
+                    id = currentTrackId,
+                    title = if (curTitle.isNotBlank()) curTitle else "Unknown",
+                    artist = metadata.artist?.toString() ?: "Unknown Artist",
+                    coverUrl = metadata.artworkUri?.toString() ?: "",
+                    streamUrl = curUri,
+                    durationMs = duration
+                )
+            } else {
+                null
+            }
+
+            _playbackState.value = PlaybackUiState(
+                currentTrack = resolvedCurrent,
+                isPlaying = ctrl.isPlaying,
+                currentPositionMs = position,
+                durationMs = duration,
+                progress = frac,
+                formattedPosition = formatTime(position),
+                formattedRemaining = "-${formatTime(remaining)}",
+                repeatMode = ctrl.repeatMode,
+                shuffleModeEnabled = ctrl.shuffleModeEnabled,
+                playbackMode = currentMode,
+                hasNext = ctrl.hasNextMediaItem() || originalQueue.size > 1 || onSkipToNextListener != null,
+                hasPrevious = ctrl.hasPreviousMediaItem() || originalQueue.size > 1 || onSkipToPreviousListener != null,
+                mediaItemCount = ctrl.mediaItemCount,
+                queue = if (queueList.isNotEmpty()) queueList else originalQueue,
+                playbackSpeed = ctrl.playbackParameters.speed,
+                playbackPitch = ctrl.playbackParameters.pitch
             )
-        } else if (curItem != null && (currentTrackId.isNotBlank() || curTitle.isNotBlank())) {
-            TrackItem(
-                id = currentTrackId,
-                title = if (curTitle.isNotBlank()) curTitle else "Unknown",
-                artist = metadata.artist?.toString() ?: "Unknown Artist",
-                coverUrl = metadata.artworkUri?.toString() ?: "",
-                streamUrl = curUri,
-                durationMs = duration
-            )
-        } else {
-            null
+        } catch (e: Throwable) {
+            Log.w(TAG, "syncState error caught: ${e.message}")
         }
-
-        _playbackState.value = PlaybackUiState(
-            currentTrack = resolvedCurrent,
-            isPlaying = ctrl.isPlaying,
-            currentPositionMs = position,
-            durationMs = duration,
-            progress = frac,
-            formattedPosition = formatTime(position),
-            formattedRemaining = "-${formatTime(remaining)}",
-            repeatMode = ctrl.repeatMode,
-            shuffleModeEnabled = ctrl.shuffleModeEnabled,
-            playbackMode = currentMode,
-            hasNext = ctrl.hasNextMediaItem() || originalQueue.size > 1 || onSkipToNextListener != null,
-            hasPrevious = ctrl.hasPreviousMediaItem() || originalQueue.size > 1 || onSkipToPreviousListener != null,
-            mediaItemCount = ctrl.mediaItemCount,
-            queue = if (queueList.isNotEmpty()) queueList else originalQueue,
-            playbackSpeed = ctrl.playbackParameters.speed,
-            playbackPitch = ctrl.playbackParameters.pitch
-        )
     }
 
     fun updatePosition() {

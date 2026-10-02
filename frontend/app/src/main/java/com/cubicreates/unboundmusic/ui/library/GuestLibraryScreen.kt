@@ -102,6 +102,10 @@ fun GuestLibraryScreen(
     onDeleteDownload: (String) -> Unit = {},
     onOpenDownloadsHub: () -> Unit = {},
     customPlaylists: List<CustomPlaylist> = emptyList(),
+    artistPlaylists: List<CustomPlaylist> = emptyList(),
+    albumicPlaylists: List<CustomPlaylist> = emptyList(),
+    albumCompletions: List<com.cubicreates.unboundmusic.data.AlbumCompletionStatus> = emptyList(),
+    onDownloadRemaining: (com.cubicreates.unboundmusic.data.AlbumCompletionStatus) -> Unit = {},
     onCreatePlaylist: (title: String) -> Unit = {},
     onPlaylistClick: (CustomPlaylist) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
@@ -150,6 +154,10 @@ fun GuestLibraryScreen(
 
     val effectiveMixedAudioTracks = remember(mixedAudioTracks, tracks) {
         if (mixedAudioTracks.isNotEmpty()) mixedAudioTracks else tracks.filter { it.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+    }
+
+    val allPlaylists = remember(customPlaylists, albumicPlaylists, artistPlaylists) {
+        (albumicPlaylists + artistPlaylists + customPlaylists).distinctBy { it.id }
     }
 
     Box(
@@ -364,6 +372,16 @@ fun GuestLibraryScreen(
                             )
                         }
 
+                        // 50% - 75% Album Completion Recommendation Banners
+                        if (albumCompletions.isNotEmpty()) {
+                            for (comp in albumCompletions) {
+                                CompleteAlbumBanner(
+                                    status = comp,
+                                    onDownloadRemaining = { onDownloadRemaining(comp) }
+                                )
+                            }
+                        }
+
                         // Bento Split Row: Downloads & Favorites
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -442,7 +460,7 @@ fun GuestLibraryScreen(
                                             .padding(horizontal = 8.dp, vertical = 2.dp)
                                     ) {
                                         Text(
-                                            text = customPlaylists.size.toString(),
+                                            text = allPlaylists.size.toString(),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = UnboundPrimary
@@ -480,7 +498,7 @@ fun GuestLibraryScreen(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            if (customPlaylists.isEmpty()) {
+                            if (allPlaylists.isEmpty()) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -576,7 +594,7 @@ fun GuestLibraryScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     contentPadding = PaddingValues(horizontal = 2.dp)
                                 ) {
-                                    items(customPlaylists) { playlist ->
+                                    items(allPlaylists) { playlist ->
                                         PlaylistCard(
                                             playlist = playlist,
                                             onClick = { onPlaylistClick(playlist) }

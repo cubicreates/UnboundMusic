@@ -268,6 +268,121 @@ fun ModernHeroMySongsCard(
 }
 
 @Composable
+fun ModernBentoAudiosCard(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accentAmber = Color(0xFFFF9100)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = SurfaceGlassHighest,
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    accentAmber.copy(alpha = 0.5f),
+                    BorderGlass
+                )
+            )
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            accentAmber.copy(alpha = 0.15f),
+                            Color(0xFF221A10),
+                            Color(0xFF141210)
+                        )
+                    )
+                )
+                .padding(horizontal = 18.dp, vertical = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        accentAmber.copy(alpha = 0.35f),
+                                        Color(0xFFE65100).copy(alpha = 0.45f)
+                                    )
+                                )
+                            )
+                            .border(1.dp, accentAmber.copy(alpha = 0.6f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = "Mixed Audios",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Audios & Voice",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                letterSpacing = (-0.02).sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = accentAmber.copy(alpha = 0.18f),
+                                border = BorderStroke(1.dp, accentAmber.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "VOICE & CLIPS",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentAmber,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "$count recordings & chat audios",
+                            fontSize = 12.sp,
+                            color = OnSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = "Open Audios",
+                    tint = OnSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun ModernBentoMediumCard(
     title: String,
     count: String,

@@ -2739,10 +2739,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         title = identified.title,
                         artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
                         album = if (identified.album.isNotBlank()) identified.album else track.album,
-                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl
+                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl,
+                        audioCategory = AudioCategory.MUSIC,
+                        isIdentifiedMusic = true
                     )
                     withContext(Dispatchers.Main) {
-                        _libraryTracks.value = _libraryTracks.value.map { if (it.id == track.id) updatedTrack else it }
+                        setLibraryTracks(_libraryTracks.value.map { if (it.id == track.id) updatedTrack else it })
                         _favoriteTracks.value = _favoriteTracks.value.map { if (it.id == track.id) updatedTrack else it }
                         if (_currentTrack.value.id == track.id) {
                             _currentTrack.value = updatedTrack
@@ -2755,7 +2757,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
-                            "Identified via $methodBadge (${(identified.confidence * 100).toInt()}%): '${updatedTrack.artist} - ${updatedTrack.title}'",
+                            "Graduated to Music via $methodBadge (${(identified.confidence * 100).toInt()}%): '${updatedTrack.artist} - ${updatedTrack.title}'",
                             isLong = true
                         )
                     }
@@ -2787,6 +2789,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun batchIdentifyUnknownTracks() {
         viewModelScope.launch(Dispatchers.IO) {
             val candidates = _libraryTracks.value.filter {
+                it.audioCategory == AudioCategory.MIXED_AUDIO ||
                 it.title.startsWith("AUD-", ignoreCase = true) ||
                 it.title.startsWith("PTT-", ignoreCase = true) ||
                 it.title.startsWith("voice_", ignoreCase = true) ||
@@ -2816,11 +2819,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         title = identified.title,
                         artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
                         album = if (identified.album.isNotBlank()) identified.album else track.album,
-                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl
+                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl,
+                        audioCategory = AudioCategory.MUSIC,
+                        isIdentifiedMusic = true
                     )
                     identifiedCount++
                     withContext(Dispatchers.Main) {
-                        _libraryTracks.value = _libraryTracks.value.map { if (it.id == track.id) updated else it }
+                        setLibraryTracks(_libraryTracks.value.map { if (it.id == track.id) updated else it })
                     }
                 } else {
                     errorCount++

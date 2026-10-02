@@ -42,6 +42,37 @@ enum class AudioCategory {
 }
 
 /**
+ * Type of playlist: standard user created, or system synthesized (artist discography, albumic).
+ */
+enum class SmartPlaylistType {
+    USER_CUSTOM,
+    ARTIST_COLLECTION,
+    ALBUMIC
+}
+
+/**
+ * State representing an album's completion status for the 50%-75% recommendation engine.
+ */
+data class AlbumCompletionStatus(
+    val albumTitle: String,
+    val artistName: String,
+    val coverUrl: String = "",
+    val albumBrowseId: String = "",
+    val downloadedTracks: List<TrackItem> = emptyList(),
+    val missingTracks: List<TrackItem> = emptyList(),
+    val totalOfficialTracks: Int = 0,
+    val completionRatio: Float = 0.0f
+) {
+    /** True if within the 50% to 75% prompt threshold */
+    val isEligibleForPrompt: Boolean
+        get() = completionRatio in 0.50f..0.75f && missingTracks.isNotEmpty()
+
+    /** Total percentage formatted (e.g. "58%") */
+    val percentageString: String
+        get() = "${(completionRatio * 100).toInt()}%"
+}
+
+/**
  * Physical audio track indexed on device storage with Chromaprint / AcoustID metadata.
  */
 data class LocalTrack(

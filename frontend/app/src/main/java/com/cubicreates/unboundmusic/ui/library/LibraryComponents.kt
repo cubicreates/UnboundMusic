@@ -706,6 +706,16 @@ fun PlaylistCard(
                     modifier = Modifier.size(16.dp)
                 )
             }
+
+            // Smart Playlist Badge in top left corner
+            if (playlist.isSmart) {
+                SmartPlaylistBadge(
+                    type = playlist.playlistType,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -721,11 +731,88 @@ fun PlaylistCard(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        Text(
-            text = "${playlist.tracks.size} tracks",
-            fontSize = 11.sp,
-            color = OnSurfaceVariant
-        )
+        if (playlist.isAlbumic && playlist.completionRatio != null && playlist.officialTrackCount != null && playlist.officialTrackCount!! > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${playlist.tracks.size}/${playlist.officialTrackCount} tracks",
+                    fontSize = 11.sp,
+                    color = OnSurfaceVariant
+                )
+                Text(
+                    text = "${(playlist.completionRatio!! * 100).toInt()}%",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (playlist.completionRatio!! >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(Color(0xFF2E2E2E))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(playlist.completionRatio!!.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(
+                            if (playlist.completionRatio!! >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                        )
+                )
+            }
+        } else {
+            Text(
+                text = if (playlist.isArtistSmart) "Artist Mix • ${playlist.tracks.size} tracks" else "${playlist.tracks.size} tracks",
+                fontSize = 11.sp,
+                color = OnSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun SmartPlaylistBadge(
+    type: com.cubicreates.unboundmusic.data.SmartPlaylistType,
+    modifier: Modifier = Modifier
+) {
+    val (label, icon, color) = when (type) {
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_SMART -> Triple("ARTIST", Icons.Default.Person, Color(0xFF8B5CF6))
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC_SMART -> Triple("ALBUM", Icons.Default.Album, UnboundPrimary)
+        else -> Triple("CUSTOM", Icons.Default.QueueMusic, Color.Gray)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.75f))
+            .border(1.dp, color.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(10.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.8.sp,
+                color = color
+            )
+        }
     }
 }
 

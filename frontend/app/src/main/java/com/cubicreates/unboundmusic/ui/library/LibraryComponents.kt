@@ -1148,6 +1148,22 @@ fun LibraryTrackRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (track.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !track.isIdentifiedMusic) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFFF9100).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFFFF9100).copy(alpha = 0.45f)),
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Text(
+                            text = "AUDIO",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFFF9100),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
                 Text(
                     text = track.artist.ifBlank { "Unknown Artist" },
                     fontSize = 12.sp,
@@ -1268,7 +1284,17 @@ fun LibraryTrackRow(
                 )
 
                 DropdownMenuItem(
-                    text = { Text("Identify Track (Acoustic + AI)", color = UnboundPrimary, fontSize = 13.sp) },
+                    text = {
+                        Text(
+                            if (track.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !track.isIdentifiedMusic) {
+                                "Identify & Move to Music"
+                            } else {
+                                "Identify Track (Acoustic + AI)"
+                            },
+                            color = UnboundPrimary,
+                            fontSize = 13.sp
+                        )
+                    },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.GraphicEq,

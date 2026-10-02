@@ -43,6 +43,8 @@
 | **Lookahead Stream Proxy** | **30s Ring Buffer with LRU Eviction** | Pre-buffers ~30 seconds ahead to eliminate carrier dropouts; automatic LRU disk eviction when cache exceeds 750 MB (evicts to 600 MB / 80%). |
 | **On-Device Edge AI & Cultural Vibe** | **Zstd-19 Explosion & Cultural Seed Synthesis** | Bundles compressed `models.zst` (~118 MB) containing SmolLM2-135M GGUF SLM and MiniLM ONNX embeddings; 128-dimensional cosine vector similarity executing in $< 550\,\mu\text{s}$. Regional geolocation awareness (India, Western, etc.) resolves authentic cultural anthems and mood seeds while completely decoupling Home Vibe and Discover Screen states. |
 | **Storage Architecture** | **Two-Folder Scoped Storage** | User media stored in `Download/Unbound/` (visible in Files app); engine machinery sequestered in `Android/data/.../.backend/`. **Android OS completely purges `.backend/` on uninstall (zero orphan files)**. |
+| **Library Partitioning** | **Pure Tracks vs. Mixed Audios** | Deterministic 0ms heuristic and regex classification isolating musical tracks from WhatsApp voice notes, recordings, and sound clips. Dedicated Audios hub with an acoustic + AI graduation pipeline ("Identify & Move to Music") and pure music shuffle protection. |
+| **Smart Playlists & Completion** | **Artist Essentials & Albumic Engine** | Auto-synthesized "Essentials" discography mixes for artists with $\ge 2$ local songs; dedicated Albumic compilations with real-time InnerTube sync. Detects 50%–75% partial album collection and prompts users with one-tap batch completion downloads. |
 
 ---
 

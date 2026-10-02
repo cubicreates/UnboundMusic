@@ -221,6 +221,7 @@ type TrackIdentificationResult struct {
 	Title        string  `json:"title"`
 	Artist       string  `json:"artist"`
 	Album        string  `json:"album"`
+	Year         string  `json:"year,omitempty"`
 	CoverURL     string  `json:"cover_url,omitempty"`
 	SearchQuery  string  `json:"search_query,omitempty"`
 	Method       string  `json:"method"` // "acoustid", "llm_semantic", "heuristic"

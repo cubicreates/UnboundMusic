@@ -28,8 +28,17 @@ data class CustomPlaylist(
     val coverUrl: String = "",
     val tracks: List<TrackItem> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val playlistType: SmartPlaylistType = SmartPlaylistType.USER_CUSTOM,
+    val albumBrowseId: String? = null,
+    val officialTrackCount: Int? = null,
+    val completionRatio: Float? = null,
+    val targetArtist: String? = null,
+    val targetAlbum: String? = null
 ) {
+    val isAlbumic: Boolean get() = playlistType == SmartPlaylistType.ALBUMIC_SMART
+    val isArtistSmart: Boolean get() = playlistType == SmartPlaylistType.ARTIST_SMART
+    val isSmart: Boolean get() = playlistType != SmartPlaylistType.USER_CUSTOM
     /** Total duration formatted as mm:ss or hh:mm:ss */
     val formattedDuration: String
         get() {
@@ -246,6 +255,69 @@ object LocalPlaylistStore {
         return importedCount
     }
 
+    /** Returns smart playlists filtered by type, or all smart playlists if type is null. */
+    @Synchronized
+    fun getSmartPlaylists(context: Context, type: SmartPlaylistType? = null): List<CustomPlaylist> {
+        val all = getPlaylists(context)
+        return if (type != null) {
+            all.filter { it.playlistType == type }
+        } else {
+            all.filter { it.isSmart }
+        }
+    }
+
+    /** Inserts or updates a synthesized smart playlist (Artist or Albumic). */
+    @Synchronized
+    fun upsertSmartPlaylist(context: Context, playlist: CustomPlaylist): CustomPlaylist {
+        val current = getPlaylists(context).toMutableList()
+        val index = current.indexOfFirst { it.id == playlist.id }
+        val finalPlaylist = if (index >= 0) {
+            val existing = current[index]
+            playlist.copy(
+                coverUrl = if (playlist.coverUrl.isNotBlank()) playlist.coverUrl else existing.coverUrl,
+                createdAt = existing.createdAt,
+                updatedAt = System.currentTimeMillis()
+            )
+        } else {
+            playlist
+        }
+
+        if (index >= 0) {
+            current[index] = finalPlaylist
+        } else {
+            current.add(0, finalPlaylist)
+        }
+
+        saveAll(context, current)
+        exportPlaylistToFile(context, finalPlaylist)
+        return finalPlaylist
+    }
+
+    /** Updates album completion count and ratio for an albumic playlist. */
+    @Synchronized
+    fun updateAlbumCompletion(
+        context: Context,
+        playlistId: String,
+        officialCount: Int,
+        ratio: Float,
+        browseId: String? = null
+    ): CustomPlaylist? {
+        val current = getPlaylists(context).toMutableList()
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index == -1) return null
+
+        val updated = current[index].copy(
+            officialTrackCount = officialCount,
+            completionRatio = ratio,
+            albumBrowseId = browseId ?: current[index].albumBrowseId,
+            updatedAt = System.currentTimeMillis()
+        )
+        current[index] = updated
+        saveAll(context, current)
+        exportPlaylistToFile(context, updated)
+        return updated
+    }
+
     // ==================== Serialization Helpers ====================
 
     private fun saveAll(context: Context, playlists: List<CustomPlaylist>) {
@@ -268,6 +340,12 @@ object LocalPlaylistStore {
             put("cover_url", p.coverUrl)
             put("created_at", p.createdAt)
             put("updated_at", p.updatedAt)
+            put("playlist_type", p.playlistType.name)
+            p.albumBrowseId?.let { put("album_browse_id", it) }
+            p.officialTrackCount?.let { put("official_track_count", it) }
+            p.completionRatio?.let { put("completion_ratio", it.toDouble()) }
+            p.targetArtist?.let { put("target_artist", it) }
+            p.targetAlbum?.let { put("target_album", it) }
 
             val tracksArr = JSONArray()
             for (t in p.tracks) {
@@ -285,6 +363,18 @@ object LocalPlaylistStore {
         val createdAt = obj.optLong("created_at", System.currentTimeMillis())
         val updatedAt = obj.optLong("updated_at", System.currentTimeMillis())
 
+        val typeStr = obj.optString("playlist_type", SmartPlaylistType.USER_CUSTOM.name)
+        val playlistType = try {
+            SmartPlaylistType.valueOf(typeStr)
+        } catch (_: Exception) {
+            SmartPlaylistType.USER_CUSTOM
+        }
+        val albumBrowseId = if (obj.has("album_browse_id")) obj.optString("album_browse_id") else null
+        val officialTrackCount = if (obj.has("official_track_count")) obj.optInt("official_track_count") else null
+        val completionRatio = if (obj.has("completion_ratio")) obj.optDouble("completion_ratio").toFloat() else null
+        val targetArtist = if (obj.has("target_artist")) obj.optString("target_artist") else null
+        val targetAlbum = if (obj.has("target_album")) obj.optString("target_album") else null
+
         val tracksList = mutableListOf<TrackItem>()
         val arr = obj.optJSONArray("tracks")
         if (arr != null) {
@@ -301,7 +391,13 @@ object LocalPlaylistStore {
             coverUrl = cover,
             tracks = tracksList,
             createdAt = createdAt,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            playlistType = playlistType,
+            albumBrowseId = albumBrowseId,
+            officialTrackCount = officialTrackCount,
+            completionRatio = completionRatio,
+            targetArtist = targetArtist,
+            targetAlbum = targetAlbum
         )
     }
 

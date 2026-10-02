@@ -333,6 +333,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
 	mux.HandleFunc("/api/v1/playlist", s.handlePlaylist)
 	mux.HandleFunc("/api/v1/album", s.handlePlaylist)
+	mux.HandleFunc("/api/v1/album/details", s.handleAlbumDetails)
 	mux.HandleFunc("/api/v1/sleeptimer/start", s.handleSleepTimerStart)
 	mux.HandleFunc("/api/v1/sleeptimer/status", s.handleSleepTimerStatus)
 	mux.HandleFunc("/api/v1/updater/check", s.handleUpdaterCheck)
@@ -1071,6 +1072,37 @@ func (s *Server) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 	res, err := s.ytClient.FetchPlaylistOrAlbum(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to fetch playlist or album: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// handleAlbumDetails returns full metadata and official tracklist for an album resolved by browseId or (artist, albumTitle).
+func (s *Server) handleAlbumDetails(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		id = strings.TrimSpace(r.URL.Query().Get("browseId"))
+	}
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	album := strings.TrimSpace(r.URL.Query().Get("album"))
+	if album == "" {
+		album = strings.TrimSpace(r.URL.Query().Get("title"))
+	}
+
+	if id == "" && album == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'id' (browseId) or 'album' (title) is required")
+		return
+	}
+
+	if s.ytClient == nil {
+		writeError(w, http.StatusInternalServerError, "YouTube Music client is not initialized")
+		return
+	}
+
+	res, err := s.ytClient.ResolveAlbumDetails(r.Context(), id, artist, album)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("failed to resolve album details: %v", err))
 		return
 	}
 

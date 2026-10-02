@@ -34,6 +34,49 @@ data class DaypartingState(
 )
 
 /**
+ * Category classifying pure musical tracks vs mixed voice notes/recordings/clips.
+ */
+enum class AudioCategory {
+    MUSIC,
+    MIXED_AUDIO
+}
+
+/**
+ * Type of playlist: standard user created, or system synthesized (artist discography, albumic).
+ */
+enum class SmartPlaylistType {
+    USER_CUSTOM,
+    ARTIST_COLLECTION,
+    ALBUMIC,
+    ARTIST_SMART,
+    ALBUMIC_SMART
+}
+
+/**
+ * State representing an album's completion status for the 50%-75% recommendation engine.
+ */
+data class AlbumCompletionStatus(
+    val albumTitle: String,
+    val artistName: String,
+    val coverUrl: String = "",
+    val albumBrowseId: String = "",
+    val downloadedTracks: List<TrackItem> = emptyList(),
+    val missingTracks: List<TrackItem> = emptyList(),
+    val totalOfficialTracks: Int = 0,
+    val completionRatio: Float = 0.0f,
+    val downloadedCount: Int = downloadedTracks.size,
+    val officialTotalCount: Int = if (totalOfficialTracks > 0) totalOfficialTracks else downloadedTracks.size
+) {
+    /** True if within the 50% to 75% prompt threshold */
+    val isEligibleForPrompt: Boolean
+        get() = completionRatio in 0.50f..0.75f && (missingTracks.isNotEmpty() || (officialTotalCount > downloadedCount && downloadedCount > 0))
+
+    /** Total percentage formatted (e.g. "58%") */
+    val percentageString: String
+        get() = "${(completionRatio * 100).toInt()}%"
+}
+
+/**
  * Physical audio track indexed on device storage with Chromaprint / AcoustID metadata.
  */
 data class LocalTrack(
@@ -48,7 +91,9 @@ data class LocalTrack(
     val sourceFolder: String = "music",
     val dateIndexed: Long = 0,
     val mtime: Long = 0,
-    val coverUrl: String = ""
+    val coverUrl: String = "",
+    val audioCategory: AudioCategory = AudioCategory.MUSIC,
+    val isIdentifiedMusic: Boolean = true
 ) {
     fun toTrackItem(): TrackItem {
         val stream = when {
@@ -78,7 +123,9 @@ data class LocalTrack(
             id = id,
             album = album,
             durationMs = durationMs,
-            source = sourceFolder
+            source = sourceFolder,
+            audioCategory = audioCategory,
+            isIdentifiedMusic = isIdentifiedMusic
         )
     }
 }

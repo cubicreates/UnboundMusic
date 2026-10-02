@@ -31,6 +31,8 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 
+import com.cubicreates.unboundmusic.data.AudioCategory
+
 data class TrackItem(
     val title: String,
     val artist: String,
@@ -44,7 +46,9 @@ data class TrackItem(
     val artists: List<String> = emptyList(),
     val itemType: String = "song",
     val browseId: String = "",
-    val year: String = ""
+    val year: String = "",
+    val audioCategory: AudioCategory = AudioCategory.MUSIC,
+    val isIdentifiedMusic: Boolean = true
 )
 
 /**

@@ -82,6 +82,8 @@ suspend fun BackendClient.ingestMediaStoreTracks(tracks: List<LocalTrack>): Bool
                 put("source_folder", track.sourceFolder)
                 put("cover_url", track.coverUrl)
                 put("mtime", track.mtime)
+                put("audio_category", track.audioCategory.name)
+                put("is_identified_music", track.isIdentifiedMusic)
             }
             arr.put(obj)
         }
@@ -103,6 +105,13 @@ suspend fun BackendClient.getLocalTracks(source: String = "all"): List<LocalTrac
         val arr = root.optJSONArray("tracks") ?: return@withContext emptyList()
         for (i in 0 until arr.length()) {
             val obj = arr.getJSONObject(i)
+            val catName = obj.optString("audio_category", "MUSIC")
+            val audioCategory = if (catName.equals(AudioCategory.MIXED_AUDIO.name, ignoreCase = true)) {
+                AudioCategory.MIXED_AUDIO
+            } else {
+                AudioCategory.MUSIC
+            }
+            val isIdentified = obj.optBoolean("is_identified_music", audioCategory == AudioCategory.MUSIC)
             list.add(
                 LocalTrack(
                     id = obj.optString("id"),
@@ -116,7 +125,9 @@ suspend fun BackendClient.getLocalTracks(source: String = "all"): List<LocalTrac
                     sourceFolder = obj.optString("source_folder", "music"),
                     dateIndexed = obj.optLong("date_indexed"),
                     mtime = obj.optLong("mtime"),
-                    coverUrl = obj.optString("cover_url", "")
+                    coverUrl = obj.optString("cover_url", ""),
+                    audioCategory = audioCategory,
+                    isIdentifiedMusic = isIdentified
                 )
             )
         }
@@ -226,4 +237,19 @@ suspend fun BackendClient.unpackPayload(archivePath: String, destDir: String): B
     }
     val (code, _) = post("/api/v1/system/unpack-payload", payload.toString())
     code == 200
+}
+
+/**
+ * Resolves full official album details, track count, and tracklist via the Go daemon.
+ */
+suspend fun BackendClient.getAlbumDetails(
+    id: String? = null,
+    artist: String? = null,
+    album: String? = null
+): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val q = StringBuilder("/api/v1/album/details?")
+    id?.let { q.append("id=").append(URLEncoder.encode(it, "UTF-8")).append("&") }
+    artist?.let { q.append("artist=").append(URLEncoder.encode(it, "UTF-8")).append("&") }
+    album?.let { q.append("album=").append(URLEncoder.encode(it, "UTF-8")) }
+    get(q.toString().removeSuffix("&").removeSuffix("?"))
 }

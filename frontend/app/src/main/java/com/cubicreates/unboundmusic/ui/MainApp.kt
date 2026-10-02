@@ -76,6 +76,8 @@ fun MainApp(
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val libraryTracks by viewModel.libraryTracks.collectAsStateWithLifecycle()
+    val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
+    val mixedAudioTracks by viewModel.mixedAudioTracks.collectAsStateWithLifecycle()
     val savedGB by viewModel.savedGB.collectAsStateWithLifecycle()
     val downloadsCount by viewModel.downloadsCount.collectAsStateWithLifecycle()
     val whatsappCount by viewModel.whatsappCount.collectAsStateWithLifecycle()
@@ -94,6 +96,9 @@ fun MainApp(
     val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
     val downloadedMusicTracks by viewModel.downloadedMusicTracks.collectAsStateWithLifecycle()
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
+    val artistPlaylists by viewModel.artistPlaylists.collectAsStateWithLifecycle()
+    val albumicPlaylists by viewModel.albumicPlaylists.collectAsStateWithLifecycle()
+    val albumCompletions by viewModel.albumCompletions.collectAsStateWithLifecycle()
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
@@ -381,6 +386,8 @@ fun MainApp(
                                 telegramCount = telegramCount,
                                 youtubeCount = if (isYouTubeConnected) syncedYouTubeTracks.size else youtubeCount,
                                 tracks = libraryTracks,
+                                musicTracks = musicTracks,
+                                mixedAudioTracks = mixedAudioTracks,
                                 syncedYouTubeTracks = syncedYouTubeTracks,
                                 downloadTasks = downloadTasks,
                                 onStartDownload = { viewModel.startTrackDownload(it) },
@@ -388,6 +395,10 @@ fun MainApp(
                                 onDeleteDownload = { viewModel.deleteTrackDownload(it) },
                                 onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
                                 customPlaylists = customPlaylists,
+                                artistPlaylists = artistPlaylists,
+                                albumicPlaylists = albumicPlaylists,
+                                albumCompletions = albumCompletions,
+                                onDownloadRemaining = { viewModel.downloadMissingAlbumTracks(it) },
                                 onCreatePlaylist = { title -> viewModel.createCustomPlaylist(title) },
                                 onPlaylistClick = { playlist -> viewModel.openCustomPlaylist(playlist) },
                                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
@@ -410,6 +421,7 @@ fun MainApp(
                                 onOpenRingtoneCutter = { track -> overlayState.ringtoneCutterTrack = track },
                                 onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
                                 onStartShazam = { viewModel.startAmbientShazamRecognition() },
+                                onShufflePlayAll = { viewModel.shufflePlayMusicTracks() },
                                 onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
                                 onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
                             )

@@ -128,10 +128,44 @@ func CleanAndDeduceHeuristic(rawName, parentFolder string) *models.TrackIdentifi
 		searchQuery = fmt.Sprintf("%s - %s", artist, title)
 	}
 
+	var album, year string
+	if parentFolder != "" {
+		cleanParent := strings.TrimSpace(parentFolder)
+		lowerParent := strings.ToLower(cleanParent)
+		genericFolders := map[string]bool{
+			"download": true, "downloads": true, "music": true, "audio": true, "audios": true,
+			"media": true, "storage": true, "internal storage": true, "telegram": true,
+			"whatsapp": true, "bluetooth": true, "root": true, "unbound": true, "tracks": true,
+		}
+		if !genericFolders[lowerParent] && !strings.HasPrefix(lowerParent, "volum") {
+			// Extract 4-digit release year if present: (2013) or [2013] or - 2013
+			yearRegex := regexp.MustCompile(`[\(\[\-_ ]\s*(19\d{2}|20\d{2})\s*[\)\]]?`)
+			if m := yearRegex.FindStringSubmatch(cleanParent); len(m) > 1 {
+				year = m[1]
+				cleanParent = strings.TrimSpace(yearRegex.ReplaceAllString(cleanParent, ""))
+			}
+			// If parent folder is "Artist - Album"
+			if strings.Contains(cleanParent, " - ") {
+				pParts := strings.SplitN(cleanParent, " - ", 2)
+				pArtist := strings.TrimSpace(pParts[0])
+				pAlbum := strings.TrimSpace(pParts[1])
+				if artist == "Unknown Artist" || strings.EqualFold(artist, pArtist) {
+					artist = pArtist
+					album = pAlbum
+				} else {
+					album = pAlbum
+				}
+			} else {
+				album = cleanParent
+			}
+		}
+	}
+
 	return &models.TrackIdentificationResult{
 		Title:       title,
 		Artist:      artist,
-		Album:       "",
+		Album:       album,
+		Year:        year,
 		SearchQuery: searchQuery,
 		Method:      "semantic_heuristic",
 		Confidence:  0.75,

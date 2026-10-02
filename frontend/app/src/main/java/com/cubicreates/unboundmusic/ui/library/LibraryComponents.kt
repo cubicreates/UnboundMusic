@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -89,6 +90,7 @@ import java.io.File
 enum class LibrarySubView {
     HUB,
     TRACKS,
+    AUDIOS,
     FOLDERS,
     FOLDER_TRACKS,
     FAVORITES,
@@ -148,7 +150,9 @@ fun ModernHeroMySongsCard(
     count: Int,
     onClick: () -> Unit,
     onShuffle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Music Tracks",
+    subtitle: String? = null
 ) {
     val accentBlue = Color(0xFF2979FF)
     Surface(
@@ -209,7 +213,7 @@ fun ModernHeroMySongsCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.MusicNote,
-                            contentDescription = "My Songs",
+                            contentDescription = "Music Tracks",
                             tint = Color.White,
                             modifier = Modifier.size(26.dp)
                         )
@@ -218,16 +222,32 @@ fun ModernHeroMySongsCard(
                     Spacer(modifier = Modifier.width(14.dp))
 
                     Column {
-                        Text(
-                            text = "My Songs",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface,
-                            letterSpacing = (-0.02).sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = title,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                letterSpacing = (-0.02).sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = accentBlue.copy(alpha = 0.2f),
+                                border = BorderStroke(1.dp, accentBlue.copy(alpha = 0.45f))
+                            ) {
+                                Text(
+                                    text = "MUSIC",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentBlue,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "$count songs on this device",
+                            text = subtitle ?: "$count verified songs on this device",
                             fontSize = 12.sp,
                             color = OnSurfaceVariant,
                             fontWeight = FontWeight.Medium
@@ -261,6 +281,121 @@ fun ModernHeroMySongsCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ModernBentoAudiosCard(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accentAmber = Color(0xFFFF9100)
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = SurfaceGlassHighest,
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    accentAmber.copy(alpha = 0.5f),
+                    BorderGlass
+                )
+            )
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            accentAmber.copy(alpha = 0.15f),
+                            Color(0xFF221A10),
+                            Color(0xFF141210)
+                        )
+                    )
+                )
+                .padding(horizontal = 18.dp, vertical = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        accentAmber.copy(alpha = 0.35f),
+                                        Color(0xFFE65100).copy(alpha = 0.45f)
+                                    )
+                                )
+                            )
+                            .border(1.dp, accentAmber.copy(alpha = 0.6f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GraphicEq,
+                            contentDescription = "Mixed Audios",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Audios & Voice",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                letterSpacing = (-0.02).sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = accentAmber.copy(alpha = 0.18f),
+                                border = BorderStroke(1.dp, accentAmber.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = "VOICE & CLIPS",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentAmber,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "$count recordings & chat audios",
+                            fontSize = 12.sp,
+                            color = OnSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
+                    contentDescription = "Open Audios",
+                    tint = OnSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
@@ -572,6 +707,16 @@ fun PlaylistCard(
                     modifier = Modifier.size(16.dp)
                 )
             }
+
+            // Smart Playlist Badge in top left corner
+            if (playlist.isSmart) {
+                SmartPlaylistBadge(
+                    type = playlist.playlistType,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -587,11 +732,92 @@ fun PlaylistCard(
 
         Spacer(modifier = Modifier.height(2.dp))
 
-        Text(
-            text = "${playlist.tracks.size} tracks",
-            fontSize = 11.sp,
-            color = OnSurfaceVariant
-        )
+        val completionRatio = playlist.completionRatio
+        val officialCount = playlist.officialTrackCount
+        if (playlist.isAlbumic && completionRatio != null && officialCount != null && officialCount > 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${playlist.tracks.size}/$officialCount tracks",
+                    fontSize = 11.sp,
+                    color = OnSurfaceVariant
+                )
+                Text(
+                    text = "${(completionRatio * 100).toInt()}%",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (completionRatio >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                )
+            }
+            Spacer(modifier = Modifier.height(3.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(Color(0xFF2E2E2E))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(completionRatio.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(
+                            if (completionRatio >= 1.0f) Color(0xFF4CAF50) else UnboundPrimary
+                        )
+                )
+            }
+        } else {
+            Text(
+                text = if (playlist.isArtistSmart) "Artist Mix • ${playlist.tracks.size} tracks" else "${playlist.tracks.size} tracks",
+                fontSize = 11.sp,
+                color = OnSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun SmartPlaylistBadge(
+    type: com.cubicreates.unboundmusic.data.SmartPlaylistType,
+    modifier: Modifier = Modifier
+) {
+    val (label, icon, color) = when (type) {
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_SMART,
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ARTIST_COLLECTION -> Triple("ARTIST", Icons.Default.GraphicEq, Color(0xFF8B5CF6))
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC_SMART,
+        com.cubicreates.unboundmusic.data.SmartPlaylistType.ALBUMIC -> Triple("ALBUM", Icons.Default.MusicNote, UnboundPrimary)
+        else -> Triple("CUSTOM", Icons.AutoMirrored.Filled.QueueMusic, Color.Gray)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.75f))
+            .border(1.dp, color.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(10.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.8.sp,
+                color = color
+            )
+        }
     }
 }
 
@@ -1014,6 +1240,22 @@ fun LibraryTrackRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (track.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !track.isIdentifiedMusic) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFFF9100).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFFFF9100).copy(alpha = 0.45f)),
+                        modifier = Modifier.padding(end = 6.dp)
+                    ) {
+                        Text(
+                            text = "AUDIO",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFFF9100),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
                 Text(
                     text = track.artist.ifBlank { "Unknown Artist" },
                     fontSize = 12.sp,
@@ -1134,7 +1376,17 @@ fun LibraryTrackRow(
                 )
 
                 DropdownMenuItem(
-                    text = { Text("Identify Track (Acoustic + AI)", color = UnboundPrimary, fontSize = 13.sp) },
+                    text = {
+                        Text(
+                            if (track.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !track.isIdentifiedMusic) {
+                                "Identify & Move to Music"
+                            } else {
+                                "Identify Track (Acoustic + AI)"
+                            },
+                            color = UnboundPrimary,
+                            fontSize = 13.sp
+                        )
+                    },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.GraphicEq,
@@ -1166,6 +1418,176 @@ fun LibraryTrackRow(
                         onDeleteTrack()
                     }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Modern album completion recommendation card shown when 50% to 75% of an album is downloaded.
+ * "You have X of Y songs downloaded, why not download the rest of the album if you're liking it?"
+ */
+@Composable
+fun CompleteAlbumBanner(
+    status: com.cubicreates.unboundmusic.data.AlbumCompletionStatus,
+    modifier: Modifier = Modifier,
+    onDownloadRemaining: () -> Unit,
+    onDismiss: () -> Unit = {}
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF161616),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    UnboundPrimary.copy(alpha = 0.55f),
+                    Color(0xFF8B5CF6).copy(alpha = 0.35f),
+                    BorderGlass
+                )
+            )
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            UnboundPrimary.copy(alpha = 0.15f),
+                            Color(0xFF8B5CF6).copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        radius = 800f
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(UnboundPrimary.copy(alpha = 0.2f))
+                                .border(1.dp, UnboundPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "COMPLETE THE ALBUM",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.2.sp,
+                                color = UnboundPrimary
+                            )
+                            Text(
+                                text = status.albumTitle,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Percentage pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF222222))
+                            .border(1.dp, UnboundPrimary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${(status.completionRatio * 100).toInt()}% Done",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "You have ${status.downloadedCount} of ${status.officialTotalCount} songs downloaded. Why not download the rest of the album if you're liking it?",
+                    fontSize = 13.sp,
+                    color = OnSurfaceVariant,
+                    lineHeight = 18.sp
+                )
+
+                // Progress Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF262626))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(status.completionRatio.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(UnboundPrimary, Color(0xFF8B5CF6))
+                                )
+                            )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onDownloadRemaining,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = UnboundPrimary,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.Black
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val missingCount = status.officialTotalCount - status.downloadedCount
+                        Text(
+                            text = "Download Rest (${missingCount})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }

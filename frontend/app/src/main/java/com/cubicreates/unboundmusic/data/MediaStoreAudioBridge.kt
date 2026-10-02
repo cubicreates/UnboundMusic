@@ -53,7 +53,7 @@ object MediaStoreAudioBridge {
                 projection.add(MediaStore.Audio.Media.BUCKET_DISPLAY_NAME)
             }
 
-            val selection = "${MediaStore.Audio.Media.SIZE} >= 8192"
+            val selection: String? = null
 
             resolver.query(
                 uri,
@@ -327,12 +327,7 @@ object MediaStoreAudioBridge {
             return Pair(AudioCategory.MIXED_AUDIO, false)
         }
 
-        // 4. If artist is unknown and duration is short or folder is not Music
-        if (isUnknownArtist && !hasCoverArt && !lowerFolder.contains("music") && !lowerFolder.contains("unbound") && !lowerPath.contains("/music/")) {
-            return Pair(AudioCategory.MIXED_AUDIO, false)
-        }
-
-        // 5. Verified music: Valid artist and/or album, or from Music/Downloads/Unbound with standard duration
+        // 4. Default: Any standard-length audio track (>= 40s or with metadata) not in chat/recording directories is MUSIC
         return Pair(AudioCategory.MUSIC, true)
     }
 }

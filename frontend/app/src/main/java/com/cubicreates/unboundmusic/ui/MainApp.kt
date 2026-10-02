@@ -108,6 +108,7 @@ fun MainApp(
     val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
     val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
     val shazamMode by viewModel.shazamMode.collectAsStateWithLifecycle()
+    val recordingDurationSeconds by viewModel.recordingDurationSeconds.collectAsStateWithLifecycle()
 
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
@@ -359,9 +360,11 @@ fun MainApp(
                                 shazamHistory = shazamHistory,
                                 isFavorite = lastRecognizedTrack?.let { it.id == currentTrack.id && isFavorite } ?: false,
                                 shazamMode = shazamMode,
+                                recordingDurationSeconds = recordingDurationSeconds,
                                 onModeChange = { viewModel.setShazamMode(it) },
                                 onLaunchGoogleSoundSearch = { viewModel.launchGoogleSoundSearch(context) },
                                 onStartListening = { viewModel.startAmbientShazamRecognition() },
+                                onStopListening = { viewModel.stopAndSendShazamRecording() },
                                 onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
                                 onPlayTrack = { track ->
                                     viewModel.playTrack(track)

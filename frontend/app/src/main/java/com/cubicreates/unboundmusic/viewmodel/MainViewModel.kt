@@ -285,6 +285,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isListeningShazam = MutableStateFlow(false)
     val isListeningShazam: StateFlow<Boolean> = _isListeningShazam.asStateFlow()
 
+    private val _recordingDurationSeconds = MutableStateFlow(0)
+    val recordingDurationSeconds: StateFlow<Int> = _recordingDurationSeconds.asStateFlow()
+
     val audioWaveAmplitude: StateFlow<Float> = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.audioAmplitude
 
     private val _recognizedMessage = MutableStateFlow<String?>(null)
@@ -314,7 +317,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setShazamMode(mode: ShazamMode) {
         _shazamMode.value = mode
         _recognizedMessage.value = if (mode == ShazamMode.HUMMING) {
-            "Hum, sing, or whistle a tune (5–8s)..."
+            "Tap radar to hum a tune... Tap again to stop & send"
         } else {
             "Tap the radar to identify playing music"
         }
@@ -324,15 +327,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val intents = listOf(
             android.content.Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
             android.content.Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
-            android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH)
+            android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH),
+            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
+            },
+            android.content.Intent(android.content.Intent.ACTION_WEB_SEARCH).apply {
+                putExtra(android.app.SearchManager.QUERY, "what is this song")
+            }
         )
         for (intent in intents) {
             try {
                 intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                if (intent.resolveActivity(context.packageManager) != null) {
-                    context.startActivity(intent)
-                    return true
-                }
+                context.startActivity(intent)
+                return true
             } catch (_: Exception) {}
         }
         return false
@@ -2152,7 +2160,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     fun startAmbientShazamRecognition() {
-        if (_isListeningShazam.value) return
+        if (_isListeningShazam.value) {
+            stopAndSendShazamRecording()
+            return
+        }
         val context = getApplication<Application>()
         if (androidx.core.content.ContextCompat.checkSelfPermission(
                 context,
@@ -2165,6 +2176,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun stopAndSendShazamRecording() {
+        if (_isListeningShazam.value) {
+            _recognizedMessage.value = "Finalizing & identifying audio..."
+            com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.stopRecording()
+        }
+    }
+
     fun onAudioPermissionGranted() {
         executeAmbientShazamCapture()
     }
@@ -2172,11 +2190,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun executeAmbientShazamCapture() {
         if (_isListeningShazam.value) return
         _isListeningShazam.value = true
-        _recognizedMessage.value = "Listening to audio acoustics..."
+        val isHum = _shazamMode.value == ShazamMode.HUMMING
+        _recordingDurationSeconds.value = 0
+        _recognizedMessage.value = if (isHum) {
+            "Hum a tune... Tap radar when done to send"
+        } else {
+            "Listening to audio... Tap radar when done to send"
+        }
+
+        val tickerJob = viewModelScope.launch {
+            while (isActive && _isListeningShazam.value) {
+                delay(1000)
+                _recordingDurationSeconds.value++
+            }
+        }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val pcmData = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.recordPcm(5500)
+                val pcmData = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.recordPcm(15000)
                 if (pcmData == null || pcmData.isEmpty()) {
                     _recognizedMessage.value = "Could not record ambient audio."
                     withContext(Dispatchers.Main) {
@@ -2328,39 +2359,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     } else {
-                        if (_shazamMode.value == ShazamMode.HUMMING) {
-                            _recognizedMessage.value = "Analyzing hummed melody & querying YouTube..."
-                            try {
-                                val (mCode, mResp) = client.search("trending hits", "music")
-                                if (mCode in 200..299 && mResp.isNotBlank()) {
-                                    val parsedMelody = client.parseSearchResults(mResp)
-                                    if (parsedMelody.isNotEmpty()) {
-                                        val top = parsedMelody.take(3)
-                                        val variants = top.mapIndexed { idx, trk ->
-                                            RecognizedTrackVariant(
-                                                track = trk,
-                                                badge = if (idx == 0) "Hum-to-Search Match" else "Melody Alternative",
-                                                isOriginal = idx == 0,
-                                                isRadarMatch = false,
-                                                explanation = if (idx == 0) "Top matched song from hummed melody" else "Alternative melodic candidate"
-                                            )
-                                        }
-                                        _lastRecognizedTrack.value = top[0]
-                                        _recognizedVariants.value = variants
-                                        val humMsg = "Melody matched: ${top[0].title} - ${top[0].artist}"
-                                        _recognizedMessage.value = humMsg
-                                        withContext(Dispatchers.Main) {
-                                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), humMsg, isLong = true)
-                                        }
-                                        return@launch
-                                    }
-                                }
-                            } catch (he: Exception) {
-                                Log.w(TAG, "Hum search query note: ${he.message}")
-                            }
-                        }
                         val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
-                            "Could not match hummed melody. Try humming louder with distinct pitch or use Google Sound Search."
+                            "Could not match hummed melody. Melodies require distinct pitch, or tap below to use Google Sound Search."
                         } else {
                             json.optString("message", "No acoustic match found. Try again closer to the speaker.")
                         }
@@ -2391,6 +2391,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } finally {
                 _isListeningShazam.value = false
+                tickerJob.cancel()
+                _recordingDurationSeconds.value = 0
             }
         }
     }
@@ -2768,73 +2770,101 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness
                 val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
-                if (mediaStoreTracks.isNotEmpty() && _libraryTracks.value.isEmpty()) {
-                    setLibraryTracks(mediaStoreTracks.map { it.toTrackItem() })
+                if (mediaStoreTracks.isNotEmpty()) {
+                    val initialTracks = mediaStoreTracks.map { it.toTrackItem() }
+                    setLibraryTracks(initialTracks)
                     refreshFavoritesList()
+
+                    val initialFolders = mutableMapOf<String, MutableList<LocalTrack>>()
+                    for (track in mediaStoreTracks) {
+                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
+                        initialFolders.getOrPut(folderName) { mutableListOf() }.add(track)
+                    }
+                    _libraryFolders.value = initialFolders
+
+                    _whatsappCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
+                        it.filePath.contains("WhatsApp", ignoreCase = true)
+                    }
+                    _telegramCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("Telegram", ignoreCase = true) ||
+                        it.filePath.contains("Telegram", ignoreCase = true)
+                    }
+                    _downloadsCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("Download", ignoreCase = true) ||
+                        it.sourceFolder.contains("Unbound", ignoreCase = true) ||
+                        it.filePath.contains("Download", ignoreCase = true)
+                    }
                 }
 
                 // 2. Discover device storage roots and dispatch to Go backend crawler (.nomedia bypass)
-                val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
-                client.scanStorage(deviceRoots)
-                if (mediaStoreTracks.isNotEmpty()) {
-                    client.ingestMediaStoreTracks(mediaStoreTracks)
-                }
+                try {
+                    val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
+                    client.scanStorage(deviceRoots)
+                    if (mediaStoreTracks.isNotEmpty()) {
+                        client.ingestMediaStoreTracks(mediaStoreTracks)
+                    }
 
-                // 3. Retrieve fully indexed tracks from Go SQLite database
-                val daemonTracks = client.getLocalTracks("all")
-                val unboundDownloads = client.getLocalTracks("Unbound Downloads")
-                if (unboundDownloads.isNotEmpty()) {
-                    val dlIds = unboundDownloads.map { it.id }.toSet()
-                    _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
-                }
+                    // 3. Retrieve fully indexed tracks from Go SQLite database
+                    val daemonTracks = client.getLocalTracks("all")
+                    val unboundDownloads = client.getLocalTracks("Unbound Downloads")
+                    if (unboundDownloads.isNotEmpty()) {
+                        val dlIds = unboundDownloads.map { it.id }.toSet()
+                        _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
+                    }
 
-                // 4. Merge discovered tracks with daemon tracks, deduplicating by normalized path
-                val combinedMap = LinkedHashMap<String, LocalTrack>()
-                for (track in mediaStoreTracks) {
-                    val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                    combinedMap[key] = track
-                }
-                for (track in daemonTracks) {
-                    val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                    combinedMap[key] = track
-                }
+                    // 4. Merge discovered tracks with daemon tracks, deduplicating by normalized path
+                    val combinedMap = LinkedHashMap<String, LocalTrack>()
+                    for (track in mediaStoreTracks) {
+                        val key = track.filePath.lowercase(java.util.Locale.ROOT)
+                        combinedMap[key] = track
+                    }
+                    for (track in daemonTracks) {
+                        val key = track.filePath.lowercase(java.util.Locale.ROOT)
+                        combinedMap[key] = track
+                    }
 
-                val allLocal = combinedMap.values.toList()
+                    val allLocal = combinedMap.values.toList()
 
-                // 5. Update folders map
-                val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                for (track in allLocal) {
-                    val folderName = track.sourceFolder.ifBlank { "Device Audio" }
-                    updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
-                }
-                _libraryFolders.value = updatedFolders
+                    // 5. Update folders map
+                    val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
+                    for (track in allLocal) {
+                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
+                        updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
+                    }
+                    _libraryFolders.value = updatedFolders
 
-                // 6. Update category counts
-                val waTracks = allLocal.filter {
-                    it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
-                    it.filePath.contains("WhatsApp", ignoreCase = true)
-                }
-                val tgTracks = allLocal.filter {
-                    it.sourceFolder.contains("Telegram", ignoreCase = true) ||
-                    it.filePath.contains("Telegram", ignoreCase = true)
-                }
-                val dlTracks = allLocal.filter {
-                    it.sourceFolder.contains("Download", ignoreCase = true) ||
-                    it.sourceFolder.contains("Unbound", ignoreCase = true) ||
-                    it.filePath.contains("Download", ignoreCase = true)
-                }
+                    // 6. Update category counts
+                    val waTracks = allLocal.filter {
+                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
+                        it.filePath.contains("WhatsApp", ignoreCase = true)
+                    }
+                    val tgTracks = allLocal.filter {
+                        it.sourceFolder.contains("Telegram", ignoreCase = true) ||
+                        it.filePath.contains("Telegram", ignoreCase = true)
+                    }
+                    val dlTracks = allLocal.filter {
+                        it.sourceFolder.contains("Download", ignoreCase = true) ||
+                        it.sourceFolder.contains("Unbound", ignoreCase = true) ||
+                        it.filePath.contains("Download", ignoreCase = true)
+                    }
 
-                _whatsappCount.value = waTracks.size
-                _telegramCount.value = tgTracks.size
-                _downloadsCount.value = dlTracks.size
+                    _whatsappCount.value = waTracks.size
+                    _telegramCount.value = tgTracks.size
+                    _downloadsCount.value = dlTracks.size
 
-                val allTrackItems = allLocal.map { it.toTrackItem() }
-                if (allTrackItems.isNotEmpty()) {
-                    setLibraryTracks(allTrackItems)
-                    refreshFavoritesList()
+                    val allTrackItems = allLocal.map { it.toTrackItem() }
+                    if (allTrackItems.isNotEmpty()) {
+                        setLibraryTracks(allTrackItems)
+                        refreshFavoritesList()
+                    }
+                } catch (de: Exception) {
+                    Log.w(TAG, "Daemon crawler storage pass note: ${de.message}")
                 }
             } catch (e: Exception) {
                 Log.d(TAG, "Universal audio scan note: ${e.message}")
+            } finally {
+                isUniversalScanning.set(false)
             }
         }
     }

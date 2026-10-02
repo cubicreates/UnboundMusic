@@ -88,43 +88,69 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
-                val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
-                client.scanStorage(deviceRoots)
                 if (mediaStoreTracks.isNotEmpty()) {
-                    client.ingestMediaStoreTracks(mediaStoreTracks)
+                    val initialMapped = mediaStoreTracks.map { it.toTrackItem() }
+                    _libraryTracks.value = initialMapped
+                    _musicTracks.value = initialMapped.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+                    _mixedAudioTracks.value = initialMapped.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+
+                    val initialFolders = mutableMapOf<String, MutableList<LocalTrack>>()
+                    for (track in mediaStoreTracks) {
+                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
+                        initialFolders.getOrPut(folderName) { mutableListOf() }.add(track)
+                    }
+                    _libraryFolders.value = initialFolders
+
+                    _whatsappCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) || it.filePath.contains("WhatsApp", ignoreCase = true)
+                    }
+                    _telegramCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("Telegram", ignoreCase = true) || it.filePath.contains("Telegram", ignoreCase = true)
+                    }
+                    _downloadsCount.value = mediaStoreTracks.count {
+                        it.sourceFolder.contains("Download", ignoreCase = true) || it.sourceFolder.contains("Unbound", ignoreCase = true) || it.filePath.contains("Download", ignoreCase = true)
+                    }
                 }
 
-                val daemonTracks = client.getLocalTracks("all")
-                val combinedMap = LinkedHashMap<String, LocalTrack>()
-                for (track in mediaStoreTracks) {
-                    combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
-                }
-                for (track in daemonTracks) {
-                    combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
-                }
+                try {
+                    val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
+                    client.scanStorage(deviceRoots)
+                    if (mediaStoreTracks.isNotEmpty()) {
+                        client.ingestMediaStoreTracks(mediaStoreTracks)
+                    }
 
-                val allLocal = combinedMap.values.toList()
-                val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                for (track in allLocal) {
-                    val folderName = track.sourceFolder.ifBlank { "Device Audio" }
-                    updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
-                }
-                _libraryFolders.value = updatedFolders
+                    val daemonTracks = client.getLocalTracks("all")
+                    val combinedMap = LinkedHashMap<String, LocalTrack>()
+                    for (track in mediaStoreTracks) {
+                        combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
+                    }
+                    for (track in daemonTracks) {
+                        combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
+                    }
 
-                _whatsappCount.value = allLocal.count {
-                    it.sourceFolder.contains("WhatsApp", ignoreCase = true) || it.filePath.contains("WhatsApp", ignoreCase = true)
-                }
-                _telegramCount.value = allLocal.count {
-                    it.sourceFolder.contains("Telegram", ignoreCase = true) || it.filePath.contains("Telegram", ignoreCase = true)
-                }
-                _downloadsCount.value = allLocal.count {
-                    it.sourceFolder.contains("Download", ignoreCase = true) || it.sourceFolder.contains("Unbound", ignoreCase = true) || it.filePath.contains("Download", ignoreCase = true)
-                }
+                    val allLocal = combinedMap.values.toList()
+                    val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
+                    for (track in allLocal) {
+                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
+                        updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
+                    }
+                    _libraryFolders.value = updatedFolders
 
-                val mapped = allLocal.map { it.toTrackItem() }
-                _libraryTracks.value = mapped
-                _musicTracks.value = mapped.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
-                _mixedAudioTracks.value = mapped.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+                    _whatsappCount.value = allLocal.count {
+                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) || it.filePath.contains("WhatsApp", ignoreCase = true)
+                    }
+                    _telegramCount.value = allLocal.count {
+                        it.sourceFolder.contains("Telegram", ignoreCase = true) || it.filePath.contains("Telegram", ignoreCase = true)
+                    }
+                    _downloadsCount.value = allLocal.count {
+                        it.sourceFolder.contains("Download", ignoreCase = true) || it.sourceFolder.contains("Unbound", ignoreCase = true) || it.filePath.contains("Download", ignoreCase = true)
+                    }
+
+                    val mapped = allLocal.map { it.toTrackItem() }
+                    _libraryTracks.value = mapped
+                    _musicTracks.value = mapped.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+                    _mixedAudioTracks.value = mapped.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+                } catch (_: Exception) {}
             } catch (_: Exception) {}
         }
     }

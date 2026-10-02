@@ -33,13 +33,24 @@ object AmbientAudioRecorder {
     private val _audioAmplitude = MutableStateFlow(0f)
     val audioAmplitude: StateFlow<Float> = _audioAmplitude.asStateFlow()
 
+    private val isCancelledOrStopped = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /**
-     * Records [durationMs] of ambient audio from the device microphone at 16,000 Hz 16-bit Mono.
+     * Signals active recording to stop immediately and finalize captured PCM bytes.
+     */
+    fun stopRecording() {
+        isCancelledOrStopped.set(true)
+    }
+
+    /**
+     * Records up to [durationMs] of ambient audio from the device microphone at 16,000 Hz 16-bit Mono.
+     * Can be stopped at any time via [stopRecording] to send captured audio immediately.
      * Computes real-time RMS audio levels to drive live animated waveform visualizers.
      * Returns raw PCM byte array ready for Shazam DSP constellation extraction.
      */
     @SuppressLint("MissingPermission")
-    suspend fun recordPcm(durationMs: Int = 5500): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun recordPcm(durationMs: Int = 15000): ByteArray? = withContext(Dispatchers.IO) {
+        isCancelledOrStopped.set(false)
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         if (minBufferSize <= 0) {
             Log.e(TAG, "Invalid minBufferSize: $minBufferSize")
@@ -94,7 +105,7 @@ object AmbientAudioRecorder {
             var totalRead = 0
             var overallPeak = 0
 
-            while (coroutineContext.isActive && totalRead < targetBytes) {
+            while (coroutineContext.isActive && totalRead < targetBytes && !isCancelledOrStopped.get()) {
                 val toRead = minOf(buffer.size, targetBytes - totalRead)
                 val read = audioRecord.read(buffer, 0, toRead)
                 if (read > 0) {

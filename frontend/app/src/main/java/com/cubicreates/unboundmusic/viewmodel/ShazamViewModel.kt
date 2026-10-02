@@ -52,7 +52,10 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun startAmbientShazamRecognition(onTrackRecognized: ((title: String, artist: String) -> Unit)? = null) {
-        if (_isListeningShazam.value) return
+        if (_isListeningShazam.value) {
+            AmbientAudioRecorder.stopRecording()
+            return
+        }
         val context = getApplication<Application>()
         if (ContextCompat.checkSelfPermission(
                 context,
@@ -72,11 +75,11 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
     fun executeAmbientShazamCapture(onTrackRecognized: ((title: String, artist: String) -> Unit)? = null) {
         if (_isListeningShazam.value) return
         _isListeningShazam.value = true
-        _recognizedMessage.value = "Listening to audio acoustics..."
+        _recognizedMessage.value = "Listening to audio... Tap radar when done to send"
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val pcmData = AmbientAudioRecorder.recordPcm(5500)
+                val pcmData = AmbientAudioRecorder.recordPcm(15000)
                 if (pcmData == null || pcmData.isEmpty()) {
                     _recognizedMessage.value = "Could not record ambient audio."
                     return@launch

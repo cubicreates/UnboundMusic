@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GraphicEq
@@ -88,9 +89,11 @@ fun GuestShazamScreen(
     recognizedVariants: List<RecognizedTrackVariant> = emptyList(),
     shazamHistory: List<TrackItem> = emptyList(),
     shazamMode: ShazamMode = ShazamMode.ACOUSTIC,
+    recordingDurationSeconds: Int = 0,
     onModeChange: (ShazamMode) -> Unit = {},
     onLaunchGoogleSoundSearch: () -> Unit = {},
     onStartListening: () -> Unit = {},
+    onStopListening: () -> Unit = {},
     onDismissRecognized: () -> Unit = {},
     onPlayTrack: (TrackItem) -> Unit = {},
     onStartRadio: (TrackItem) -> Unit = {},
@@ -279,14 +282,41 @@ fun GuestShazamScreen(
                             color = if (isListening) Color.White else radarThemeColor.copy(alpha = 0.6f),
                             shape = CircleShape
                         )
-                        .clickable(enabled = !isListening, onClick = onStartListening),
+                        .clickable { if (isListening) onStopListening() else onStartListening() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isHumming) Icons.Default.MusicNote else Icons.Default.GraphicEq,
-                        contentDescription = if (isHumming) "Hum to Search" else "Identify Song",
+                        imageVector = if (isListening) Icons.Default.Check else if (isHumming) Icons.Default.MusicNote else Icons.Default.GraphicEq,
+                        contentDescription = if (isListening) "Finish and Identify Now" else if (isHumming) "Hum to Search" else "Identify Song",
                         tint = if (isListening) Color.White else radarThemeColor,
                         modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
+
+            if (isListening) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(radarThemeColor)
+                        .clickable { onStopListening() }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Finish and Identify",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val curSec = recordingDurationSeconds.coerceAtMost(15)
+                    Text(
+                        text = "Finish & Identify Now (%02d:%02d / 0:15)".format(curSec / 60, curSec % 60),
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -332,7 +362,7 @@ fun GuestShazamScreen(
             // Live Status Text
             Text(
                 text = when {
-                    isListening -> statusMessage ?: if (isHumming) "Listening to hummed melody..." else "Listening to audio acoustics..."
+                    isListening -> statusMessage ?: if (isHumming) "Recording melody... Tap radar or button to identify" else "Recording acoustics... Tap radar or button to identify"
                     !statusMessage.isNullOrBlank() -> statusMessage
                     lastRecognizedTrack != null -> "Match Found!"
                     isHumming -> "Tap the radar & hum a tune"

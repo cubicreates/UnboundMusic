@@ -100,6 +100,21 @@ class AudioClassificationTest {
     }
 
     @Test
+    fun testDownloadedSongWithUnknownArtistClassifiedAsMusic() {
+        val (category, isIdentified) = MediaStoreAudioBridge.classifyAudioCategory(
+            rawPath = "/storage/emulated/0/Download/cool_track_01.mp3",
+            sourceFolder = "Download",
+            title = "cool_track_01",
+            artist = "Unknown Artist",
+            album = "",
+            durationMs = 185000L,
+            hasCoverArt = false
+        )
+        assertEquals(AudioCategory.MUSIC, category)
+        assertTrue(isIdentified)
+    }
+
+    @Test
     fun testTrackGraduationFromAudioToMusic() {
         // Initial state: unidentified voice clip
         val initialTrack = com.cubicreates.unboundmusic.ui.components.TrackItem(

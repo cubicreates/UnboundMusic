@@ -4360,8 +4360,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) {
                 val fallbackQueue = if (_syncedYouTubeTracks.value.isNotEmpty()) {
                     _syncedYouTubeTracks.value.shuffled()
+                } else if (_musicTracks.value.isNotEmpty()) {
+                    _musicTracks.value.shuffled()
                 } else if (_libraryTracks.value.isNotEmpty()) {
-                    _libraryTracks.value.shuffled()
+                    _libraryTracks.value.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }.shuffled().ifEmpty { _libraryTracks.value.shuffled() }
                 } else {
                     defaultTopTracks.shuffled()
                 }
@@ -4396,6 +4398,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.d(TAG, "Recap load error: ${e.message}")
             }
+        }
+    }
+
+    fun shufflePlayMusicTracks() {
+        val candidates = if (_musicTracks.value.isNotEmpty()) {
+            _musicTracks.value
+        } else if (_syncedYouTubeTracks.value.isNotEmpty()) {
+            _syncedYouTubeTracks.value
+        } else {
+            _libraryTracks.value.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        }
+        if (candidates.isNotEmpty()) {
+            val shuffled = candidates.shuffled()
+            playTrackWithQueue(shuffled.first(), shuffled)
         }
     }
 

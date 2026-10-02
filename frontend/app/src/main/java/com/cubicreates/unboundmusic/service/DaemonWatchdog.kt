@@ -52,10 +52,6 @@ class DaemonWatchdog(
                 }
 
                 if (isAlive) {
-                    if (consecutiveFailures > 0) {
-                        Log.i(TAG, "Daemon recovered after $consecutiveFailures failed attempts.")
-                        onRecoveryAction?.invoke()
-                    }
                     consecutiveFailures = 0
                     _healthState.value = DaemonHealthState.ONLINE
                     delay(intervalMs)
@@ -66,6 +62,10 @@ class DaemonWatchdog(
                         DaemonHealthState.DEGRADED
                     } else {
                         DaemonHealthState.DISCONNECTED
+                    }
+                    if (consecutiveFailures >= 3) {
+                        Log.i(TAG, "DaemonWatchdog: Triggering recovery action after $consecutiveFailures failed attempts.")
+                        onRecoveryAction?.invoke()
                     }
                     // Exponential backoff up to 30 seconds
                     val backoff = (intervalMs * (1L shl (consecutiveFailures.coerceAtMost(3) - 1))).coerceAtMost(30_000L)

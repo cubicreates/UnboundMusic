@@ -12,7 +12,9 @@ package com.cubicreates.unboundmusic.service
 import android.content.Context
 import android.util.Log
 import com.cubicreates.unboundmusic.data.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -48,66 +50,95 @@ object StorageInitializer {
 
             // 3. Check for presence of on-device AI model weights
             val primaryModel = File(modelsDir, "smollm2_135m.gguf")
-            if (primaryModel.exists() && primaryModel.length() > 0L) {
-                Log.i(TAG, "On-device AI model weights verified at ${primaryModel.absolutePath} (${primaryModel.length()} bytes)")
-            } else {
-                // Testing Phase: Check if models are bundled locally in assets/payload/
-                val hasAssetGguf = try {
-                    context.assets.list("payload")?.contains("smollm2_135m.gguf") == true
-                } catch (_: Exception) { false }
+            val onnxModel = File(modelsDir, "model_quantized.onnx")
 
-                val hasAssetZst = try {
-                    context.assets.list("payload")?.contains("models.zst") == true
-                } catch (_: Exception) { false }
-
-                if (hasAssetGguf) {
-                    Log.i(TAG, "Testing phase: Extracting bundled smollm2_135m.gguf from APK assets...")
-                    context.assets.open("payload/smollm2_135m.gguf").use { input ->
-                        FileOutputStream(primaryModel).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    Log.i(TAG, "Bundled test model extracted (${primaryModel.length()} bytes).")
-
-                    val hasAssetOnnx = try {
-                        context.assets.list("payload")?.contains("model_quantized.onnx") == true
-                    } catch (_: Exception) { false }
-                    if (hasAssetOnnx) {
-                        val onnxModel = File(modelsDir, "model_quantized.onnx")
-                        if (!onnxModel.exists() || onnxModel.length() == 0L) {
-                            Log.i(TAG, "Testing phase: Extracting bundled model_quantized.onnx from APK assets...")
-                            context.assets.open("payload/model_quantized.onnx").use { input ->
-                                FileOutputStream(onnxModel).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            Log.i(TAG, "Bundled ONNX model extracted (${onnxModel.length()} bytes).")
-                        }
-                    }
-                } else if (hasAssetZst) {
-                    Log.i(TAG, "Testing phase: Unpacking bundled models.zst from APK assets...")
-                    val zstFile = File(modelsDir, "models.zst")
-                    context.assets.open("payload/models.zst").use { input ->
-                        FileOutputStream(zstFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(context).client
-                    val success = daemonClient.unpackPayload(zstFile.absolutePath, modelsDir.absolutePath)
-                    if (success && primaryModel.exists()) {
-                        Log.i(TAG, "Successfully extracted testing model (${primaryModel.length()} bytes)")
-                    }
-                    if (zstFile.exists()) zstFile.delete()
-                } else {
-                    Log.i(TAG, "Lightweight mode active: No on-device LLM weights installed. Fast in-memory heuristic vibe search engaged.")
-                }
+            // Clean up any incomplete/corrupt model payload from aborted transfers
+            if (primaryModel.exists() && primaryModel.length() < 100_000_000L) {
+                Log.w(TAG, "Detected incomplete/corrupt model payload (${primaryModel.length()} bytes). Purging...")
+                primaryModel.delete()
             }
+            if (onnxModel.exists() && onnxModel.length() < 20_000_000L) {
+                Log.w(TAG, "Detected incomplete/corrupt ONNX payload (${onnxModel.length()} bytes). Purging...")
+                onnxModel.delete()
+            }
+
+            // Launch non-blocking background model extractor so cold start is < 15ms
+            extractTestingModelsAsync(context)
 
             Log.i(TAG, "Storage initialization completed successfully.")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error during storage initialization: ${e.message}", e)
             false
+        }
+    }
+
+    /**
+     * Extracts bundled testing models in background without blocking startup or risking timeouts.
+     */
+    fun extractTestingModelsAsync(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+                val modelsDir = File(backendRoot, "models")
+                if (!modelsDir.exists()) modelsDir.mkdirs()
+
+                val primaryModel = File(modelsDir, "smollm2_135m.gguf")
+                if (!primaryModel.exists() || primaryModel.length() < 100_000_000L) {
+                    val hasAssetGguf = try {
+                        context.assets.list("payload")?.contains("smollm2_135m.gguf") == true
+                    } catch (_: Exception) { false }
+
+                    if (hasAssetGguf) {
+                        Log.i(TAG, "Testing phase: Extracting bundled smollm2_135m.gguf from APK assets in background...")
+                        val tempModel = File(modelsDir, "smollm2_135m.gguf.tmp")
+                        context.assets.open("payload/smollm2_135m.gguf").use { input ->
+                            FileOutputStream(tempModel).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                }
+                            }
+                        }
+                        if (tempModel.length() >= 100_000_000L) {
+                            tempModel.renameTo(primaryModel)
+                            Log.i(TAG, "Bundled test model extracted (${primaryModel.length()} bytes).")
+                        } else {
+                            tempModel.delete()
+                        }
+                    }
+                }
+
+                val onnxModel = File(modelsDir, "model_quantized.onnx")
+                if (!onnxModel.exists() || onnxModel.length() < 20_000_000L) {
+                    val hasAssetOnnx = try {
+                        context.assets.list("payload")?.contains("model_quantized.onnx") == true
+                    } catch (_: Exception) { false }
+
+                    if (hasAssetOnnx) {
+                        Log.i(TAG, "Testing phase: Extracting bundled model_quantized.onnx from APK assets in background...")
+                        val tempOnnx = File(modelsDir, "model_quantized.onnx.tmp")
+                        context.assets.open("payload/model_quantized.onnx").use { input ->
+                            FileOutputStream(tempOnnx).use { output ->
+                                val buffer = ByteArray(64 * 1024)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                }
+                            }
+                        }
+                        if (tempOnnx.length() >= 20_000_000L) {
+                            tempOnnx.renameTo(onnxModel)
+                            Log.i(TAG, "Bundled ONNX model extracted (${onnxModel.length()} bytes).")
+                        } else {
+                            tempOnnx.delete()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Background model extraction error: ${e.message}")
+            }
         }
     }
 

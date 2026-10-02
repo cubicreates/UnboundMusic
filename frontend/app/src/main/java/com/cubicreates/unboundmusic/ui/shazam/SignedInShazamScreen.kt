@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Radio
@@ -69,6 +71,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
+import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -85,8 +89,12 @@ fun SignedInShazamScreen(
     statusMessage: String? = null,
     accountName: String? = null,
     lastRecognizedTrack: TrackItem? = null,
+    recognizedVariants: List<RecognizedTrackVariant> = emptyList(),
     shazamHistory: List<TrackItem> = emptyList(),
     isFavorite: Boolean = false,
+    shazamMode: ShazamMode = ShazamMode.ACOUSTIC,
+    onModeChange: (ShazamMode) -> Unit = {},
+    onLaunchGoogleSoundSearch: () -> Unit = {},
     onStartListening: () -> Unit = {},
     onDismissRecognized: () -> Unit = {},
     onPlayTrack: (TrackItem) -> Unit = {},
@@ -178,14 +186,82 @@ fun SignedInShazamScreen(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Pure-Go 16kHz FFT audio recognition with YouTube library sync",
+                    text = if (shazamMode == ShazamMode.HUMMING) {
+                        "Hum, whistle, or sing a tune into the microphone"
+                    } else {
+                        "Pure-Go 16kHz FFT audio recognition with YouTube library sync"
+                    },
                     color = OnSurfaceVariant,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Mode Selector: Listen to Music vs Hum a Tune
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF14181B))
+                        .border(1.dp, BorderGlass, RoundedCornerShape(24.dp))
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (shazamMode == ShazamMode.ACOUSTIC) UnboundPrimary.copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable { onModeChange(ShazamMode.ACOUSTIC) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.GraphicEq,
+                                contentDescription = null,
+                                tint = if (shazamMode == ShazamMode.ACOUSTIC) UnboundPrimary else OnSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Listen to Music",
+                                color = if (shazamMode == ShazamMode.ACOUSTIC) UnboundPrimary else OnSurfaceVariant,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (shazamMode == ShazamMode.HUMMING) Color(0xFFE040FB).copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable { onModeChange(ShazamMode.HUMMING) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = if (shazamMode == ShazamMode.HUMMING) Color(0xFFE040FB) else OnSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Hum a Tune",
+                                color = if (shazamMode == ShazamMode.HUMMING) Color(0xFFE040FB) else OnSurfaceVariant,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(30.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            val isHumming = shazamMode == ShazamMode.HUMMING
+            val radarThemeColor = if (isHumming) Color(0xFFE040FB) else UnboundPrimary
+            val radarSecondaryColor = if (isHumming) Color(0xFF7B1FA2) else Color(0xFF007799)
 
             // Central Animated Radar Sensor
             Box(
@@ -201,7 +277,7 @@ fun SignedInShazamScreen(
                         .scale(reactiveScale2)
                         .border(
                             width = 1.5.dp,
-                            color = UnboundPrimary.copy(alpha = reactiveAlpha),
+                            color = radarThemeColor.copy(alpha = reactiveAlpha),
                             shape = CircleShape
                         )
                 )
@@ -213,7 +289,7 @@ fun SignedInShazamScreen(
                         .scale(reactiveScale1)
                         .border(
                             width = 2.dp,
-                            color = UnboundPrimary.copy(alpha = if (isListening) (reactiveAlpha + 0.15f).coerceAtMost(1f) else 0.12f),
+                            color = radarThemeColor.copy(alpha = if (isListening) (reactiveAlpha + 0.15f).coerceAtMost(1f) else 0.12f),
                             shape = CircleShape
                         )
                 )
@@ -226,25 +302,52 @@ fun SignedInShazamScreen(
                         .background(
                             brush = Brush.radialGradient(
                                 colors = if (isListening) {
-                                    listOf(UnboundPrimary, Color(0xFF007799))
+                                    listOf(radarThemeColor, radarSecondaryColor)
                                 } else {
-                                    listOf(Color(0xFF202C33), Color(0xFF14191C))
+                                    if (isHumming) listOf(Color(0xFF2B1633), Color(0xFF180B1F)) else listOf(Color(0xFF202C33), Color(0xFF14191C))
                                 }
                             )
                         )
                         .border(
                             width = 2.dp,
-                            color = if (isListening) Color.White else UnboundPrimary.copy(alpha = 0.7f),
+                            color = if (isListening) Color.White else radarThemeColor.copy(alpha = 0.7f),
                             shape = CircleShape
                         )
                         .clickable(enabled = !isListening, onClick = onStartListening),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.GraphicEq,
-                        contentDescription = "Identify Song",
-                        tint = if (isListening) Color.White else UnboundPrimary,
+                        imageVector = if (isHumming) Icons.Default.MusicNote else Icons.Default.GraphicEq,
+                        contentDescription = if (isHumming) "Hum to Search" else "Identify Song",
+                        tint = if (isListening) Color.White else radarThemeColor,
                         modifier = Modifier.size(48.dp)
+                    )
+                }
+            }
+
+            if (isHumming) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFF1E2226))
+                        .border(0.8.dp, BorderGlass, RoundedCornerShape(16.dp))
+                        .clickable { onLaunchGoogleSoundSearch() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD54F),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Use Google Sound Search",
+                        color = OnSurfaceVariant,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -263,12 +366,13 @@ fun SignedInShazamScreen(
             // Live Status Text
             Text(
                 text = when {
-                    isListening -> statusMessage ?: "Listening to audio acoustics..."
+                    isListening -> statusMessage ?: if (isHumming) "Listening to hummed melody..." else "Listening to audio acoustics..."
                     !statusMessage.isNullOrBlank() -> statusMessage
                     lastRecognizedTrack != null -> "Match Found & Synced!"
+                    isHumming -> "Tap the radar & hum a tune"
                     else -> "Tap the radar to identify"
                 },
-                color = if (isListening) UnboundPrimary else OnSurface,
+                color = if (isListening) radarThemeColor else OnSurface,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center
@@ -276,18 +380,30 @@ fun SignedInShazamScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Result Card when track is recognized
+            // Result Card / Disambiguation Variants when track is recognized
             AnimatedVisibility(
-                visible = lastRecognizedTrack != null,
+                visible = recognizedVariants.size > 1 || lastRecognizedTrack != null,
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                lastRecognizedTrack?.let { track ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        shape = RoundedCornerShape(20.dp),
+                if (recognizedVariants.size > 1) {
+                    AcousticVariantsSection(
+                        variants = recognizedVariants,
+                        onDismiss = onDismissRecognized,
+                        onPlayTrack = onPlayTrack,
+                        onToggleFavorite = onToggleFavorite,
+                        isFavoriteTrack = { track -> isFavorite && track.id == lastRecognizedTrack?.id },
+                        onStartRadio = onStartRadio,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onDownload = onDownload
+                    )
+                } else {
+                    lastRecognizedTrack?.let { track ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            shape = RoundedCornerShape(20.dp),
                         color = Color(0xFF1E2226),
                         border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.6f)),
                         shadowElevation = 8.dp
@@ -463,6 +579,7 @@ fun SignedInShazamScreen(
                     }
                 }
             }
+        }
 
             Spacer(modifier = Modifier.height(16.dp))
 

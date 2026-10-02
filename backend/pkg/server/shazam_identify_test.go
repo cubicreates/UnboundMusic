@@ -145,3 +145,61 @@ func TestShazamIdentifySilentPCM(t *testing.T) {
 	}
 }
 
+func TestAcousticDisambiguation(t *testing.T) {
+	// 1. Test title cleaning
+	testCases := []struct {
+		inputTitle  string
+		expected    string
+		isRemix     bool
+	}{
+		{"Stay (feat. Justin Bieber) - DJ Snake Remix", "Stay", true},
+		{"Unholy (Disclosure Remix)", "Unholy", true},
+		{"Titanium (Acoustic Cover)", "Titanium", true},
+		{"Shape of You [Club Mix]", "Shape of You", true},
+		{"Blinding Lights (Slowed + Reverb)", "Blinding Lights", true},
+		{"Ordinary Song", "Ordinary Song", false},
+	}
+
+	for _, tc := range testCases {
+		clean := cleanRemixTitle(tc.inputTitle)
+		if clean != tc.expected {
+			t.Errorf("cleanRemixTitle(%q) = %q; expected %q", tc.inputTitle, clean, tc.expected)
+		}
+		if tc.isRemix && !isRemixIndicator(tc.inputTitle) {
+			t.Errorf("isRemixIndicator(%q) = false; expected true", tc.inputTitle)
+		}
+	}
+
+	// 2. Test artist cleaning
+	artistTestCases := []struct {
+		inputArtist string
+		expected    string
+	}{
+		{"David Guetta feat. Sia", "David Guetta"},
+		{"Marshmello ft. Bastille", "Marshmello"},
+		{"Sam Smith & Kim Petras", "Sam Smith"},
+		{"Clean Artist", "Clean Artist"},
+	}
+
+	for _, tc := range artistTestCases {
+		clean := cleanRemixArtist(tc.inputArtist)
+		if clean != tc.expected {
+			t.Errorf("cleanRemixArtist(%q) = %q; expected %q", tc.inputArtist, clean, tc.expected)
+		}
+	}
+
+	// 3. Test resolveAcousticVariants structure
+	srv := &Server{}
+	variants := srv.resolveAcousticVariants(context.Background(), "Despacito (Remix)", "Luis Fonsi feat. Daddy Yankee", "Album", "http://cover.jpg", "track_123")
+	if len(variants) == 0 {
+		t.Fatalf("expected at least 1 variant (radar match)")
+	}
+	radarMatch := variants[0]
+	if radarMatch["badge"] != "Acoustic Radar Match" {
+		t.Errorf("expected badge 'Acoustic Radar Match', got %v", radarMatch["badge"])
+	}
+	if radarMatch["is_radar_match"] != true {
+		t.Errorf("expected is_radar_match=true, got %v", radarMatch["is_radar_match"])
+	}
+}
+

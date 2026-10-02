@@ -14,6 +14,7 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.cubicreates.unboundmusic.daemon.DaemonManager
+import kotlinx.coroutines.launch
 
 class UnboundApplication : Application() {
 
@@ -47,7 +48,9 @@ class UnboundApplication : Application() {
         // Configure global appContext for BackendClient telemetry & in-app alerting
         com.cubicreates.unboundmusic.data.BackendClient.appContext = this
 
-        // Automatically deploy canonical Unbound folder and purge any legacy public files
-        com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this)
+        // Automatically deploy canonical Unbound folder in background coroutine to eliminate cold-start I/O stalls
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@UnboundApplication)
+        }
     }
 }

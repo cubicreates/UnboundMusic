@@ -1330,3 +1330,173 @@ fun LibraryTrackRow(
         }
     }
 }
+
+/**
+ * Modern album completion recommendation card shown when 50% to 75% of an album is downloaded.
+ * "You have X of Y songs downloaded, why not download the rest of the album if you're liking it?"
+ */
+@Composable
+fun CompleteAlbumBanner(
+    status: com.cubicreates.unboundmusic.data.AlbumCompletionStatus,
+    modifier: Modifier = Modifier,
+    onDownloadRemaining: () -> Unit,
+    onDismiss: () -> Unit = {}
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF161616),
+        border = BorderStroke(
+            1.dp,
+            Brush.linearGradient(
+                listOf(
+                    UnboundPrimary.copy(alpha = 0.55f),
+                    Color(0xFF8B5CF6).copy(alpha = 0.35f),
+                    BorderGlass
+                )
+            )
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            UnboundPrimary.copy(alpha = 0.15f),
+                            Color(0xFF8B5CF6).copy(alpha = 0.08f),
+                            Color.Transparent
+                        ),
+                        radius = 800f
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f, fill = false)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(UnboundPrimary.copy(alpha = 0.2f))
+                                .border(1.dp, UnboundPrimary.copy(alpha = 0.4f), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Album,
+                                contentDescription = null,
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "COMPLETE THE ALBUM",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.2.sp,
+                                color = UnboundPrimary
+                            )
+                            Text(
+                                text = status.albumTitle,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Percentage pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF222222))
+                            .border(1.dp, UnboundPrimary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${(status.completionRatio * 100).toInt()}% Done",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "You have ${status.downloadedCount} of ${status.officialTotalCount} songs downloaded. Why not download the rest of the album if you're liking it?",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    lineHeight = 18.sp
+                )
+
+                // Progress Bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0xFF262626))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(status.completionRatio.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(UnboundPrimary, Color(0xFF8B5CF6))
+                                )
+                            )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = onDownloadRemaining,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = UnboundPrimary,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.Black
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        val missingCount = status.officialTotalCount - status.downloadedCount
+                        Text(
+                            text = "Download Rest (${missingCount})",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

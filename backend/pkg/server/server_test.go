@@ -623,6 +623,39 @@ func TestServerPlaylistEndpoint_MissingID(t *testing.T) {
 	}
 }
 
+func TestServerAlbumDetailsEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45749,
+		DatabasePath:   filepath.Join(tempDir, "test_server_album.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Missing both id and album should return 400 Bad Request
+	reqMissing := httptest.NewRequest(http.MethodGet, "/api/v1/album/details", nil)
+	wMissing := httptest.NewRecorder()
+	srv.handleAlbumDetails(wMissing, reqMissing)
+	if wMissing.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for missing id/album, got %d", wMissing.Code)
+	}
+
+	// 2. Request with album and artist parameters should be handled
+	reqWithParams := httptest.NewRequest(http.MethodGet, "/api/v1/album/details?album=Random+Access+Memories&artist=Daft+Punk", nil)
+	wWithParams := httptest.NewRecorder()
+	srv.handleAlbumDetails(wWithParams, reqWithParams)
+	// Even if network isn't reachable in offline test mode, it must return a valid status code (e.g. 200 or 404/500), not panic
+	if wWithParams.Code == 0 {
+		t.Errorf("expected non-zero response code")
+	}
+}
+
 func TestServerDownloadEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
 	cfg := Config{

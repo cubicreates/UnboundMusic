@@ -255,6 +255,69 @@ object LocalPlaylistStore {
         return importedCount
     }
 
+    /** Returns smart playlists filtered by type, or all smart playlists if type is null. */
+    @Synchronized
+    fun getSmartPlaylists(context: Context, type: SmartPlaylistType? = null): List<CustomPlaylist> {
+        val all = getPlaylists(context)
+        return if (type != null) {
+            all.filter { it.playlistType == type }
+        } else {
+            all.filter { it.isSmart }
+        }
+    }
+
+    /** Inserts or updates a synthesized smart playlist (Artist or Albumic). */
+    @Synchronized
+    fun upsertSmartPlaylist(context: Context, playlist: CustomPlaylist): CustomPlaylist {
+        val current = getPlaylists(context).toMutableList()
+        val index = current.indexOfFirst { it.id == playlist.id }
+        val finalPlaylist = if (index >= 0) {
+            val existing = current[index]
+            playlist.copy(
+                coverUrl = if (playlist.coverUrl.isNotBlank()) playlist.coverUrl else existing.coverUrl,
+                createdAt = existing.createdAt,
+                updatedAt = System.currentTimeMillis()
+            )
+        } else {
+            playlist
+        }
+
+        if (index >= 0) {
+            current[index] = finalPlaylist
+        } else {
+            current.add(0, finalPlaylist)
+        }
+
+        saveAll(context, current)
+        exportPlaylistToFile(context, finalPlaylist)
+        return finalPlaylist
+    }
+
+    /** Updates album completion count and ratio for an albumic playlist. */
+    @Synchronized
+    fun updateAlbumCompletion(
+        context: Context,
+        playlistId: String,
+        officialCount: Int,
+        ratio: Float,
+        browseId: String? = null
+    ): CustomPlaylist? {
+        val current = getPlaylists(context).toMutableList()
+        val index = current.indexOfFirst { it.id == playlistId }
+        if (index == -1) return null
+
+        val updated = current[index].copy(
+            officialTrackCount = officialCount,
+            completionRatio = ratio,
+            albumBrowseId = browseId ?: current[index].albumBrowseId,
+            updatedAt = System.currentTimeMillis()
+        )
+        current[index] = updated
+        saveAll(context, current)
+        exportPlaylistToFile(context, updated)
+        return updated
+    }
+
     // ==================== Serialization Helpers ====================
 
     private fun saveAll(context: Context, playlists: List<CustomPlaylist>) {

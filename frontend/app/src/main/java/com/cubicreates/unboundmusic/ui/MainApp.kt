@@ -76,6 +76,8 @@ fun MainApp(
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val libraryTracks by viewModel.libraryTracks.collectAsStateWithLifecycle()
+    val musicTracks by viewModel.musicTracks.collectAsStateWithLifecycle()
+    val mixedAudioTracks by viewModel.mixedAudioTracks.collectAsStateWithLifecycle()
     val savedGB by viewModel.savedGB.collectAsStateWithLifecycle()
     val downloadsCount by viewModel.downloadsCount.collectAsStateWithLifecycle()
     val whatsappCount by viewModel.whatsappCount.collectAsStateWithLifecycle()
@@ -381,6 +383,8 @@ fun MainApp(
                                 telegramCount = telegramCount,
                                 youtubeCount = if (isYouTubeConnected) syncedYouTubeTracks.size else youtubeCount,
                                 tracks = libraryTracks,
+                                musicTracks = musicTracks,
+                                mixedAudioTracks = mixedAudioTracks,
                                 syncedYouTubeTracks = syncedYouTubeTracks,
                                 downloadTasks = downloadTasks,
                                 onStartDownload = { viewModel.startTrackDownload(it) },
@@ -410,6 +414,7 @@ fun MainApp(
                                 onOpenRingtoneCutter = { track -> overlayState.ringtoneCutterTrack = track },
                                 onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
                                 onStartShazam = { viewModel.startAmbientShazamRecognition() },
+                                onShufflePlayAll = { viewModel.shufflePlayMusicTracks() },
                                 onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
                                 onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
                             )

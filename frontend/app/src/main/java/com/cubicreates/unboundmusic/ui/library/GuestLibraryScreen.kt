@@ -85,6 +85,8 @@ fun GuestLibraryScreen(
     whatsappCount: Int = 0,
     telegramCount: Int = 0,
     tracks: List<TrackItem> = emptyList(),
+    musicTracks: List<TrackItem> = emptyList(),
+    mixedAudioTracks: List<TrackItem> = emptyList(),
     favoriteTracks: List<TrackItem> = emptyList(),
     recentlyPlayedTracks: List<TrackItem> = emptyList(),
     downloadedTracks: List<TrackItem> = emptyList(),
@@ -140,6 +142,14 @@ fun GuestLibraryScreen(
                 it.source.contains("Unbound", ignoreCase = true)
             }
         }
+    }
+
+    val effectiveMusicTracks = remember(musicTracks, tracks) {
+        if (musicTracks.isNotEmpty()) musicTracks else tracks.filter { it.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MUSIC || it.isIdentifiedMusic }
+    }
+
+    val effectiveMixedAudioTracks = remember(mixedAudioTracks, tracks) {
+        if (mixedAudioTracks.isNotEmpty()) mixedAudioTracks else tracks.filter { it.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
     }
 
     Box(
@@ -202,7 +212,7 @@ fun GuestLibraryScreen(
 
                         // Filter chips
                         var selectedFilter by remember { mutableStateOf("All") }
-                        val categoryFilters = listOf("All", "My Songs", "Downloads", "Favorites", "Playlists", "Folders")
+                        val categoryFilters = listOf("All", "Music", "Audios", "Downloads", "Favorites", "Playlists", "Folders")
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -217,7 +227,8 @@ fun GuestLibraryScreen(
                                     modifier = Modifier.clickable {
                                         selectedFilter = cat
                                         when (cat) {
-                                            "My Songs" -> subView = LibrarySubView.TRACKS
+                                            "Music" -> subView = LibrarySubView.TRACKS
+                                            "Audios" -> subView = LibrarySubView.AUDIOS
                                             "Downloads" -> subView = LibrarySubView.DOWNLOADED
                                             "Favorites" -> subView = LibrarySubView.FAVORITES
                                             "Folders" -> subView = LibrarySubView.FOLDERS
@@ -329,17 +340,29 @@ fun GuestLibraryScreen(
                             }
                         }
 
-                        // Hero Card: My Songs
+                        // Hero Card: Pure Music Tracks
                         ModernHeroMySongsCard(
-                            count = tracks.size,
+                            count = effectiveMusicTracks.size,
+                            title = "Music Tracks",
+                            subtitle = "${effectiveMusicTracks.size} verified songs on this device",
                             onClick = { subView = LibrarySubView.TRACKS },
                             onShuffle = {
-                                if (tracks.isNotEmpty()) {
-                                    val s = tracks.shuffled()
+                                if (effectiveMusicTracks.isNotEmpty()) {
+                                    val s = effectiveMusicTracks.shuffled()
                                     onTrackSelect(s.first(), s)
+                                } else {
+                                    onShufflePlayAll()
                                 }
                             }
                         )
+
+                        // Audios & Voice Card (for WhatsApp audio, recordings & voice clips)
+                        if (effectiveMixedAudioTracks.isNotEmpty()) {
+                            ModernBentoAudiosCard(
+                                count = effectiveMixedAudioTracks.size,
+                                onClick = { subView = LibrarySubView.AUDIOS }
+                            )
+                        }
 
                         // Bento Split Row: Downloads & Favorites
                         Row(
@@ -567,9 +590,27 @@ fun GuestLibraryScreen(
 
                 LibrarySubView.TRACKS -> {
                     LibraryTracksListView(
-                        title = "My Songs",
-                        subtitle = "${tracks.size} songs on this device",
-                        tracks = tracks,
+                        title = "Music Tracks",
+                        subtitle = "${effectiveMusicTracks.size} verified songs on this device",
+                        tracks = effectiveMusicTracks,
+                        onBack = { subView = LibrarySubView.HUB },
+                        onTrackSelect = { track, list -> onTrackSelect(track, list) },
+                        onPlayNext = onPlayNext,
+                        onAddToQueue = onAddToQueue,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onOpenRingtoneCutter = onOpenRingtoneCutter,
+                        onToggleFavorite = onToggleFavorite,
+                        onDeleteTrack = { onDeleteDownload(it.id) },
+                        onIdentifyTrack = onIdentifyTrack,
+                        onBatchIdentify = onBatchIdentify
+                    )
+                }
+
+                LibrarySubView.AUDIOS -> {
+                    LibraryTracksListView(
+                        title = "Audios & Voice",
+                        subtitle = "${effectiveMixedAudioTracks.size} voice notes, recordings & chat audios",
+                        tracks = effectiveMixedAudioTracks,
                         onBack = { subView = LibrarySubView.HUB },
                         onTrackSelect = { track, list -> onTrackSelect(track, list) },
                         onPlayNext = onPlayNext,

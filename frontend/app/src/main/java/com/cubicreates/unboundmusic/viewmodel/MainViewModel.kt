@@ -398,6 +398,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val libraryTracks: StateFlow<List<TrackItem>> = _libraryTracks.asStateFlow()
 
+    private val _musicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val musicTracks: StateFlow<List<TrackItem>> = _musicTracks.asStateFlow()
+
+    private val _mixedAudioTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val mixedAudioTracks: StateFlow<List<TrackItem>> = _mixedAudioTracks.asStateFlow()
+
+    private fun setLibraryTracks(tracks: List<TrackItem>) {
+        _libraryTracks.value = tracks
+        _musicTracks.value = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        _mixedAudioTracks.value = tracks.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
+    }
+
     private val _savedGB = MutableStateFlow(0.0)
     val savedGB: StateFlow<Double> = _savedGB.asStateFlow()
 
@@ -2593,7 +2605,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness
                 val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
                 if (mediaStoreTracks.isNotEmpty() && _libraryTracks.value.isEmpty()) {
-                    _libraryTracks.value = mediaStoreTracks.map { it.toTrackItem() }
+                    setLibraryTracks(mediaStoreTracks.map { it.toTrackItem() })
                     refreshFavoritesList()
                 }
 
@@ -2654,7 +2666,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val allTrackItems = allLocal.map { it.toTrackItem() }
                 if (allTrackItems.isNotEmpty()) {
-                    _libraryTracks.value = allTrackItems
+                    setLibraryTracks(allTrackItems)
                     refreshFavoritesList()
                 }
             } catch (e: Exception) {

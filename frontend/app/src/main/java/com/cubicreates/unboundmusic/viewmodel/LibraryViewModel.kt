@@ -30,6 +30,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val libraryTracks: StateFlow<List<TrackItem>> = _libraryTracks.asStateFlow()
 
+    private val _musicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val musicTracks: StateFlow<List<TrackItem>> = _musicTracks.asStateFlow()
+
+    private val _mixedAudioTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val mixedAudioTracks: StateFlow<List<TrackItem>> = _mixedAudioTracks.asStateFlow()
+
     private val _customPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
     val customPlaylists: StateFlow<List<CustomPlaylist>> = _customPlaylists.asStateFlow()
 
@@ -115,7 +121,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     it.sourceFolder.contains("Download", ignoreCase = true) || it.sourceFolder.contains("Unbound", ignoreCase = true) || it.filePath.contains("Download", ignoreCase = true)
                 }
 
-                _libraryTracks.value = allLocal.map { it.toTrackItem() }
+                val mapped = allLocal.map { it.toTrackItem() }
+                _libraryTracks.value = mapped
+                _musicTracks.value = mapped.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+                _mixedAudioTracks.value = mapped.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
             } catch (_: Exception) {}
         }
     }

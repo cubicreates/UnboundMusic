@@ -410,3 +410,50 @@ func TestIndianRegionalGymAndLoveVibes(t *testing.T) {
 	}
 }
 
+func TestDeduceAlbumAndYear(t *testing.T) {
+	runner := NewRunner("", "")
+	ctx := context.Background()
+
+	// 1. Folder with Album and Year (2013)
+	p1 := "/storage/emulated/0/Music/Random Access Memories (2013)/Daft Punk - Get Lucky.mp3"
+	res1, err := runner.DeduceTrackMetadata(ctx, p1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res1.Artist != "Daft Punk" {
+		t.Errorf("expected Daft Punk, got %s", res1.Artist)
+	}
+	if res1.Title != "Get Lucky" {
+		t.Errorf("expected Get Lucky, got %s", res1.Title)
+	}
+	if res1.Album != "Random Access Memories" {
+		t.Errorf("expected Random Access Memories, got %s", res1.Album)
+	}
+	if res1.Year != "2013" {
+		t.Errorf("expected 2013, got %s", res1.Year)
+	}
+
+	// 2. Folder with Artist - Album [2016]
+	p2 := "/storage/emulated/0/Music/The Weeknd - Starboy [2016]/01 Starboy.mp3"
+	res2, err := runner.DeduceTrackMetadata(ctx, p2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res2.Album != "Starboy" {
+		t.Errorf("expected Starboy album, got %s", res2.Album)
+	}
+	if res2.Year != "2016" {
+		t.Errorf("expected 2016, got %s", res2.Year)
+	}
+
+	// 3. Generic downloads folder should not treat folder as album
+	p3 := "/storage/emulated/0/Download/Alan Walker - Faded.mp3"
+	res3, err := runner.DeduceTrackMetadata(ctx, p3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res3.Album != "" {
+		t.Errorf("expected empty album for generic Download folder, got %s", res3.Album)
+	}
+}
+

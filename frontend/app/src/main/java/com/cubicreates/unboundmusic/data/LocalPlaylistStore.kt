@@ -28,8 +28,17 @@ data class CustomPlaylist(
     val coverUrl: String = "",
     val tracks: List<TrackItem> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val playlistType: SmartPlaylistType = SmartPlaylistType.USER_CUSTOM,
+    val albumBrowseId: String? = null,
+    val officialTrackCount: Int? = null,
+    val completionRatio: Float? = null,
+    val targetArtist: String? = null,
+    val targetAlbum: String? = null
 ) {
+    val isAlbumic: Boolean get() = playlistType == SmartPlaylistType.ALBUMIC_SMART
+    val isArtistSmart: Boolean get() = playlistType == SmartPlaylistType.ARTIST_SMART
+    val isSmart: Boolean get() = playlistType != SmartPlaylistType.USER_CUSTOM
     /** Total duration formatted as mm:ss or hh:mm:ss */
     val formattedDuration: String
         get() {
@@ -268,6 +277,12 @@ object LocalPlaylistStore {
             put("cover_url", p.coverUrl)
             put("created_at", p.createdAt)
             put("updated_at", p.updatedAt)
+            put("playlist_type", p.playlistType.name)
+            p.albumBrowseId?.let { put("album_browse_id", it) }
+            p.officialTrackCount?.let { put("official_track_count", it) }
+            p.completionRatio?.let { put("completion_ratio", it.toDouble()) }
+            p.targetArtist?.let { put("target_artist", it) }
+            p.targetAlbum?.let { put("target_album", it) }
 
             val tracksArr = JSONArray()
             for (t in p.tracks) {
@@ -285,6 +300,18 @@ object LocalPlaylistStore {
         val createdAt = obj.optLong("created_at", System.currentTimeMillis())
         val updatedAt = obj.optLong("updated_at", System.currentTimeMillis())
 
+        val typeStr = obj.optString("playlist_type", SmartPlaylistType.USER_CUSTOM.name)
+        val playlistType = try {
+            SmartPlaylistType.valueOf(typeStr)
+        } catch (_: Exception) {
+            SmartPlaylistType.USER_CUSTOM
+        }
+        val albumBrowseId = if (obj.has("album_browse_id")) obj.optString("album_browse_id") else null
+        val officialTrackCount = if (obj.has("official_track_count")) obj.optInt("official_track_count") else null
+        val completionRatio = if (obj.has("completion_ratio")) obj.optDouble("completion_ratio").toFloat() else null
+        val targetArtist = if (obj.has("target_artist")) obj.optString("target_artist") else null
+        val targetAlbum = if (obj.has("target_album")) obj.optString("target_album") else null
+
         val tracksList = mutableListOf<TrackItem>()
         val arr = obj.optJSONArray("tracks")
         if (arr != null) {
@@ -301,7 +328,13 @@ object LocalPlaylistStore {
             coverUrl = cover,
             tracks = tracksList,
             createdAt = createdAt,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            playlistType = playlistType,
+            albumBrowseId = albumBrowseId,
+            officialTrackCount = officialTrackCount,
+            completionRatio = completionRatio,
+            targetArtist = targetArtist,
+            targetAlbum = targetAlbum
         )
     }
 

@@ -252,3 +252,44 @@ func TestRecognizeGloriaSnippet(t *testing.T) {
 	}
 }
 
+// TestRecognizeGloria8s verifies recognition on an 8-second audio snippet.
+func TestRecognizeGloria8s(t *testing.T) {
+	pcmPath := `C:\Users\Tida\.gemini\antigravity-ide\brain\035cf7b8-1267-4f84-99d8-833ff9ca488f\scratch\gloria_8s.pcm`
+	pcmBytes, err := os.ReadFile(pcmPath)
+	if err != nil {
+		t.Skipf("Skipping gloria 8s test: %v", err)
+	}
+
+	numSamples := len(pcmBytes) / 2
+	samples := make([]float32, numSamples)
+	for i := 0; i < numSamples; i++ {
+		raw := int16(binary.LittleEndian.Uint16(pcmBytes[i*2 : i*2+2]))
+		samples[i] = float32(raw)
+	}
+
+	cmap, err := ExtractConstellationMap(samples, 16000)
+	if err != nil {
+		t.Fatalf("ExtractConstellationMap failed: %v", err)
+	}
+
+	t.Logf("Go extracted %d peaks from Gloria 8s snippet", len(cmap.Peaks))
+	sig, err := EncodeConstellationToSignature(cmap)
+	if err != nil {
+		t.Fatalf("EncodeConstellationToSignature failed: %v", err)
+	}
+
+	t.Logf("Go signature URI (len=%d): %s...", len(sig.Base64URI), sig.Base64URI[:50])
+
+	client := NewClient()
+	res, err := client.RecognizeSignature(context.Background(), sig)
+	if err != nil {
+		t.Fatalf("RecognizeSignature failed: %v", err)
+	}
+
+	t.Logf("Recognition result for 8s: matched=%v, title=%s, artist=%s", res.Matched, res.Title, res.Artist)
+	if !res.Matched {
+		t.Errorf("expected match for Gloria 8s snippet, got matched=false")
+	}
+}
+
+

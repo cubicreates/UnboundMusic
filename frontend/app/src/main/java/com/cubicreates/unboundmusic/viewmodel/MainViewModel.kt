@@ -433,12 +433,129 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return playlists
     }
 
+    private val _albumicPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    val albumicPlaylists: StateFlow<List<CustomPlaylist>> = _albumicPlaylists.asStateFlow()
+
+    private val _albumCompletions = MutableStateFlow<List<AlbumCompletionStatus>>(emptyList())
+    val albumCompletions: StateFlow<List<AlbumCompletionStatus>> = _albumCompletions.asStateFlow()
+
+    fun synthesizeAlbumicPlaylists(tracks: List<TrackItem>): List<CustomPlaylist> {
+        val pureTracks = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
+        val grouped = pureTracks
+            .filter { !it.album.isNullOrBlank() && !it.album.equals("Unknown Album", ignoreCase = true) && !it.album.equals("Unknown", ignoreCase = true) }
+            .groupBy { it.album.trim() }
+
+        val playlists = grouped
+            .filter { (_, albumTracks) -> albumTracks.isNotEmpty() }
+            .map { (albumName, albumTracks) ->
+                val safeId = "album_${albumName.lowercase().replace(Regex("[^a-z0-9]"), "_")}"
+                val primaryArtist = albumTracks.firstOrNull { it.artist.isNotBlank() }?.artist ?: ""
+                CustomPlaylist(
+                    id = safeId,
+                    title = albumName,
+                    description = "Album compilation featuring ${albumTracks.size} local tracks",
+                    coverUrl = albumTracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: "",
+                    tracks = albumTracks,
+                    playlistType = SmartPlaylistType.ALBUMIC_SMART,
+                    targetAlbum = albumName,
+                    targetArtist = primaryArtist
+                )
+            }
+            .sortedByDescending { it.tracks.size }
+
+        _albumicPlaylists.value = playlists
+        checkAlbumCompletions(playlists)
+        return playlists
+    }
+
+    private fun checkAlbumCompletions(albumPlaylists: List<CustomPlaylist>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val completionList = mutableListOf<AlbumCompletionStatus>()
+            val updatedAlbumics = albumPlaylists.toMutableList()
+
+            for (playlist in albumPlaylists.take(15)) {
+                val album = playlist.targetAlbum ?: playlist.title
+                val artist = playlist.targetArtist ?: ""
+                if (album.isBlank()) continue
+
+                try {
+                    val client = DaemonManager.getInstance(getApplication()).client
+                    val (code, jsonStr) = client.getAlbumDetails(artist = artist, album = album)
+                    if (code == 200 && jsonStr.isNotBlank()) {
+                        val root = org.json.JSONObject(jsonStr)
+                        val officialCount = root.optInt("track_count", 0)
+                        val browseId = root.optString("id", "")
+                        val tracksArr = root.optJSONArray("tracks")
+
+                        if (officialCount > 0) {
+                            val downloaded = playlist.tracks.size
+                            val ratio = downloaded.toFloat() / officialCount.toFloat()
+                            val missing = mutableListOf<TrackItem>()
+
+                            if (tracksArr != null) {
+                                val downloadedTitles = playlist.tracks.map { it.title.trim().lowercase() }.toSet()
+                                for (i in 0 until tracksArr.length()) {
+                                    val tObj = tracksArr.optJSONObject(i) ?: continue
+                                    val tTitle = tObj.optString("title", "")
+                                    if (tTitle.isNotBlank() && !downloadedTitles.contains(tTitle.trim().lowercase())) {
+                                        missing.add(
+                                            TrackItem(
+                                                id = tObj.optString("id", ""),
+                                                title = tTitle,
+                                                artist = tObj.optString("artist", artist),
+                                                album = album,
+                                                durationMs = tObj.optLong("duration_ms", 0L),
+                                                coverUrl = tObj.optString("thumbnail_url", playlist.effectiveCoverUrl),
+                                                streamUrl = tObj.optString("stream_url", ""),
+                                                source = "ytmusic_album"
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+
+                            val status = AlbumCompletionStatus(
+                                albumTitle = album,
+                                artistName = artist,
+                                downloadedCount = downloaded,
+                                officialTotalCount = officialCount,
+                                completionRatio = ratio,
+                                albumBrowseId = browseId,
+                                missingTracks = missing
+                            )
+                            if (status.isEligibleForPrompt) {
+                                completionList.add(status)
+                            }
+
+                            val pIdx = updatedAlbumics.indexOfFirst { it.id == playlist.id }
+                            if (pIdx >= 0) {
+                                updatedAlbumics[pIdx] = updatedAlbumics[pIdx].copy(
+                                    officialTrackCount = officialCount,
+                                    completionRatio = ratio,
+                                    albumBrowseId = browseId
+                                )
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainViewModel", "Failed to check album completion for $album: ${e.message}")
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                _albumCompletions.value = completionList
+                _albumicPlaylists.value = updatedAlbumics
+            }
+        }
+    }
+
     private fun setLibraryTracks(tracks: List<TrackItem>) {
         _libraryTracks.value = tracks
         val music = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
         _musicTracks.value = music
         _mixedAudioTracks.value = tracks.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
         synthesizeArtistPlaylists(music)
+        synthesizeAlbumicPlaylists(music)
     }
 
     private val _savedGB = MutableStateFlow(0.0)

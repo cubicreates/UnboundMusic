@@ -238,3 +238,18 @@ suspend fun BackendClient.unpackPayload(archivePath: String, destDir: String): B
     val (code, _) = post("/api/v1/system/unpack-payload", payload.toString())
     code == 200
 }
+
+/**
+ * Resolves full official album details, track count, and tracklist via the Go daemon.
+ */
+suspend fun BackendClient.getAlbumDetails(
+    id: String? = null,
+    artist: String? = null,
+    album: String? = null
+): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val q = StringBuilder("/api/v1/album/details?")
+    id?.let { q.append("id=").append(URLEncoder.encode(it, "UTF-8")).append("&") }
+    artist?.let { q.append("artist=").append(URLEncoder.encode(it, "UTF-8")).append("&") }
+    album?.let { q.append("album=").append(URLEncoder.encode(it, "UTF-8")) }
+    get(q.toString().removeSuffix("&").removeSuffix("?"))
+}

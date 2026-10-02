@@ -96,6 +96,9 @@ fun MainApp(
     val downloadTasks by viewModel.downloadTasks.collectAsStateWithLifecycle()
     val downloadedMusicTracks by viewModel.downloadedMusicTracks.collectAsStateWithLifecycle()
     val customPlaylists by viewModel.customPlaylists.collectAsStateWithLifecycle()
+    val artistPlaylists by viewModel.artistPlaylists.collectAsStateWithLifecycle()
+    val albumicPlaylists by viewModel.albumicPlaylists.collectAsStateWithLifecycle()
+    val albumCompletions by viewModel.albumCompletions.collectAsStateWithLifecycle()
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
@@ -392,6 +395,10 @@ fun MainApp(
                                 onDeleteDownload = { viewModel.deleteTrackDownload(it) },
                                 onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
                                 customPlaylists = customPlaylists,
+                                artistPlaylists = artistPlaylists,
+                                albumicPlaylists = albumicPlaylists,
+                                albumCompletions = albumCompletions,
+                                onDownloadRemaining = { viewModel.downloadMissingAlbumTracks(it) },
                                 onCreatePlaylist = { title -> viewModel.createCustomPlaylist(title) },
                                 onPlaylistClick = { playlist -> viewModel.openCustomPlaylist(playlist) },
                                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },

@@ -549,6 +549,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun downloadMissingAlbumTracks(status: AlbumCompletionStatus) {
+        val missing = status.missingTracks
+        if (missing.isEmpty()) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Album is already complete!", isLong = false)
+            return
+        }
+        for (track in missing) {
+            startTrackDownload(track)
+        }
+        com.cubicreates.unboundmusic.util.UnboundToast.show(
+            getApplication(),
+            "Downloading ${missing.size} remaining tracks from '${status.albumTitle}'",
+            isLong = true
+        )
+    }
+
     private fun setLibraryTracks(tracks: List<TrackItem>) {
         _libraryTracks.value = tracks
         val music = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }

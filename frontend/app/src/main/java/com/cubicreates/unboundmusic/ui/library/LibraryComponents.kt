@@ -149,7 +149,9 @@ fun ModernHeroMySongsCard(
     count: Int,
     onClick: () -> Unit,
     onShuffle: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    title: String = "Music Tracks",
+    subtitle: String? = null
 ) {
     val accentBlue = Color(0xFF2979FF)
     Surface(
@@ -210,7 +212,7 @@ fun ModernHeroMySongsCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.MusicNote,
-                            contentDescription = "My Songs",
+                            contentDescription = "Music Tracks",
                             tint = Color.White,
                             modifier = Modifier.size(26.dp)
                         )
@@ -219,16 +221,32 @@ fun ModernHeroMySongsCard(
                     Spacer(modifier = Modifier.width(14.dp))
 
                     Column {
-                        Text(
-                            text = "My Songs",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface,
-                            letterSpacing = (-0.02).sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = title,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                letterSpacing = (-0.02).sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = accentBlue.copy(alpha = 0.2f),
+                                border = BorderStroke(1.dp, accentBlue.copy(alpha = 0.45f))
+                            ) {
+                                Text(
+                                    text = "MUSIC",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = accentBlue,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "$count songs on this device",
+                            text = subtitle ?: "$count verified songs on this device",
                             fontSize = 12.sp,
                             color = OnSurfaceVariant,
                             fontWeight = FontWeight.Medium

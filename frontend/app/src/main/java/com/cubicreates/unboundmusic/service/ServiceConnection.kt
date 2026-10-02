@@ -588,7 +588,7 @@ class ServiceConnection private constructor(private val context: Context) {
                 durationMs = if (duration > 0) duration else origCurrent.durationMs,
                 streamUrl = if (curUri.isNotBlank()) curUri else origCurrent.streamUrl
             )
-        } else {
+        } else if (curItem != null && (currentTrackId.isNotBlank() || curTitle.isNotBlank())) {
             TrackItem(
                 id = currentTrackId,
                 title = if (curTitle.isNotBlank()) curTitle else "Unknown",
@@ -597,6 +597,8 @@ class ServiceConnection private constructor(private val context: Context) {
                 streamUrl = curUri,
                 durationMs = duration
             )
+        } else {
+            null
         }
 
         _playbackState.value = PlaybackUiState(

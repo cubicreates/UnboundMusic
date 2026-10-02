@@ -192,8 +192,14 @@ fun NowPlayingScreen(
     ) {
         // 1. Immersive Ambient Background Layer
         Box(modifier = Modifier.fillMaxSize()) {
+            val ambientModel = track.coverUrl.takeIf { it.isNotBlank() }
+                ?: canvasArtUrl?.takeIf { it.isNotBlank() }
+                ?: DEFAULT_AMBIENT_BG
             AsyncImage(
-                model = canvasArtUrl ?: track.coverUrl.ifEmpty { DEFAULT_AMBIENT_BG },
+                model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                    .data(ambientModel)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
@@ -328,8 +334,16 @@ fun NowPlayingScreen(
                                     .clickable { centerDeckView = CenterDeckView.LYRICS },
                                 contentAlignment = Alignment.Center
                             ) {
+                                val artworkModel = track.coverUrl.takeIf { it.isNotBlank() }
+                                    ?: canvasArtUrl?.takeIf { it.isNotBlank() }
+                                    ?: DEFAULT_NOW_PLAYING_ART
                                 AsyncImage(
-                                    model = canvasArtUrl ?: track.coverUrl.ifEmpty { DEFAULT_NOW_PLAYING_ART },
+                                    model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                                        .data(artworkModel)
+                                        .crossfade(true)
+                                        .error(android.R.drawable.ic_menu_report_image)
+                                        .fallback(android.R.drawable.ic_menu_report_image)
+                                        .build(),
                                     contentDescription = "Album Artwork",
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop

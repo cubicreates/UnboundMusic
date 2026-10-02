@@ -158,11 +158,7 @@ func (c *Client) GetCanvas(ctx context.Context, title, artist string) (*CanvasRe
 				defer yResp.Body.Close()
 				var yData map[string]any
 				if json.NewDecoder(yResp.Body).Decode(&yData) == nil {
-					// Extract high-res thumbnail and video ID
-					res.TrackID = "yt_visual_" + url.QueryEscape(title)
-					res.ThumbnailURL = fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", url.QueryEscape(title))
-					res.CanvasURL = res.ThumbnailURL
-					res.Found = true
+					// Fallback search did not yield a verified video ID; do not generate 404 URLs
 				}
 			}
 		}

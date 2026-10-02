@@ -127,13 +127,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Isolated active track / session existence stream to toggle mini player without position ticker recompositions */
     val hasActivePlayback: StateFlow<Boolean> = serviceConnection.playbackState
-        .map { it.isPlaying || it.currentPositionMs > 0 || it.currentTrack != null }
+        .map { (it.isPlaying || it.currentPositionMs > 0) && it.currentTrack != null && it.currentTrack.id.isNotBlank() && it.currentTrack.title != "Unknown" }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     // ==================== Playback State ====================
 
-    private val _currentTrack = MutableStateFlow(defaultTopTracks[0])
+    private val _currentTrack = MutableStateFlow(TrackItem())
     val currentTrack: StateFlow<TrackItem> = _currentTrack.asStateFlow()
 
     private val _isFavorite = MutableStateFlow(false)
@@ -1022,9 +1022,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (charts.isNotEmpty()) {
                     _regionalCharts.value = charts
                     _chartTracks.value = charts
-                    if (_currentTrack.value.id.isBlank() || _currentTrack.value == defaultTopTracks[0]) {
-                        _currentTrack.value = charts[0]
-                    }
                 }
             }
             launch {
@@ -2652,9 +2649,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val json = JSONObject(resp)
                 val found = json.optBoolean("found", false)
                 if (found) {
-                    _canvasVideoUrl.value = json.optString("canvas_url").takeIf { it.isNotBlank() }
-                    _canvasArtUrl.value = json.optString("thumbnail_url").takeIf { it.isNotBlank() }
-                        ?: json.optString("song_art_url").takeIf { it.isNotBlank() }
+                    val canvasUrl = json.optString("canvas_url").takeIf { it.isNotBlank() && it.startsWith("http") }
+                    val artUrl = (json.optString("thumbnail_url").takeIf { it.isNotBlank() && it.startsWith("http") && !it.contains("/vi//maxresdefault") }
+                        ?: json.optString("song_art_url").takeIf { it.isNotBlank() && it.startsWith("http") })
+                    _canvasVideoUrl.value = canvasUrl
+                    if (track.coverUrl.isBlank() && artUrl != null) {
+                        _canvasArtUrl.value = artUrl
+                    }
                 }
             }
         } catch (e: Exception) {

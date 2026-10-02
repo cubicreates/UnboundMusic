@@ -15,6 +15,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Looper
 import android.util.Log
@@ -4344,15 +4345,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Completely removes the /storage/emulated/0/Unbound directory so the user
-     * can uninstall the app without leaving any files behind.
+     * Gracefully stops the Go engine daemon, wipes all unpacked native binaries,
+     * LLM model weights, and internal caches, leaving downloaded songs safe in device storage,
+     * and triggers the system uninstaller prompt.
      */
-    fun purgeUnboundStorageForUninstall() {
+    fun purgeUnboundStorageForUninstall(triggerAppUninstall: Boolean = true) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                val deleted = unboundRoot.deleteRecursively()
-                _cachePurgeStatus.value = if (deleted) "Unbound folder deleted completely. Safe to uninstall." else "Failed removing some files."
+                _cachePurgeStatus.value = "Stopping Go background engine..."
+                daemonManager.stopDaemon()
+
+                _cachePurgeStatus.value = "Purging LLM models, native engine & internal caches..."
+                val bytesFreed = com.cubicreates.unboundmusic.service.UnboundStorageManager.purgeBackendAndEngine(getApplication())
+                val mbFreed = bytesFreed / (1024 * 1024)
+
+                _cachePurgeStatus.value = "Cleaned engine & models (${mbFreed}MB freed). Music preserved."
+
+                if (triggerAppUninstall) {
+                    withContext(Dispatchers.Main) {
+                        try {
+                            val context = getApplication<Application>()
+                            val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            context.startActivity(uninstallIntent)
+                        } catch (ue: Exception) {
+                            Log.w(TAG, "Trigger uninstall note: ${ue.message}")
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 _cachePurgeStatus.value = "Uninstall cleanup error: ${e.message}"
             }

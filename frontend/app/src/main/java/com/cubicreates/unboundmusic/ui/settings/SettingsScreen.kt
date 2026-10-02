@@ -11,6 +11,7 @@
 
 package com.cubicreates.unboundmusic.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,6 +55,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.RadioButton
@@ -62,6 +64,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -128,6 +131,11 @@ fun SettingsScreen(
 ) {
     var showStreamingQualityDialog by remember { mutableStateOf(false) }
     var showDownloadQualityDialog by remember { mutableStateOf(false) }
+    var showUninstallConfirmDialog by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = true) {
+        onClose()
+    }
 
     Box(
         modifier = modifier
@@ -635,10 +643,10 @@ fun SettingsScreen(
 
                 ModernGroupedActionRow(
                     icon = Icons.Default.DeleteForever,
-                    title = "Clean Storage & Reset",
-                    subtitle = "Purge all local storage and reset filesystems",
+                    title = "Clean Engine & Uninstall",
+                    subtitle = "Purge Go backend & LLM models (~500MB+), keep music, and uninstall app",
                     accentColor = Color(0xFFFF5252),
-                    onClick = onCleanStorageForUninstallClick
+                    onClick = { showUninstallConfirmDialog = true }
                 )
             }
 
@@ -725,6 +733,46 @@ fun SettingsScreen(
                     showDownloadQualityDialog = false
                 },
                 onDismiss = { showDownloadQualityDialog = false }
+            )
+        }
+
+        if (showUninstallConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showUninstallConfirmDialog = false },
+                title = {
+                    Text(
+                        text = "Clean Engine & Uninstall",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                },
+                text = {
+                    Text(
+                        text = "This will stop the background Go engine, delete all unpacked AI models (LLM weights, embeddings) and native binaries (~500MB+ storage) before opening the Android uninstaller.\n\nYour downloaded songs in device storage will NOT be deleted.",
+                        color = OnSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showUninstallConfirmDialog = false
+                            onCleanStorageForUninstallClick()
+                        }
+                    ) {
+                        Text(
+                            text = "Purge & Uninstall",
+                            color = Color(0xFFFF5252),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showUninstallConfirmDialog = false }) {
+                        Text(text = "Cancel", color = OnSurface)
+                    }
+                },
+                containerColor = Color(0xFF1E1E24)
             )
         }
     }

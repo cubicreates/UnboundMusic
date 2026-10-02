@@ -7,6 +7,7 @@
 
 package com.cubicreates.unboundmusic.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -191,6 +192,7 @@ fun MainOverlayHost(
 
     // Modal: Settings Screen (Launched via top bar profile avatar)
     if (overlayState.showSettings) {
+        BackHandler(enabled = true) { overlayState.showSettings = false }
         SettingsScreen(
             onClose = { overlayState.showSettings = false },
             onEqualizerClick = { overlayState.showEqualizer = true },
@@ -227,6 +229,7 @@ fun MainOverlayHost(
 
     // Modal: Sleep Timer from Settings
     if (overlayState.showSleepTimerFromSettings) {
+        BackHandler(enabled = true) { overlayState.showSleepTimerFromSettings = false }
         SleepTimerSheet(
             timerState = sleepTimerState,
             onStartTimer = { minutes, endOfSong -> viewModel.startSleepTimer(minutes, endOfSong) },
@@ -237,6 +240,7 @@ fun MainOverlayHost(
 
     // Modal: Unbound Recap (Wrapped) Screen
     if (overlayState.showRecap) {
+        BackHandler(enabled = true) { overlayState.showRecap = false }
         RecapScreen(
             data = recapData,
             onClose = { overlayState.showRecap = false }
@@ -245,6 +249,7 @@ fun MainOverlayHost(
 
     // Modal: Artist Profile Screen
     if (overlayState.viewingArtist != null) {
+        BackHandler(enabled = true) { overlayState.viewingArtist = null }
         artistProfile?.let { prof ->
             ArtistScreen(
                 profile = prof,
@@ -270,6 +275,7 @@ fun MainOverlayHost(
 
     // Modal: Genre Detail Screen
     if (overlayState.viewingGenre != null) {
+        BackHandler(enabled = true) { overlayState.viewingGenre = null }
         GenreDetailScreen(
             genreTitle = selectedGenreTitle,
             shelves = activeGenreShelves,
@@ -289,6 +295,7 @@ fun MainOverlayHost(
 
     // Modal: Album & Playlist Detail Screen
     albumPlaylistData?.let { albumData ->
+        BackHandler(enabled = true) { viewModel.closeAlbumPlaylist() }
         AlbumPlaylistScreen(
             data = albumData,
             onBack = { viewModel.closeAlbumPlaylist() },
@@ -332,6 +339,7 @@ fun MainOverlayHost(
 
     // Modal: Centralized Downloads & Storage Management Screen
     if (overlayState.showDownloadsScreen) {
+        BackHandler(enabled = true) { overlayState.showDownloadsScreen = false }
         val effectiveDownloadedTracks = if (downloadedMusicTracks.isNotEmpty()) {
             downloadedMusicTracks
         } else {
@@ -469,6 +477,7 @@ fun MainOverlayHost(
 
     // Modal: Pro Equalizer & Sound Effects Screen
     if (overlayState.showEqualizer) {
+        BackHandler(enabled = true) { overlayState.showEqualizer = false }
         EqualizerScreen(
             initialCurve = equalizerCurve,
             initialBassBoost = bassBoostStrength,
@@ -491,6 +500,7 @@ fun MainOverlayHost(
 
     // Modal: Ringtone Cutter & Waveform Trimmer
     overlayState.ringtoneCutterTrack?.let { track ->
+        BackHandler(enabled = true) { overlayState.ringtoneCutterTrack = null }
         RingtoneCutterScreen(
             track = track,
             onClose = { overlayState.ringtoneCutterTrack = null }
@@ -499,6 +509,7 @@ fun MainOverlayHost(
 
     // Modal: AutoEq Headphone Picker Dialog (Opens from Equalizer)
     if (overlayState.showAutoEqPicker) {
+        BackHandler(enabled = true) { overlayState.showAutoEqPicker = false }
         AutoEqPickerDialog(
             searchResults = autoEqResults,
             isSearching = isSearchingAutoEq,
@@ -510,6 +521,7 @@ fun MainOverlayHost(
 
     // Modal: Custom User Playlist Detail Screen
     activeCustomPlaylist?.let { customPlaylist ->
+        BackHandler(enabled = true) { viewModel.closeCustomPlaylist() }
         CustomPlaylistScreen(
             playlist = customPlaylist,
             onBack = { viewModel.closeCustomPlaylist() },
@@ -563,6 +575,7 @@ fun MainOverlayHost(
 
     // Modal: Add to Playlist Bottom Sheet
     trackToAddToPlaylist?.let { track ->
+        BackHandler(enabled = true) { viewModel.hideAddToPlaylist() }
         AddToPlaylistSheet(
             track = track,
             playlists = customPlaylists,

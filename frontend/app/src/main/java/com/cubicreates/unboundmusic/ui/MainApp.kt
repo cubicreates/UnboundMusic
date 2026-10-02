@@ -178,6 +178,10 @@ fun MainApp(
         }
     }
 
+    BackHandler(enabled = overlayState.isPlayerExpanded) {
+        overlayState.isPlayerExpanded = false
+    }
+
     BackHandler(enabled = selectedTab != NavigationTab.HOME && !overlayState.isPlayerExpanded) {
         selectedTab = NavigationTab.HOME
     }

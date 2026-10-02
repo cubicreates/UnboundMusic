@@ -251,4 +251,54 @@ object UnboundStorageManager {
         val backendDir = getBackendStorageRoot(context)
         return "${publicDir.absolutePath}|${backendDir.absolutePath}"
     }
+
+    /**
+     * Purges all extracted Go binaries, LLM model weights (GGUF, ONNX, ZST), vector stores,
+     * and internal database caches while strictly preserving user-downloaded music.
+     * Returns total bytes freed.
+     */
+    fun purgeBackendAndEngine(context: Context): Long {
+        var bytesFreed = 0L
+        fun dirSize(dir: File): Long {
+            if (!dir.exists()) return 0L
+            return dir.walkTopDown().filter { it.isFile }.map { it.length() }.sum()
+        }
+
+        try {
+            // 1. Delete extracted native binaries (bin/fpcalc, bin/llama-cli)
+            val binDir = File(context.filesDir, "bin")
+            if (binDir.exists()) {
+                bytesFreed += dirSize(binDir)
+                binDir.deleteRecursively()
+                Log.i(TAG, "Purged extracted native binaries: ${binDir.absolutePath}")
+            }
+
+            // 2. Delete backend root containing models/ (smollm2_135m.gguf, ONNX), sqlite/, cache/, logs/
+            val backendRoot = getBackendStorageRoot(context)
+            if (backendRoot.exists()) {
+                bytesFreed += dirSize(backendRoot)
+                backendRoot.deleteRecursively()
+                Log.i(TAG, "Purged backend root and AI models: ${backendRoot.absolutePath}")
+            }
+
+            // 3. Clear app internal cache
+            val cacheDir = context.cacheDir
+            if (cacheDir != null && cacheDir.exists()) {
+                bytesFreed += dirSize(cacheDir)
+                cacheDir.deleteRecursively()
+            }
+
+            // 4. Clear app external cache
+            val extCache = context.externalCacheDir
+            if (extCache != null && extCache.exists()) {
+                bytesFreed += dirSize(extCache)
+                extCache.deleteRecursively()
+            }
+
+            Log.i(TAG, "Engine & LLM purge completed. Total freed: $bytesFreed bytes. Public music preserved.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error purging backend and engine: ${e.message}", e)
+        }
+        return bytesFreed
+    }
 }

@@ -788,6 +788,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val changed = prev.id != track.id || !prev.title.equals(track.title, ignoreCase = true)
                         if (changed) {
                             _currentTrack.value = track
+                            _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title)
                             loadLyricsForTrack(track)
                             launch(Dispatchers.IO) {
                                 fetchCanvas(track)
@@ -846,6 +847,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadCustomPlaylists()
         try {
             _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(application)
+            _favoriteTracks.value = PlaybackStateStore.getFavoriteTracks(application)
         } catch (_: Exception) {}
 
         // Auto-advance to next track when playback of current song ends
@@ -917,32 +919,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun deployDaemonAndHydrate() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                    _startupPhase.value = "SYSTEM_INIT"
-                    _startupProgress.value = 0.35f
+                _startupPhase.value = "SYSTEM_INIT"
+                _startupProgress.value = 0.35f
 
-                    // Unpack assets and binaries safely
+                // Unpack assets and directories safely
+                try {
                     StorageInitializer.initialize(getApplication())
+                } catch (e: Exception) {
+                    Log.w(TAG, "StorageInitializer error: ${e.message}")
+                }
 
-                    _startupPhase.value = "DAEMON_CONNECT"
-                    _startupProgress.value = 0.60f
+                _startupPhase.value = "DAEMON_CONNECT"
+                _startupProgress.value = 0.60f
 
-                    // Start Go Engine Daemon
-                    daemonManager.startDaemonAuto(force = true)
+                // Start Go Engine Daemon
+                daemonManager.startDaemonAuto(force = true)
 
-                    // Handshake with daemon
-                    for (i in 1..10) {
-                        try {
-                            val (code, _) = client.healthCheck()
-                            if (code in 200..299) break
-                        } catch (e: Exception) {
-                            // Daemon booting
-                        }
-                        delay(150)
-                    }
+                // Quick handshake with daemon (max 1 second)
+                for (i in 1..8) {
+                    try {
+                        val (code, _) = client.healthCheck()
+                        if (code in 200..299) break
+                    } catch (_: Exception) {}
+                    delay(120)
+                }
 
-                    _startupPhase.value = "CACHE_HYDRATE"
-                    _startupProgress.value = 0.88f
+                _startupPhase.value = "CACHE_HYDRATE"
+                _startupProgress.value = 0.90f
+            } catch (e: Exception) {
+                Log.e(TAG, "Startup hydration core exception: ${e.message}", e)
+            } finally {
+                _startupProgress.value = 1.0f
+                _startupPhase.value = "READY"
+                _isAppReady.value = true
+
+                // Asynchronously hydrate online feeds & sync in background without delaying UI presentation
+                launch {
                     try { StorageInitializer.unpackModelsIfPending(getApplication()) } catch (_: Exception) {}
                     val userCountry = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
                     val userLanguage = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
@@ -961,19 +973,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     loadAppSettings()
                     loadCustomEqPresets()
                     loadMoodsAndGenres(userCountry, userLanguage)
-                } ?: run {
-                    Log.w(TAG, "Startup hydration timed out after 5s; entering safe offline mode")
-                    _startupPhase.value = "OFFLINE_MODE"
+                    checkForAppUpdates(manual = false)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Startup hydration exception: ${e.message}", e)
-                _startupPhase.value = "OFFLINE_MODE"
-            } finally {
-                _startupProgress.value = 1.0f
-                _startupPhase.value = "READY"
-                delay(200)
-                _isAppReady.value = true
-                checkForAppUpdates(manual = false)
             }
         }
     }
@@ -1764,22 +1765,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val willBeFav = !_isFavorite.value
         _isFavorite.value = willBeFav
         val current = _currentTrack.value
-        if (current.id.isNotBlank()) {
+        val effectiveId = if (current.id.isNotBlank()) current.id else current.streamUrl
+        val trackToSave = if (current.id.isBlank()) current.copy(id = effectiveId) else current
+        if (effectiveId.isNotBlank() || current.title.isNotBlank()) {
             if (willBeFav) {
-                PlaybackStateStore.addFavoriteTrackId(getApplication(), current.id)
+                PlaybackStateStore.saveFavoriteTrack(getApplication(), trackToSave)
+                val currList = _favoriteTracks.value.toMutableList()
+                if (currList.none { it.id == trackToSave.id || (it.title == trackToSave.title && it.artist == trackToSave.artist) }) {
+                    currList.add(0, trackToSave)
+                    _favoriteTracks.value = currList
+                }
             } else {
-                PlaybackStateStore.removeFavoriteTrackId(getApplication(), current.id)
+                PlaybackStateStore.removeFavoriteTrack(getApplication(), effectiveId, current.title)
+                _favoriteTracks.value = _favoriteTracks.value.filterNot { 
+                    it.id == effectiveId || it.streamUrl == effectiveId || 
+                    (it.title.equals(current.title, ignoreCase = true) && it.artist.equals(current.artist, ignoreCase = true))
+                }
             }
-            refreshFavoritesList()
         }
         if (willBeFav && _autoDownloadLikedSongs.value) {
-            startTrackDownload(current)
+            startTrackDownload(trackToSave)
         }
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                client.toggleFavorite(current)
-                client.toggleTrackLike(current.id, willBeFav)
+                if (trackToSave.id.isNotBlank() || trackToSave.title.isNotBlank()) {
+                    client.toggleFavorite(trackToSave)
+                    client.toggleTrackLike(trackToSave.id, willBeFav)
+                }
                 loadSyncedYouTubeTracks()
+                refreshFavoritesList()
             } catch (e: Exception) {
                 Log.w(TAG, "Track like toggle error: ${e.message}")
             }
@@ -1787,22 +1801,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleTrackFavorite(track: TrackItem) {
-        if (track.id.isBlank()) return
-        val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
-        val willBeFav = !favIds.contains(track.id)
+        val effectiveId = if (track.id.isNotBlank()) track.id else track.streamUrl
+        if (effectiveId.isBlank() && track.title.isBlank()) return
+        val willBeFav = !PlaybackStateStore.isFavoriteTrack(getApplication(), effectiveId, track.title)
+        val trackToSave = if (track.id.isBlank()) track.copy(id = effectiveId) else track
         if (willBeFav) {
-            PlaybackStateStore.addFavoriteTrackId(getApplication(), track.id)
+            PlaybackStateStore.saveFavoriteTrack(getApplication(), trackToSave)
+            val currList = _favoriteTracks.value.toMutableList()
+            if (currList.none { it.id == trackToSave.id || (it.title == trackToSave.title && it.artist == trackToSave.artist) }) {
+                currList.add(0, trackToSave)
+                _favoriteTracks.value = currList
+            }
         } else {
-            PlaybackStateStore.removeFavoriteTrackId(getApplication(), track.id)
+            PlaybackStateStore.removeFavoriteTrack(getApplication(), effectiveId, track.title)
+            _favoriteTracks.value = _favoriteTracks.value.filterNot {
+                it.id == effectiveId || it.streamUrl == effectiveId ||
+                (it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true))
+            }
         }
-        if (track.id == _currentTrack.value.id) {
+        if (track.id == _currentTrack.value.id || track.streamUrl == _currentTrack.value.streamUrl || track.title == _currentTrack.value.title) {
             _isFavorite.value = willBeFav
         }
-        refreshFavoritesList()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                client.toggleFavorite(track)
-                client.toggleTrackLike(track.id, willBeFav)
+                client.toggleFavorite(trackToSave)
+                client.toggleTrackLike(trackToSave.id, willBeFav)
+                loadSyncedYouTubeTracks()
+                refreshFavoritesList()
             } catch (e: Exception) {
                 Log.d(TAG, "Track like toggle error: ${e.message}")
             }
@@ -1811,20 +1836,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshFavoritesList() {
         viewModelScope.launch(Dispatchers.IO) {
+            val localStoredFavs = PlaybackStateStore.getFavoriteTracks(getApplication())
             val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
-            var backendFavs = client.getFavorites()
-            if (backendFavs.isEmpty() && favIds.isNotEmpty()) {
-                val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
+            var backendFavs = try { client.getFavorites() } catch (_: Exception) { emptyList() }
+            if (backendFavs.isEmpty() && (favIds.isNotEmpty() || localStoredFavs.isNotEmpty())) {
+                val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) || favIds.contains(it.title) }
                 val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
-                val allTracks = (localFavorites + syncedFavorites).distinctBy { it.id }
+                val allTracks = (localStoredFavs + localFavorites + syncedFavorites).distinctBy { if (it.id.isNotBlank()) it.id else it.title }
                 for (t in allTracks) {
-                    client.toggleFavorite(t)
+                    try { client.toggleFavorite(t) } catch (_: Exception) {}
                 }
-                backendFavs = client.getFavorites()
+                backendFavs = try { client.getFavorites() } catch (_: Exception) { emptyList() }
             }
-            val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) }
+            val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) || favIds.contains(it.title) }
             val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
-            val allTracks = (backendFavs + localFavorites + syncedFavorites).distinctBy { it.id }
+            val allTracks = (localStoredFavs + backendFavs + localFavorites + syncedFavorites).distinctBy { 
+                if (it.id.isNotBlank()) it.id else "${it.title}_${it.artist}"
+            }
             withContext(Dispatchers.Main) {
                 _favoriteTracks.value = allTracks
             }
@@ -2821,7 +2849,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     for (track in daemonTracks) {
                         val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                        combinedMap[key] = track
+                        val existing = combinedMap[key]
+                        if (existing != null) {
+                            combinedMap[key] = existing.copy(
+                                id = if (existing.id.isNotBlank()) existing.id else track.id,
+                                durationMs = if (existing.durationMs > 0) existing.durationMs else track.durationMs,
+                                coverUrl = if (existing.coverUrl.isNotBlank()) existing.coverUrl else track.coverUrl,
+                                album = if (existing.album.isNotBlank()) existing.album else track.album,
+                                artist = if (existing.artist.isNotBlank() && existing.artist != "Unknown Artist") existing.artist else track.artist,
+                                title = if (existing.title.isNotBlank() && existing.title != "Unknown") existing.title else track.title,
+                                audioCategory = if (existing.audioCategory != AudioCategory.MUSIC || existing.isIdentifiedMusic) existing.audioCategory else track.audioCategory
+                            )
+                        } else {
+                            combinedMap[key] = track
+                        }
                     }
 
                     val allLocal = combinedMap.values.toList()
@@ -3762,21 +3803,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Optimistically toggles like state and dispatches mutation to daemon. */
     fun toggleTrackLike(track: TrackItem) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val willBeLiked = !_isFavorite.value
-            _isFavorite.value = willBeLiked
-            if (willBeLiked && _autoDownloadLikedSongs.value) {
-                withContext(Dispatchers.Main) {
-                    startTrackDownload(track)
-                }
-            }
-            try {
-                client.toggleTrackLike(track.id, willBeLiked)
-                loadSyncedYouTubeTracks()
-            } catch (e: Exception) {
-                Log.w(TAG, "Track like toggle error: ${e.message}")
-            }
-        }
+        toggleTrackFavorite(track)
     }
 
     /** Executes 4-stage intelligent search cascade. */
@@ -4004,7 +4031,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(getApplication())
         _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(getApplication())
         _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(getApplication())
-        _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), _currentTrack.value.id)
+        _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), _currentTrack.value.id, _currentTrack.value.title)
     }
 
 

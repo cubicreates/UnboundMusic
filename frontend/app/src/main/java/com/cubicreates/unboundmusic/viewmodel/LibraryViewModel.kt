@@ -125,7 +125,21 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                         combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
                     }
                     for (track in daemonTracks) {
-                        combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
+                        val key = track.filePath.lowercase(java.util.Locale.ROOT)
+                        val existing = combinedMap[key]
+                        if (existing != null) {
+                            combinedMap[key] = existing.copy(
+                                id = if (existing.id.isNotBlank()) existing.id else track.id,
+                                durationMs = if (existing.durationMs > 0) existing.durationMs else track.durationMs,
+                                coverUrl = if (existing.coverUrl.isNotBlank()) existing.coverUrl else track.coverUrl,
+                                album = if (existing.album.isNotBlank()) existing.album else track.album,
+                                artist = if (existing.artist.isNotBlank() && existing.artist != "Unknown Artist") existing.artist else track.artist,
+                                title = if (existing.title.isNotBlank() && existing.title != "Unknown") existing.title else track.title,
+                                audioCategory = if (existing.audioCategory != AudioCategory.MUSIC || existing.isIdentifiedMusic) existing.audioCategory else track.audioCategory
+                            )
+                        } else {
+                            combinedMap[key] = track
+                        }
                     }
 
                     val allLocal = combinedMap.values.toList()

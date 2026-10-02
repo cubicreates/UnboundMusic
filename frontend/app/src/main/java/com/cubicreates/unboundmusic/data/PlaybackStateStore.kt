@@ -87,6 +87,59 @@ object PlaybackStateStore {
         }
     }
 
+    private const val KEY_FAVORITE_TRACKS = "key_favorite_tracks"
+
+    fun getFavoriteTracks(context: Context): List<TrackItem> {
+        val json = getPrefs(context).getString(KEY_FAVORITE_TRACKS, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(json)
+            val list = mutableListOf<TrackItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                list.add(jsonToTrack(obj))
+            }
+            list
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveFavoriteTrack(context: Context, track: TrackItem) {
+        val effectiveId = if (track.id.isNotBlank()) track.id else track.streamUrl
+        if (effectiveId.isBlank() && track.title.isBlank()) return
+        try {
+            val current = getFavoriteTracks(context).toMutableList()
+            current.removeAll { it.id == effectiveId || (it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)) }
+            val trackToSave = if (track.id.isBlank()) track.copy(id = effectiveId) else track
+            current.add(0, trackToSave)
+            val arr = JSONArray()
+            for (t in current) {
+                arr.put(trackToJson(t))
+            }
+            getPrefs(context).edit().putString(KEY_FAVORITE_TRACKS, arr.toString()).apply()
+            addFavoriteTrackId(context, trackToSave.id)
+            if (trackToSave.streamUrl.isNotBlank()) addFavoriteTrackId(context, trackToSave.streamUrl)
+        } catch (_: Exception) {}
+    }
+
+    fun removeFavoriteTrack(context: Context, idOrKey: String, title: String = "") {
+        if (idOrKey.isBlank() && title.isBlank()) return
+        try {
+            val current = getFavoriteTracks(context).toMutableList()
+            current.removeAll { 
+                it.id == idOrKey || it.streamUrl == idOrKey ||
+                (title.isNotBlank() && it.title.equals(title, ignoreCase = true)) ||
+                (it.title.equals(idOrKey, ignoreCase = true))
+            }
+            val arr = JSONArray()
+            for (t in current) {
+                arr.put(trackToJson(t))
+            }
+            getPrefs(context).edit().putString(KEY_FAVORITE_TRACKS, arr.toString()).apply()
+            removeFavoriteTrackId(context, idOrKey)
+        } catch (_: Exception) {}
+    }
+
     fun setFavoriteTrackIds(context: Context, ids: Set<String>) {
         try {
             val arr = JSONArray()
@@ -111,9 +164,15 @@ object PlaybackStateStore {
         setFavoriteTrackIds(context, current)
     }
 
-    fun isFavoriteTrack(context: Context, id: String): Boolean {
-        if (id.isBlank()) return false
-        return getFavoriteTrackIds(context).contains(id)
+    fun isFavoriteTrack(context: Context, id: String, title: String = ""): Boolean {
+        if (id.isBlank() && title.isBlank()) return false
+        val ids = getFavoriteTrackIds(context)
+        if (id.isNotBlank() && ids.contains(id)) return true
+        if (title.isNotBlank() && ids.contains(title)) return true
+        return getFavoriteTracks(context).any { 
+            (id.isNotBlank() && (it.id == id || it.streamUrl == id)) || 
+            (title.isNotBlank() && it.title.equals(title, ignoreCase = true))
+        }
     }
 
     // ==================== Recently Played Persistence ====================

@@ -207,6 +207,10 @@ object MediaStoreAudioBridge {
             val primaryPath = primary.absolutePath
             roots.add("$primaryPath/Music")
             roots.add("$primaryPath/Download")
+            roots.add("$primaryPath/Downloads")
+            roots.add("$primaryPath/Songs")
+            roots.add("$primaryPath/Audio")
+            roots.add("$primaryPath/bluetooth")
             roots.add("$primaryPath/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Audio")
             roots.add("$primaryPath/Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Voice Notes")
             roots.add("$primaryPath/WhatsApp/Media/WhatsApp Audio")
@@ -216,6 +220,21 @@ object MediaStoreAudioBridge {
             roots.add("$primaryPath/Podcasts")
             roots.add("$primaryPath/Audiobooks")
             roots.add("$primaryPath/Recordings")
+
+            // Canonical Unbound folder
+            try {
+                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(context)
+                if (unboundRoot.exists()) roots.add(unboundRoot.absolutePath)
+            } catch (_: Exception) {}
+
+            // Add all readable top-level user directories under primary storage
+            try {
+                primary.listFiles()?.forEach { dir ->
+                    if (dir.isDirectory && !dir.name.startsWith(".") && dir.name != "Android") {
+                        roots.add(dir.absolutePath)
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         // Removable SD cards

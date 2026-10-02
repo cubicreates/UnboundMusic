@@ -548,23 +548,57 @@ class ServiceConnection private constructor(private val context: Context) {
         for (i in 0 until ctrl.mediaItemCount) {
             val item = ctrl.getMediaItemAt(i)
             val meta = item.mediaMetadata
-            queueList.add(
-                TrackItem(
-                    title = meta.title?.toString() ?: "Track ${i + 1}",
-                    artist = meta.artist?.toString() ?: "Artist",
-                    coverUrl = meta.artworkUri?.toString() ?: "",
-                    streamUrl = item.localConfiguration?.uri?.toString() ?: ""
+            val effectiveId = if (item.mediaId.isNotBlank()) item.mediaId else (item.localConfiguration?.uri?.toString() ?: "")
+            val orig = originalQueue.find { 
+                (effectiveId.isNotBlank() && it.id == effectiveId) || 
+                (item.localConfiguration?.uri?.toString()?.isNotBlank() == true && it.streamUrl == item.localConfiguration?.uri?.toString()) ||
+                (meta.title?.toString()?.isNotBlank() == true && it.title == meta.title?.toString())
+            }
+            if (orig != null) {
+                queueList.add(orig)
+            } else {
+                queueList.add(
+                    TrackItem(
+                        id = effectiveId,
+                        title = meta.title?.toString() ?: "Track ${i + 1}",
+                        artist = meta.artist?.toString() ?: "Artist",
+                        coverUrl = meta.artworkUri?.toString() ?: "",
+                        streamUrl = item.localConfiguration?.uri?.toString() ?: "",
+                        durationMs = 0L
+                    )
                 )
+            }
+        }
+
+        val curItem = ctrl.currentMediaItem
+        val currentTrackId = if (!curItem?.mediaId.isNullOrBlank()) curItem.mediaId else (curItem?.localConfiguration?.uri?.toString() ?: "")
+        val curUri = curItem?.localConfiguration?.uri?.toString() ?: ""
+        val curTitle = metadata.title?.toString() ?: ""
+        val origCurrent = originalQueue.find { 
+            (currentTrackId.isNotBlank() && it.id == currentTrackId) ||
+            (curUri.isNotBlank() && it.streamUrl == curUri) ||
+            (curTitle.isNotBlank() && it.title == curTitle)
+        }
+
+        val resolvedCurrent = if (origCurrent != null) {
+            origCurrent.copy(
+                id = if (origCurrent.id.isNotBlank()) origCurrent.id else currentTrackId,
+                durationMs = if (duration > 0) duration else origCurrent.durationMs,
+                streamUrl = if (curUri.isNotBlank()) curUri else origCurrent.streamUrl
+            )
+        } else {
+            TrackItem(
+                id = currentTrackId,
+                title = if (curTitle.isNotBlank()) curTitle else "Unknown",
+                artist = metadata.artist?.toString() ?: "Unknown Artist",
+                coverUrl = metadata.artworkUri?.toString() ?: "",
+                streamUrl = curUri,
+                durationMs = duration
             )
         }
 
         _playbackState.value = PlaybackUiState(
-            currentTrack = TrackItem(
-                title = metadata.title?.toString() ?: "Unknown",
-                artist = metadata.artist?.toString() ?: "Unknown Artist",
-                coverUrl = metadata.artworkUri?.toString() ?: "",
-                streamUrl = ctrl.currentMediaItem?.localConfiguration?.uri?.toString() ?: ""
-            ),
+            currentTrack = resolvedCurrent,
             isPlaying = ctrl.isPlaying,
             currentPositionMs = position,
             durationMs = duration,

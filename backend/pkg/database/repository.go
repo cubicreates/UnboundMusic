@@ -235,10 +235,10 @@ func (r *Repository) UpsertLocalTrack(ctx context.Context, track *models.LocalTr
 	INSERT INTO local_tracks (id, file_path, title, artist, album, duration_ms, format, file_size, source_folder, date_indexed, mtime, cover_url)
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(file_path) DO UPDATE SET
-		title = excluded.title,
-		artist = excluded.artist,
-		album = excluded.album,
-		duration_ms = excluded.duration_ms,
+		title = CASE WHEN excluded.title != '' AND excluded.title != 'Unknown' THEN excluded.title ELSE local_tracks.title END,
+		artist = CASE WHEN excluded.artist != '' AND excluded.artist != 'Unknown Artist' THEN excluded.artist ELSE local_tracks.artist END,
+		album = CASE WHEN excluded.album != '' THEN excluded.album ELSE local_tracks.album END,
+		duration_ms = CASE WHEN excluded.duration_ms > 0 THEN excluded.duration_ms ELSE local_tracks.duration_ms END,
 		format = excluded.format,
 		file_size = excluded.file_size,
 		source_folder = excluded.source_folder,

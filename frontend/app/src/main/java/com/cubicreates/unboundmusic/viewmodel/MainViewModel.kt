@@ -759,6 +759,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
     val libraryFolders: StateFlow<Map<String, List<LocalTrack>>> = _libraryFolders.asStateFlow()
 
+    private val _adaptiveQuickPicks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val adaptiveQuickPicks: StateFlow<List<TrackItem>> = _adaptiveQuickPicks.asStateFlow()
+
+    private val _quickPicksTitle = MutableStateFlow("Trending Quick Picks")
+    val quickPicksTitle: StateFlow<String> = _quickPicksTitle.asStateFlow()
+
+    private val _quickPicksSubtitle = MutableStateFlow("Start a radio or continuous mix")
+    val quickPicksSubtitle: StateFlow<String> = _quickPicksSubtitle.asStateFlow()
+
+    /**
+     * Dynamically shifts Home Quick Picks from generic charts to the user's listened genres,
+     * artists, and algorithmic discoveries as they listen to songs.
+     */
+    fun refreshAdaptiveQuickPicks() {
+        val history = _recentlyPlayedTracks.value
+        val fallbackCharts = _regionalCharts.value.ifEmpty { _chartTracks.value }
+        if (history.isEmpty()) {
+            _adaptiveQuickPicks.value = fallbackCharts
+            _quickPicksTitle.value = "Trending Quick Picks"
+            _quickPicksSubtitle.value = "Start a radio or continuous mix"
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val candidateList = mutableListOf<TrackItem>()
+                val seenIds = mutableSetOf<String>()
+                val seenTitles = mutableSetOf<String>()
+
+                fun addPick(t: TrackItem): Boolean {
+                    if (t.title.isBlank()) return false
+                    val clean = t.title.lowercase().trim()
+                    if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
+                    if (seenTitles.contains(clean)) return false
+                    if (t.id.isNotBlank()) seenIds.add(t.id)
+                    seenTitles.add(clean)
+                    candidateList.add(t)
+                    return true
+                }
+
+                // 1. Gather recent favorite artists (up to 3 distinct artists)
+                val recentArtists = history.map { it.artist.trim() }
+                    .filter { it.isNotBlank() && !it.equals("Unknown Artist", ignoreCase = true) }
+                    .distinct()
+                    .take(3)
+
+                for (art in recentArtists) {
+                    val (code, resp) = client.search("$art song", type = "song")
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val songs = client.parseSearchResults(resp)
+                        var count = 0
+                        for (s in songs) {
+                            if (count >= 2) break
+                            if (addPick(s)) count++
+                        }
+                    }
+                }
+
+                // 2. Gather algorithmic genre / radio continuum from most recent track
+                val seed = history.firstOrNull()
+                if (seed != null && seed.id.isNotBlank() && !seed.id.startsWith("local:")) {
+                    val (code, resp) = client.getRadioNext(seed.id)
+                    if (code in 200..299 && resp.isNotBlank()) {
+                        val radioSongs = client.parseRadioNext(resp)
+                        var rCount = 0
+                        for (rs in radioSongs) {
+                            if (rCount >= 6) break
+                            if (addPick(rs)) rCount++
+                        }
+                    }
+                }
+
+                // 3. Blend in trending chart tracks for novelty and discovery balance
+                for (ch in fallbackCharts) {
+                    if (candidateList.size >= 16) break
+                    addPick(ch)
+                }
+
+                if (candidateList.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _adaptiveQuickPicks.value = candidateList.take(24)
+                        _quickPicksTitle.value = "Quick Picks for You"
+                        _quickPicksSubtitle.value = "Personalized from your recent listening & discoveries"
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Adaptive quick picks refresh note: ${e.message}")
+            }
+        }
+    }
+
     // ==================== Affective MIR & Decoupled Vibe State ====================
     // Invariant: Home Vibe state and Search Vibe state are strictly decoupled.
     // Submitting a Home Vibe prompt NEVER mutates _searchResults or modifies Discover tab state.
@@ -865,6 +956,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(application)
             _favoriteTracks.value = PlaybackStateStore.getFavoriteTracks(application)
+            refreshAdaptiveQuickPicks()
         } catch (_: Exception) {}
 
         // Auto-advance to next track when playback of current song ends
@@ -1022,6 +1114,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (charts.isNotEmpty()) {
                     _regionalCharts.value = charts
                     _chartTracks.value = charts
+                    if (_recentlyPlayedTracks.value.isEmpty()) {
+                        _adaptiveQuickPicks.value = charts
+                    }
                 }
             }
             launch {
@@ -1315,6 +1410,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         try {
             PlaybackStateStore.addRecentlyPlayed(getApplication(), targetTrack)
             _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
+            refreshAdaptiveQuickPicks()
         } catch (_: Exception) {}
 
         if (offlineMatch != null) {
@@ -1632,65 +1728,200 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var guestRadioJob: Job? = null
 
     /**
+     * Extracts movie, album, or soundtrack context from track metadata and title annotations.
+     */
+    private fun extractMovieOrAlbumContext(track: TrackItem): String? {
+        val album = track.album.trim()
+        if (album.isNotBlank() &&
+            !album.equals(track.title, ignoreCase = true) &&
+            !album.equals("Single", ignoreCase = true) &&
+            !album.equals("Unknown Album", ignoreCase = true)
+        ) {
+            return album
+        }
+        val title = track.title
+        val movieRegexes = listOf(
+            Regex("""(?i)\(From\s+["']?([^"'\)]+)["']?\)"""),
+            Regex("""(?i)\[From\s+["']?([^"'\]]+)["']?\]"""),
+            Regex("""(?i)-\s*From\s+["']?([^"'\-]+)["']?"""),
+            Regex("""(?i)\(Soundtrack\s+from\s+["']?([^"'\)]+)["']?\)"""),
+            Regex("""(?i)(?:OST|Soundtrack)\s*[:\-]\s*([^\(\)]+)""")
+        )
+        for (regex in movieRegexes) {
+            val match = regex.find(title)
+            if (match != null && match.groupValues.size > 1) {
+                val extracted = match.groupValues[1].trim()
+                if (extracted.isNotBlank()) return extracted
+            }
+        }
+        return null
+    }
+
+    /**
+     * Builds a 50-track hierarchical affinity queue matching the user's affinity architecture:
+     * Tier 1: Seed track
+     * Tier 2: 1-2 tracks by the same artist
+     * Tier 3: 3-5 tracks from the same movie / soundtrack / album (if applicable)
+     * Tier 4: 15-20 tracks from the same genre / sonic acoustic profile
+     * Tier 5: Algorithmic serendipity & discovery tracks to complete a 50-track queue
+     */
+    suspend fun buildHierarchicalAffinityQueue(seedTrack: TrackItem): List<TrackItem> {
+        val result = mutableListOf<TrackItem>()
+        val seenIds = mutableSetOf<String>()
+        val seenTitles = mutableSetOf<String>()
+
+        fun addTrack(t: TrackItem): Boolean {
+            if (t.title.isBlank()) return false
+            val cleanTitle = t.title.lowercase().trim()
+            if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
+            if (seenTitles.contains(cleanTitle)) return false
+            if (t.id.isNotBlank()) seenIds.add(t.id)
+            seenTitles.add(cleanTitle)
+            result.add(t)
+            return true
+        }
+
+        addTrack(seedTrack)
+
+        val cleanArtist = seedTrack.artist.trim()
+
+        // 1. Tier 1: Same Artist Popular Tracks (1-2 tracks)
+        if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
+            try {
+                var artistTracks = emptyList<TrackItem>()
+                val (code, resp) = client.getArtistProfile(cleanArtist)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val json = JSONObject(resp)
+                    val tracksArr = json.optJSONArray("top_tracks")
+                    if (tracksArr != null) {
+                        val parsed = mutableListOf<TrackItem>()
+                        for (i in 0 until minOf(tracksArr.length(), 6)) {
+                            val obj = tracksArr.getJSONObject(i)
+                            val vId = obj.optString("id").ifBlank { obj.optString("video_id", "") }
+                            parsed.add(
+                                TrackItem(
+                                    id = vId,
+                                    title = obj.optString("title"),
+                                    artist = obj.optString("artist", cleanArtist),
+                                    coverUrl = obj.optString("thumbnail_url"),
+                                    streamUrl = ""
+                                )
+                            )
+                        }
+                        artistTracks = parsed
+                    }
+                }
+                if (artistTracks.isEmpty()) {
+                    val (sCode, sResp) = client.search(cleanArtist, type = "song")
+                    if (sCode in 200..299 && sResp.isNotBlank()) {
+                        artistTracks = client.parseSearchResults(sResp)
+                    }
+                }
+                var artistCount = 0
+                for (t in artistTracks) {
+                    if (artistCount >= 2) break
+                    if (addTrack(t)) artistCount++
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Hierarchical Tier 1 (Artist) note: ${e.message}")
+            }
+        }
+
+        // 2. Tier 2: Same Movie / Soundtrack / Album (3-5 tracks)
+        val movieOrAlbum = extractMovieOrAlbumContext(seedTrack)
+        if (!movieOrAlbum.isNullOrBlank()) {
+            try {
+                val searchQuery = "$movieOrAlbum songs"
+                val (code, resp) = client.search(searchQuery, type = "song")
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val albumTracks = client.parseSearchResults(resp)
+                    var albumCount = 0
+                    for (t in albumTracks) {
+                        if (albumCount >= 4) break
+                        if (addTrack(t)) albumCount++
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Hierarchical Tier 2 (Movie/Album) note: ${e.message}")
+            }
+        }
+
+        // 3. Tier 3: Same Genre & Acoustic Vibe (15-20 tracks)
+        val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
+        var genreTracks = emptyList<TrackItem>()
+        if (cleanId.isNotBlank()) {
+            try {
+                val (code, resp) = client.getRadioNext(cleanId)
+                if (code in 200..299 && resp.isNotBlank()) {
+                    genreTracks = client.parseRadioNext(resp)
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Hierarchical Tier 3 (RadioNext) note: ${e.message}")
+            }
+        }
+        if (genreTracks.isEmpty()) {
+            try {
+                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                val magicResult = client.getMagicRadio(localHour = hour, seedTrackId = cleanId)
+                if (magicResult != null && magicResult.queue.isNotEmpty()) {
+                    genreTracks = magicResult.queue
+                }
+            } catch (_: Exception) {}
+        }
+        if (genreTracks.isEmpty() && cleanArtist.isNotBlank()) {
+            try {
+                val (code, resp) = client.search("$cleanArtist radio mix", type = "song")
+                if (code in 200..299 && resp.isNotBlank()) {
+                    genreTracks = client.parseSearchResults(resp)
+                }
+            } catch (_: Exception) {}
+        }
+        for (t in genreTracks) {
+            if (result.size >= 28) break
+            addTrack(t)
+        }
+
+        // 4. Tier 4: Algorithmic Expansion / Fresh Discoveries up to 50 tracks
+        if (result.size < 50 && cleanArtist.isNotBlank()) {
+            try {
+                val (code, resp) = client.search("$cleanArtist mix", type = "song")
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val mixTracks = client.parseSearchResults(resp)
+                    for (t in mixTracks) {
+                        if (result.size >= 50) break
+                        addTrack(t)
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        return result
+    }
+
+    /**
      * Strategy A: Dynamic YouTube Algorithmic Radio Graph (Guest Mode Only).
      *
-     * Queries YouTube Music's native /next endpoint with playlistId = RDAMVM<videoId>
-     * to populate 25-50 vibe, artist, and genre-matched tracks into the active playback queue.
-     * When the guest selects a new track (e.g. Imagine Dragons -> ballad -> EDM), the algorithm
-     * dynamically shifts the upcoming queue to match that seed track.
+     * Structures a 50-track hierarchical affinity queue:
+     * 1-2 tracks by same artist -> 3-5 tracks from same movie/album -> 15-20 genre tracks -> discoveries.
      */
     fun fetchGuestAlgorithmicRadio(seedTrack: TrackItem, append: Boolean = false) {
         if (_isYouTubeConnected.value) return // Strictly guest mode only
-        val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
-        if (cleanId.isBlank() && seedTrack.title.isBlank()) return
+        if (seedTrack.id.isBlank() && seedTrack.title.isBlank()) return
 
         guestRadioJob?.cancel()
         guestRadioJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Guest Algorithmic Radio (Strategy A): Fetching radio graph for '${seedTrack.title}' ($cleanId)...")
-                var radioTracks: List<TrackItem> = emptyList()
+                Log.d(TAG, "Guest Algorithmic Radio: Building hierarchical affinity queue for '${seedTrack.title}'...")
+                val hierarchicalTracks = buildHierarchicalAffinityQueue(seedTrack)
 
-                // Primary (Strategy A): YouTube's native /next radio graph (RDAMVM<videoId>)
-                if (cleanId.isNotBlank()) {
-                    val (code, resp) = client.getRadioNext(cleanId)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        radioTracks = client.parseRadioNext(resp).filter {
-                            it.id != seedTrack.id && it.title.isNotBlank()
-                        }
-                    }
-                }
-
-                // Fallback: If RDAMVM returned empty or seed is local, search for artist + title radio
-                if (radioTracks.isEmpty() && seedTrack.title.isNotBlank()) {
-                    val query = "${seedTrack.artist} ${seedTrack.title} radio".trim()
-                    val (sCode, sResp) = client.search(query, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        radioTracks = client.parseSearchResults(sResp).filter {
-                            it.id != seedTrack.id && it.title.isNotBlank()
-                        }
-                    }
-                }
-
-                // Hydrate up to 50 tracks to create a rich mix queue like YouTube Music
-                if (radioTracks.size in 1..40 && seedTrack.title.isNotBlank()) {
-                    val query = "${seedTrack.artist} mix".trim()
-                    val (sCode, sResp) = client.search(query, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        val extra = client.parseSearchResults(sResp).filter { ex ->
-                            ex.id != seedTrack.id && ex.title.isNotBlank() && radioTracks.none { r -> r.id == ex.id }
-                        }
-                        radioTracks = (radioTracks + extra).take(50)
-                    }
-                }
-
-                if (radioTracks.isNotEmpty()) {
+                if (hierarchicalTracks.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         if (!_isYouTubeConnected.value) {
                             val updatedQueue = if (append) {
                                 val existingIds = _currentQueue.value.map { it.id }.toSet()
-                                _currentQueue.value + radioTracks.filter { !existingIds.contains(it.id) }
+                                _currentQueue.value + hierarchicalTracks.filter { !existingIds.contains(it.id) }
                             } else {
-                                listOf(seedTrack) + radioTracks
+                                hierarchicalTracks
                             }
                             _currentQueue.value = updatedQueue
                             serviceConnection.setQueue(updatedQueue)
@@ -1698,15 +1929,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val vibeLabel = seedTrack.artist.ifBlank { "Algorithmic" }
                                 com.cubicreates.unboundmusic.util.UnboundToast.show(
                                     getApplication(),
-                                    "Radio: Shifted to $vibeLabel vibe",
+                                    "Radio: Shifted to $vibeLabel vibe (${updatedQueue.size} tracks)",
                                     isLong = false
                                 )
                             }
-                            Log.i(TAG, "Guest Algorithmic Radio: Successfully shifted queue to ${updatedQueue.size} tracks for '${seedTrack.title}' (${seedTrack.artist})")
+                            Log.i(TAG, "Guest Algorithmic Radio: Shifted queue to ${updatedQueue.size} tracks for '${seedTrack.title}'")
                         }
                     }
-                } else {
-                    Log.w(TAG, "Guest Algorithmic Radio: No recommendations returned for ${seedTrack.title}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Guest Algorithmic Radio error: ${e.message}")
@@ -1717,64 +1946,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var automixJob: Job? = null
 
     /**
-     * Queries YouTube Music's official /next automix algorithm (RDAMVM + videoId) to populate
-     * 25-50 algorithmically matched songs into the active player queue.
-     * Works for both signed-in (personalized) and guest users (acoustic/collaborative filtering).
+     * Queries automix algorithm to populate 50 hierarchical affinity matched songs into active player queue.
      */
     fun fetchAutomixQueue(seedTrack: TrackItem, append: Boolean = false) {
         if (seedTrack.id.isBlank() || seedTrack.id.startsWith("local:")) return
         automixJob?.cancel()
         automixJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                var nextTracks: List<TrackItem> = emptyList()
+                Log.d(TAG, "Automix: Building hierarchical affinity queue for '${seedTrack.title}'...")
+                val hierarchicalTracks = buildHierarchicalAffinityQueue(seedTrack)
 
-                // 1. Primary: On-device Markov Serendipity Radio generator with taste affinity re-ranking
-                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                val magicResult = client.getMagicRadio(localHour = hour, seedTrackId = seedTrack.id)
-                if (magicResult != null && magicResult.queue.isNotEmpty()) {
-                    nextTracks = magicResult.queue.filter { it.id != seedTrack.id }
-                }
-
-                // 2. Secondary: InnerTube /next endpoint
-                if (nextTracks.isEmpty()) {
-                    val (code, resp) = client.getRadioNext(seedTrack.id)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        nextTracks = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
-                    }
-                }
-
-                // 3. Zero-fail fallback: If /next was empty or failed, use YouTube search radio query
-                if (nextTracks.isEmpty()) {
-                    val query = "${seedTrack.artist} ${seedTrack.title} radio"
-                    val (sCode, sResp) = client.search(query, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        nextTracks = client.parseSearchResults(sResp).filter { it.id != seedTrack.id }
-                    }
-                }
-
-                // Hydrate up to 50 tracks to create a rich mix queue like YouTube Music
-                if (nextTracks.size in 1..40 && seedTrack.title.isNotBlank()) {
-                    val query = "${seedTrack.artist} mix".trim()
-                    val (sCode, sResp) = client.search(query, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        val extra = client.parseSearchResults(sResp).filter { ex ->
-                            ex.id != seedTrack.id && ex.title.isNotBlank() && nextTracks.none { r -> r.id == ex.id }
-                        }
-                        nextTracks = (nextTracks + extra).take(50)
-                    }
-                }
-
-                if (nextTracks.isNotEmpty()) {
+                if (hierarchicalTracks.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         val updatedQueue = if (append) {
                             val existingIds = _currentQueue.value.map { it.id }.toSet()
-                            _currentQueue.value + nextTracks.filter { !existingIds.contains(it.id) }
+                            _currentQueue.value + hierarchicalTracks.filter { !existingIds.contains(it.id) }
                         } else {
-                            listOf(seedTrack) + nextTracks
+                            hierarchicalTracks
                         }
                         _currentQueue.value = updatedQueue
                         serviceConnection.setQueue(updatedQueue)
-                        Log.i(TAG, "Automix queue hydrated with ${nextTracks.size} algorithmic tracks for '${seedTrack.title}'")
+                        Log.i(TAG, "Automix queue hydrated with ${updatedQueue.size} tracks for '${seedTrack.title}'")
                     }
                 }
             } catch (e: Exception) {

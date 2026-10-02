@@ -34,9 +34,9 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.data.AudioCategory
 
 data class TrackItem(
-    val title: String,
-    val artist: String,
-    val coverUrl: String,
+    val title: String = "",
+    val artist: String = "",
+    val coverUrl: String = "",
     val streamUrl: String = "",
     val id: String = "",
     val album: String = "",

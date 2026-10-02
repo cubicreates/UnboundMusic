@@ -62,7 +62,9 @@ fun HomeScreen(
     isVibeLoading: Boolean = false,
     vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
     onVibeSubmit: (String) -> Unit = {},
-    onClearVibe: () -> Unit = {}
+    onClearVibe: () -> Unit = {},
+    quickPicksTitle: String = "Trending Quick Picks",
+    quickPicksSubtitle: String = "Start a radio or continuous mix"
 ) {
     Box(
         modifier = modifier
@@ -130,7 +132,9 @@ fun HomeScreen(
                 isVibeLoading = isVibeLoading,
                 vibeState = vibeState,
                 onVibeSubmit = onVibeSubmit,
-                onClearVibe = onClearVibe
+                onClearVibe = onClearVibe,
+                quickPicksTitle = quickPicksTitle,
+                quickPicksSubtitle = quickPicksSubtitle
             )
         }
     }

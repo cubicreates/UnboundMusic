@@ -96,7 +96,9 @@ fun GuestHomeScreen(
     isVibeLoading: Boolean = false,
     vibeState: VibeSearchUiState = VibeSearchUiState.Idle,
     onVibeSubmit: (String) -> Unit = {},
-    onClearVibe: () -> Unit = {}
+    onClearVibe: () -> Unit = {},
+    quickPicksTitle: String = "Trending Quick Picks",
+    quickPicksSubtitle: String = "Start a radio or continuous mix"
 ) {
     val hour = remember {
         java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -207,13 +209,13 @@ fun GuestHomeScreen(
                     title = when {
                         isVibeActive -> "Vibe: \"$vibePrompt\""
                         isVibeLoadingNow -> "Tuning Vibe Radio..."
-                        selectedMood.equals("All", ignoreCase = true) -> "Trending Quick Picks"
+                        selectedMood.equals("All", ignoreCase = true) -> quickPicksTitle
                         else -> "$selectedMood Picks"
                     },
                     subtitle = when {
                         isVibeActive -> "Curated Vibe Tracks (${quickPicksTracks.size})"
                         isVibeLoadingNow -> "Synthesizing and fetching tracks for your mood..."
-                        selectedMood.equals("All", ignoreCase = true) -> "Start a radio or continuous mix"
+                        selectedMood.equals("All", ignoreCase = true) -> quickPicksSubtitle
                         isMoodLoading -> "Fetching $selectedMood soundtrack..."
                         else -> "Curated $selectedMood soundtrack"
                     },

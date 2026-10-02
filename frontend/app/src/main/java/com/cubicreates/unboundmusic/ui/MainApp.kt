@@ -86,6 +86,9 @@ fun MainApp(
     val youtubeCount by viewModel.youtubeCount.collectAsStateWithLifecycle()
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
+    val adaptiveQuickPicks by viewModel.adaptiveQuickPicks.collectAsStateWithLifecycle()
+    val quickPicksTitle by viewModel.quickPicksTitle.collectAsStateWithLifecycle()
+    val quickPicksSubtitle by viewModel.quickPicksSubtitle.collectAsStateWithLifecycle()
     val searchCategory by viewModel.searchCategory.collectAsStateWithLifecycle()
     val searchSuggestions by viewModel.searchSuggestions.collectAsStateWithLifecycle()
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
@@ -246,7 +249,9 @@ fun MainApp(
                     when (tab) {
                         NavigationTab.HOME -> {
                             HomeScreen(
-                                tracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                tracks = if (adaptiveQuickPicks.isNotEmpty()) adaptiveQuickPicks else if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
+                                quickPicksTitle = quickPicksTitle,
+                                quickPicksSubtitle = quickPicksSubtitle,
                                 syncedYouTubeTracks = syncedYouTubeTracks,
                                 userMixes = userMixes,
                                 smartShelves = smartShelves,

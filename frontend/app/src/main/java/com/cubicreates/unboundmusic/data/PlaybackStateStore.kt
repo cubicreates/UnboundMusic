@@ -243,6 +243,34 @@ object PlaybackStateStore {
         getPrefs(context).edit().putBoolean(KEY_SPONSOR_BLOCK, enabled).apply()
     }
 
+    private const val KEY_LOCKSCREEN_WALLPAPER = "key_lockscreen_wallpaper_enabled"
+    private const val KEY_VLC_AUTO_SCAN = "key_vlc_auto_scan_enabled"
+    private const val KEY_ONBOARDING_COMPLETED = "key_onboarding_completed"
+
+    fun isLockscreenWallpaperEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_LOCKSCREEN_WALLPAPER, true)
+    }
+
+    fun setLockscreenWallpaperEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_LOCKSCREEN_WALLPAPER, enabled).apply()
+    }
+
+    fun isVlcAutoScanEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_VLC_AUTO_SCAN, true)
+    }
+
+    fun setVlcAutoScanEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_VLC_AUTO_SCAN, enabled).apply()
+    }
+
+    fun hasCompletedOnboarding(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_ONBOARDING_COMPLETED, false)
+    }
+
+    fun setCompletedOnboarding(context: Context, completed: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_ONBOARDING_COMPLETED, completed).apply()
+    }
+
     // ==================== Queue & Position Persistence ====================
 
     fun savePlaybackState(context: Context, track: TrackItem, queue: List<TrackItem>, positionMs: Long) {

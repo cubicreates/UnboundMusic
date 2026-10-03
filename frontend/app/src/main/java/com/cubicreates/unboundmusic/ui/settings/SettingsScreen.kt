@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restore
@@ -117,12 +118,16 @@ fun SettingsScreen(
     skipSilenceEnabled: Boolean = false,
     normalizeVolumeEnabled: Boolean = false,
     sponsorBlockEnabled: Boolean = true,
+    lockscreenWallpaperEnabled: Boolean = true,
+    vlcAutoScanEnabled: Boolean = true,
     streamingQuality: AudioQuality = AudioQuality.HIGH,
     downloadQuality: AudioQuality = AudioQuality.HIGH,
     onAutoDownloadLikedSongsChange: (Boolean) -> Unit = {},
     onSkipSilenceChange: (Boolean) -> Unit = {},
     onNormalizeVolumeChange: (Boolean) -> Unit = {},
     onSponsorBlockChange: (Boolean) -> Unit = {},
+    onLockscreenWallpaperChange: (Boolean) -> Unit = {},
+    onVlcAutoScanChange: (Boolean) -> Unit = {},
     onStreamingQualityChange: (AudioQuality) -> Unit = {},
     onDownloadQualityChange: (AudioQuality) -> Unit = {},
     onOpenDownloadsHub: () -> Unit = {},
@@ -538,6 +543,28 @@ fun SettingsScreen(
                     accentColor = Color(0xFFB388FF),
                     checked = sponsorBlockEnabled,
                     onCheckedChange = onSponsorBlockChange
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.Lock,
+                    title = "Lock Screen Artwork Wallpaper",
+                    subtitle = "Display live album artwork on lock screen while music plays",
+                    accentColor = Color(0xFF00E676),
+                    checked = lockscreenWallpaperEnabled,
+                    onCheckedChange = onLockscreenWallpaperChange
+                )
+
+                ModernRowDivider()
+
+                ModernGroupedToggleRow(
+                    icon = Icons.Default.Sync,
+                    title = "VLC Background Storage Auto-Scan",
+                    subtitle = "Silently index new audio files from storage and folders on app launch",
+                    accentColor = Color(0xFF2979FF),
+                    checked = vlcAutoScanEnabled,
+                    onCheckedChange = onVlcAutoScanChange
                 )
             }
 

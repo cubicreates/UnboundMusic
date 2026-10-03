@@ -119,6 +119,8 @@ fun MainOverlayHost(
     val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
     val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
     val downloadQuality by viewModel.downloadQuality.collectAsStateWithLifecycle()
+    val isLockscreenWallpaperEnabled by viewModel.isLockscreenWallpaperEnabled.collectAsStateWithLifecycle()
+    val isVlcAutoScanEnabled by viewModel.isVlcAutoScanEnabled.collectAsStateWithLifecycle()
     val deviceAuthData by viewModel.deviceAuthData.collectAsStateWithLifecycle()
     val isStartingDeviceAuth by viewModel.isStartingDeviceAuth.collectAsStateWithLifecycle()
     val isPollingDeviceAuth by viewModel.isPollingDeviceAuth.collectAsStateWithLifecycle()
@@ -212,12 +214,16 @@ fun MainOverlayHost(
             skipSilenceEnabled = skipSilenceEnabled,
             normalizeVolumeEnabled = normalizeVolumeEnabled,
             sponsorBlockEnabled = sponsorBlockEnabled,
+            lockscreenWallpaperEnabled = isLockscreenWallpaperEnabled,
+            vlcAutoScanEnabled = isVlcAutoScanEnabled,
             streamingQuality = streamingQuality,
             downloadQuality = downloadQuality,
             onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
             onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
             onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
             onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
+            onLockscreenWallpaperChange = { viewModel.setLockscreenWallpaperEnabled(it) },
+            onVlcAutoScanChange = { viewModel.setVlcAutoScanEnabled(it) },
             onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
             onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
             onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },

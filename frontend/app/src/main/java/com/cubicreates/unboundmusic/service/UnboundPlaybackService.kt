@@ -51,6 +51,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import com.cubicreates.unboundmusic.MainActivity
 import com.cubicreates.unboundmusic.R
+import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.audio.CrossfadeFilterAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerAudioProcessor
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
@@ -367,6 +368,19 @@ class UnboundPlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 Log.i(TAG, "onMediaItemTransition: title=${mediaItem?.mediaMetadata?.title}, id=${mediaItem?.mediaId}, uri=${mediaItem?.localConfiguration?.uri}")
                 lastFailedMediaId = null
+                val meta = mediaItem?.mediaMetadata
+                if (mediaItem != null && meta != null && !meta.title.isNullOrBlank()) {
+                    val track = TrackItem(
+                        id = mediaItem.mediaId,
+                        title = meta.title.toString(),
+                        artist = meta.artist?.toString() ?: "",
+                        coverUrl = meta.artworkUri?.toString() ?: "",
+                        streamUrl = mediaItem.localConfiguration?.uri?.toString() ?: ""
+                    )
+                    LockscreenArtworkManager.updateLockscreenArtwork(applicationContext, track)
+                } else {
+                    LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
+                }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -378,6 +392,9 @@ class UnboundPlaybackService : MediaSessionService() {
                     else -> "STATE_$playbackState"
                 }
                 Log.i(TAG, "Playback state: $stateName, playWhenReady=${exoPlayer?.playWhenReady}, isPlaying=${exoPlayer?.isPlaying}, volume=${exoPlayer?.volume}")
+                if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
+                    LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -474,6 +491,7 @@ class UnboundPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "Destroying Unbound Playback Service.")
+        LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
         daemonWatchdog?.stop()
         daemonWatchdog = null
         serviceScope.cancel()

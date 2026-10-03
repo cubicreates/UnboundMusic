@@ -164,6 +164,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadQuality = MutableStateFlow(PlaybackStateStore.getDownloadQuality(application))
     val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
 
+    private val _isLockscreenWallpaperEnabled = MutableStateFlow(PlaybackStateStore.isLockscreenWallpaperEnabled(application))
+    val isLockscreenWallpaperEnabled: StateFlow<Boolean> = _isLockscreenWallpaperEnabled.asStateFlow()
+
+    fun setLockscreenWallpaperEnabled(enabled: Boolean) {
+        _isLockscreenWallpaperEnabled.value = enabled
+        PlaybackStateStore.setLockscreenWallpaperEnabled(getApplication(), enabled)
+        if (!enabled) {
+            com.cubicreates.unboundmusic.service.LockscreenArtworkManager.clearLockscreenArtwork(getApplication())
+        } else {
+            val track = _currentTrack.value
+            if (track.id.isNotBlank() && track.title.isNotBlank()) {
+                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.updateLockscreenArtwork(getApplication(), track)
+            }
+        }
+    }
+
+    private val _isVlcAutoScanEnabled = MutableStateFlow(PlaybackStateStore.isVlcAutoScanEnabled(application))
+    val isVlcAutoScanEnabled: StateFlow<Boolean> = _isVlcAutoScanEnabled.asStateFlow()
+
+    fun setVlcAutoScanEnabled(enabled: Boolean) {
+        _isVlcAutoScanEnabled.value = enabled
+        PlaybackStateStore.setVlcAutoScanEnabled(getApplication(), enabled)
+    }
+
     fun setStreamingQuality(quality: AudioQuality) {
         _streamingQuality.value = quality
         PlaybackStateStore.setStreamingQuality(getApplication(), quality)
@@ -3292,6 +3316,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun rescanLocalStorage() {
         performUniversalAudioScan()
+    }
+
+    /**
+     * Silent differential storage scan modeled after VLC Media Player.
+     * Runs in the background on app open/resume to detect newly added audio files
+     * from downloads, WhatsApp, Telegram, or file transfers without interrupting UI.
+     */
+    fun triggerVlcDifferentialStorageScan(silent: Boolean = true) {
+        if (!PlaybackStateStore.isVlcAutoScanEnabled(getApplication())) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                performUniversalAudioScan()
+            } catch (e: Throwable) {
+                Log.w(TAG, "VLC differential auto-scan note: ${e.message}")
+            }
+        }
     }
 
     fun refreshLibrary() {

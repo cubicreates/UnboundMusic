@@ -47,22 +47,27 @@ class MainActivity : ComponentActivity() {
     private val mainViewModel: MainViewModel by viewModels()
 
 
+    private val showOnboardingState = androidx.compose.runtime.mutableStateOf(false)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions[Manifest.permission.READ_MEDIA_AUDIO] == true
+            permissions[Manifest.permission.READ_MEDIA_AUDIO] == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
         } else {
             permissions[Manifest.permission.READ_EXTERNAL_STORAGE] == true ||
-            permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] == true
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         }
         if (audioGranted) {
             lifecycleScope.launch(Dispatchers.IO) {
                 com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
             }
-            mainViewModel.rescanLocalStorage()
+            mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
         }
         promptBatteryOptimizationIfNeeded()
+        com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this, true)
+        showOnboardingState.value = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,14 +94,19 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {}
         }
 
-        // Check & request runtime audio and notification permissions
-        checkAndRequestPermissions()
+        // Check if first-run permissions onboarding should display
+        if (!com.cubicreates.unboundmusic.data.PlaybackStateStore.hasCompletedOnboarding(this)) {
+            showOnboardingState.value = true
+        } else {
+            checkAndRequestPermissions()
+        }
 
         setContent {
             val selectedTheme by mainViewModel.selectedTheme.collectAsStateWithLifecycle()
             val isAppReady by mainViewModel.isAppReady.collectAsStateWithLifecycle()
             val startupPhase by mainViewModel.startupPhase.collectAsStateWithLifecycle()
             val startupProgress by mainViewModel.startupProgress.collectAsStateWithLifecycle()
+            val showOnboarding by showOnboardingState
 
             UnboundMusicTheme(themePreset = selectedTheme) {
                 Crossfade(
@@ -115,6 +125,67 @@ class MainActivity : ComponentActivity() {
                     } else {
                         MainApp(viewModel = mainViewModel)
                     }
+                }
+
+                // Studio Brutalist One-Tap Permissions Onboarding Modal
+                if (showOnboarding) {
+                    val audioGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    } else {
+                        ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    }
+                    val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                    } else true
+                    val micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                    val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+                    val batteryOptimized = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        powerManager?.isIgnoringBatteryOptimizations(packageName) == true
+                    } else true
+                    val allFilesGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        Environment.isExternalStorageManager()
+                    } else true
+
+                    com.cubicreates.unboundmusic.ui.components.PermissionsOnboardingSheet(
+                        audioGranted = audioGranted,
+                        notificationsGranted = notifGranted,
+                        microphoneGranted = micGranted,
+                        batteryOptimized = batteryOptimized,
+                        allFilesGranted = allFilesGranted,
+                        onGrantAllClicked = {
+                            val toRequest = mutableListOf<String>()
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                if (!audioGranted) toRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
+                                if (!notifGranted) toRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                if (!audioGranted) toRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                            }
+                            if (!micGranted) toRequest.add(Manifest.permission.RECORD_AUDIO)
+
+                            if (toRequest.isNotEmpty()) {
+                                permissionLauncher.launch(toRequest.toTypedArray())
+                            } else {
+                                promptBatteryOptimizationIfNeeded()
+                                com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this@MainActivity, true)
+                                showOnboardingState.value = false
+                            }
+                        },
+                        onRequestAllFilesClicked = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                try {
+                                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                        data = Uri.parse("package:$packageName")
+                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    startActivity(intent)
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        onDismissOrSkip = {
+                            com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this@MainActivity, true)
+                            showOnboardingState.value = false
+                        }
+                    )
                 }
             }
         }

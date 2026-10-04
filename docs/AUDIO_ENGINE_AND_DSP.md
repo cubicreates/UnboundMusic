@@ -145,8 +145,8 @@ graph LR
    - Each anchor peak $(t_1, f_1)$ is paired with target peaks in a forward time window $[t_1 + 1, t_1 + 10]$ to produce landmark tuples $(f_1, f_2, \Delta t)$.
 5. **Binary Signature Ring Buffer**:
    - The landmark tuples are packed into the official 2.5 KB binary Shazam signature format (`SignatureRingBuffer`), prepended with CRC32 checksums.
-6. **Zero Cloud Cost**:
-   - The binary buffer is posted to Shazam's public discovery endpoint. Zero developer tokens, API subscriptions, or third-party cloud costs are required ($0.00).
+6. **Autonomous On-Device Execution**:
+   - The binary buffer is posted to Shazam's public discovery endpoint. Zero developer tokens, API subscriptions, or external relay servers are required.
    - If offline, the landmarks are compared against the local SQLite fingerprint database using Hamming distance in $< 2\,\text{ms}$.
 
 ---

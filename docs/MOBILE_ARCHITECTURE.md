@@ -166,3 +166,69 @@ In `UnboundApplication.kt`, Coil is tuned specifically for fast scrolling in den
 * **Memory Cache**: Allocates 25% of total available application RAM to cache bitmap decodes in memory.
 * **Disk Cache**: 50 MB dedicated disk cache in `cacheDir/image_cache`.
 * **Header Override**: Ignores remote HTTP `Cache-Control: no-cache` headers on YouTube CDN image URLs, ensuring album covers remain persistently cached offline.
+
+---
+
+## 7. Dynamic Lock Screen Artwork Wallpaper Engine
+
+The lockscreen visual engine is implemented in `com.cubicreates.unboundmusic.service.LockscreenArtworkManager`:
+
+### 7.1 Architecture & Lifecycle
+* **Hardware Lock Screen Flag**: Applies artwork exclusively to `WallpaperManager.FLAG_LOCK`, preventing any alteration to the user's primary desktop wallpaper.
+* **Software-Memory Bitmap Decoding**: Coil is invoked with `.allowHardware(false)`. Android hardware bitmaps (`Bitmap.Config.HARDWARE`) reside strictly in GPU memory and cannot be directly drawn onto software `Canvas` buffers without throwing an `IllegalArgumentException`. Forcing software-backed bitmaps guarantees crash-free rendering across diverse OEM Vulkan/OpenGL implementations.
+* **Studio Brutalist OLED Compositing**:
+  1. Measures device screen width and height via `DisplayMetrics`.
+  2. Creates a target `Bitmap` initialized with pure OLED pitch black (`#000000`).
+  3. Paints a scaled, darkened, heavily blurred representation of the album artwork across the full height as an ambient backdrop.
+  4. Centers the sharp, uncompressed album art square, bordered by a subtle 1.5dp glassmorphic rim.
+* **Automated Cleanup & State Restoration**:
+  - Integrated directly into `UnboundPlaybackService.kt` listener hooks:
+    - `onMediaItemTransition`: Loads and applies new track artwork.
+    - `onPlaybackStateChanged`: When state transitions to `STATE_ENDED` or when paused, the engine invokes `wallpaperManager.clear(WallpaperManager.FLAG_LOCK)` to instantly restore the user's default wallpaper.
+    - `onDestroy`: Safety teardown guarantees wallpaper restoration on service termination.
+
+---
+
+## 8. One-Tap Studio Brutalist Permissions Startup Deck
+
+Implemented in `com.cubicreates.unboundmusic.ui.components.PermissionsOnboardingSheet`:
+
+### 8.1 Batch Acquisition Flow
+Modern Android apps often interrupt users with staggered runtime dialogs as features are unlocked. Unbound Music resolves this with a unified, brutalist startup deck presented once on first launch:
+1. **Audio & Media Files**: `READ_MEDIA_AUDIO` / `READ_EXTERNAL_STORAGE` for music playback.
+2. **Notifications & Lockscreen**: `POST_NOTIFICATIONS` for background player controls.
+3. **Acoustic Shazam Fingerprinting**: `RECORD_AUDIO` for 16kHz microphone stream analysis.
+4. **Unrestricted Battery Whitelist**: Directs the user to exempt Unbound Music from battery optimization (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), preventing OEMs from killing long audio streams.
+5. **VLC Deep Storage Access**: Prompts for `MANAGE_EXTERNAL_STORAGE` on Android 11+ to crawl music files outside standard MediaStore partitions.
+
+### 8.2 Zero Overhead on Subsequent Boots
+Completion is recorded in `PlaybackStateStore.setCompletedOnboarding(context, true)`. On all subsequent launches, `MainActivity` detects this flag synchronously and opens directly to the music player in $< 100\text{ ms}$, entirely bypassing Compose dialog construction.
+
+---
+
+## 9. VLC-Style Differential Storage Auto-Scanner
+
+Exposed via `MainViewModel.triggerVlcDifferentialStorageScan(silent = true)`:
+
+### 9.1 Background Differential Ingestion
+* **Trigger Conditions**: Fires on `MainActivity.onResume()` and immediately following permission grants in `PermissionsOnboardingSheet`.
+* **Asynchronous Execution**: Dispatches entirely to `Dispatchers.IO` via Kotlin Coroutines.
+* **Differential Crawling**: Queries `MediaStore.Audio.Media.EXTERNAL_CONTENT_URI` alongside recursive directory walks through common user media folders (`Download/`, `Music/`, `WhatsApp/Media/`, `Telegram/`). Compares file paths, sizes, and timestamps against existing SQLite database records, indexing new tracks without redundant reads or UI frame drops.
+
+---
+
+## 10. Local Media Production Suite
+
+### 10.1 TagLib / MediaStore Metadata Editor
+* Enables users to edit ID3v1, ID3v2, MP4 metadata, and Vorbis comments directly on device files.
+* Allows live updates of Title, Artist, Album, Year, Genre, and embedded album art.
+
+### 10.2 Waveform Ringtone Trimmer (`RingtoneCutterSheet.kt`)
+* Visual audio waveform representation rendered dynamically using PCM amplitude peak extraction.
+* Millisecond-accurate start and end markers with real-time scrub preview.
+* Direct export of trimmed audio to the Android system `Ringtones/` directory with automatic `RingtoneManager` notification registration.
+
+### 10.3 Backup & Restore Engine
+* Full backup archive creation bundling playlists, favorites, custom EQ presets, and play counts into a compressed JSON/ZIP file.
+* Cross-device restoration capability for effortless migration.
+

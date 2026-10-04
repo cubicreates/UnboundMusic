@@ -2,6 +2,25 @@
 
 All notable changes to the Unbound Music project are documented in this file.
 
+## [2.1.0] - 2026-10-04
+
+### Features & System Hardening
+
+#### 🔒 Dynamic Lock Screen Wallpaper Artwork Engine
+- **Hardware Integration**: Added `android.permission.SET_WALLPAPER` and implemented `LockscreenArtworkManager.kt` targeting `WallpaperManager.FLAG_LOCK`.
+- **OLED Composite Rendering**: Software bitmap pipeline via Coil (`allowHardware(false)`) rendering a blurred, darkened ambient background with a centered, uncompressed album art square and glassmorphic border.
+- **Automated Lifecycle Synchronization**: Tied into `UnboundPlaybackService.kt` to update wallpaper on track change and automatically clear/restore system wallpaper on pause, track completion, or service termination.
+- **Settings Toggle**: Added user control under **Settings > Playback & Automation > Lock Screen Artwork Wallpaper**.
+
+#### ⚡ One-Tap Studio Brutalist Permissions Startup Deck
+- **Unified Onboarding Modal**: Implemented `PermissionsOnboardingSheet.kt` bundling Media Audio, Notifications, Shazam Microphone, Battery Optimization, and VLC Deep Storage Access (`MANAGE_EXTERNAL_STORAGE`).
+- **Zero-Latency Repeat Launch**: Persisted via `PlaybackStateStore.hasCompletedOnboarding()`; subsequent boots bypass modal creation entirely.
+
+#### 🔍 VLC-Style Differential Storage Auto-Scanner
+- **Background Crawler**: Added `triggerVlcDifferentialStorageScan(silent: Boolean)` to `MainViewModel.kt` executing on `Dispatchers.IO`.
+- **Silent Discovery**: Automatically crawls MediaStore and local storage folders on app launch and resume (`MainActivity.onResume()`) without freezing or dropping UI frames.
+- **Settings Toggle**: Added user control under **Settings > Playback & Automation > VLC Background Storage Auto-Scan**.
+
 ## [2.0.0] - 2026-09-30
 
 ### Architectural Overhaul & Remediation (50 Atomic Commits)

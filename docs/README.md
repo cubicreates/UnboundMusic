@@ -53,6 +53,8 @@ docs/
 | **Memory Management** | Dual-GC Coordinated Limits | `backend/pkg/server/` | 128 MiB soft heap ceiling, `GOGC=50`, JNI `onTrimMemory` sweep |
 | **Database & Vector Bank** | SQLite in WAL Mode | `backend/pkg/database/` | Zero-CGO `modernc.org/sqlite`, concurrent readers, taste vectors |
 | **Stream Extraction & Proxy**| Innertube + Dynamic JS Cipher | `backend/pkg/ytmusic/` | Pure Opus/AAC extraction, $<15\text{ms}$ cipher deobfuscation, 30s ring buffer |
-| **Acoustic Recognition** | 16kHz FFT Constellation | `backend/pkg/shazam/` | Official binary signature encoder, $0.00 cloud cost, $<2\text{ms}$ local match |
+| **Acoustic Recognition** | 16kHz FFT Constellation | `backend/pkg/shazam/` | Official binary signature encoder, on-device fingerprinting, $<2\text{ms}$ local match |
 | **Uncensored Lyrics** | Genius Scraper + Forced Aligner| `backend/pkg/genius/` | Chronological uncensored lyrics + RMS vocal energy word-by-word sync |
-| **Storage Architecture** | Two-Folder Scoped Storage | `frontend/.../service/` | Public `Download/Unbound/` vs App-specific `.backend/`, zero-orphan wipe |
+| **Lock Screen Visuals** | Hardware WallpaperManager | `frontend/.../service/` | Live album art projection via `FLAG_LOCK` with OLED composite rendering |
+| **Permissions Architecture**| One-Tap Brutalist Startup Deck | `frontend/.../ui/components/` | Batch onboarding sheet for media, notifications, mic, and battery whitelisting |
+| **Storage Architecture** | Two-Folder Scoped Storage + VLC | `frontend/.../viewmodel/` | Public `Download/Unbound/`, private `.backend/`, and differential auto-scanner |

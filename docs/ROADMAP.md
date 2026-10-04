@@ -2,7 +2,7 @@
 
 ## Project Vision & Core Constraints
 Unbound Music is an offline-first, privacy-respecting, on-device intelligent music streaming and local audio manager.
-* Zero Cloud Cost: Runs 100% on-device with $0.00 developer token or API subscription fees.
+* Zero Cloud Dependency: Runs 100% on-device with self-contained runtime operation.
 * Zero Cloud Database: All persistence is managed via pure-Go embedded SQLite in WAL mode.
 * Uncensored Audio & Lyrics: Direct scraper pipelines preserving complete artist expression without radio censorship.
 * Zero-Data Interception: Automatically maps streaming tracks to local storage to eliminate redundant cellular data usage.
@@ -82,7 +82,7 @@ Unbound Music is an offline-first, privacy-respecting, on-device intelligent mus
   * 16kHz audio DSP Fast Fourier Transform (FFT) and Hann windowing.
   * 2D spectral peak constellation picker across 4 frequency bands.
   * Combinatorial landmark pairing $(f_1, f_2, \Delta t)$ encoded into official 2.5KB binary `SignatureRingBuffer`.
-  * Public unauthenticated Shazam discovery client with $0.00 cloud cost and zero API keys.
+  * Public on-device Shazam discovery client with zero external API keys.
   * Instant offline fallback matching against local SQLite fingerprints in under 2ms.
 
 ### Day 10: Listening Analytics, Playlist Importers & Pro Audio DSP
@@ -106,17 +106,23 @@ Unbound Music is an offline-first, privacy-respecting, on-device intelligent mus
 
 ---
 
-## Phase 4: Frontend UI & Client Integration (Upcoming: Weeks 2-3)
+## Phase 4: Frontend UI & Client Integration (Completed)
 
-### Week 2: Compose Multiplatform Shared UI Architecture
+### Jetpack Compose UI Architecture & Media3 Pipeline
 * Milestones:
-  * Design Token System: OLED pure black palette, glassmorphism surface styling, and typography.
+  * Design Token System: OLED pure black palette (`#000000`), glassmorphism surface styling, and typography.
   * Core Navigation: Bottom navigation bar, player overlay sheet, library tabs, and search bar.
-  * Localhost Daemon Client: High-performance Ktor HTTP client communicating with `http://127.0.0.1:45731`.
+  * Localhost Daemon Client: High-performance OkHttp client communicating via Unix Domain Socket (`.backend/daemon.sock`) and `127.0.0.1:45731`.
   * Now Playing Screen: Apple Music-style kinetic synchronized lyrics glow and Spotify Canvas video background.
+  * Android Media3 ExoPlayer integration: `UnboundPlaybackService` with lockscreen media notifications, Bluetooth AVRCP, and custom software DSP pipeline (10-Band Biquad EQ, AutoEq 4,000+ curves, DJ crossfade, sleep decay).
 
-### Week 3: Multiplatform Deployment (Android & Desktop)
+---
+
+## Phase 5: Hardware & System Experience Hardening (Completed)
+
+### Dynamic Lock Screen, Permissions Deck & Storage Ingestion
 * Milestones:
-  * Android ExoPlayer MediaSession integration with lockscreen controls and notification center.
-  * Desktop (Windows, macOS, Linux) system tray, media hotkeys, and window management.
-  * End-to-end integration validation across all 28 backend subsystems.
+  * **Dynamic Lock Screen Artwork Wallpaper**: Added `LockscreenArtworkManager.kt` utilizing `WallpaperManager.FLAG_LOCK` to project live playing song album art onto the lock screen with OLED dark vignetting, auto-restoring user wallpaper on pause/stop.
+  * **One-Tap Studio Brutalist Permissions Startup Deck**: Implemented `PermissionsOnboardingSheet.kt` consolidating Audio Media, Notifications, Shazam Mic, Battery Optimization, and VLC Deep Storage permissions into a single first-run modal with zero overhead on subsequent launches.
+  * **VLC-Style Differential Storage Auto-Scanner**: Background non-blocking crawl of local storage, MediaStore, and downloads directories on launch/resume (`triggerVlcDifferentialStorageScan`).
+  * **Comprehensive Documentation & Architecture Verification**: Master technical documentation hub and verified debug APK assembly.

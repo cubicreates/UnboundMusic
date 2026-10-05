@@ -17,38 +17,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Lineage & Open Source Heritage](#lineage--open-source-heritage)
-2. [Executive Technical Overview](#executive-technical-overview)
-3. [Core Feature Highlights](#core-feature-highlights)
-4. [Verifiable Engineering Specifications](#verifiable-engineering-specifications)
-5. [System Architecture](#system-architecture)
-   - [5.1 End-to-End Hybrid System Architecture](#51-end-to-end-hybrid-system-architecture)
-   - [5.2 Audio DSP, Streaming & Lockscreen Hardware Flow](#52-audio-dsp-streaming--lockscreen-hardware-flow)
-6. [Deep-Dive Engineering Subsystems](#deep-dive-engineering-subsystems)
-   - [6.1 AndroidX Media3 Foreground Playback Service](#61-androidx-media3-foreground-playback-service)
-   - [6.2 Custom AudioProcessor DSP Pipeline & AutoEq](#62-custom-audioprocessor-dsp-pipeline--autoeq)
-   - [6.3 Dynamic Lock Screen Artwork Wallpaper Engine](#63-dynamic-lock-screen-artwork-wallpaper-engine)
-   - [6.4 One-Tap Studio Brutalist Permissions Startup Deck](#64-one-tap-studio-brutalist-permissions-startup-deck)
-   - [6.5 VLC-Style Differential Storage Auto-Scanner](#65-vlc-style-differential-storage-auto-scanner)
-   - [6.6 Embedded Native Go Daemon & Dual-GC Harmony](#66-embedded-native-go-daemon--dual-gc-harmony)
-   - [6.7 YouTube Music Stream Engine & Rolling Cipher Solver](#67-youtube-music-stream-engine--rolling-cipher-solver)
-   - [6.8 Zero-Data Playback Router & 30s Lookahead Proxy](#68-zero-data-playback-router--30s-lookahead-proxy)
-   - [6.9 16kHz FFT Peak Constellation Shazam Identification](#69-16khz-fft-peak-constellation-shazam-identification)
-   - [6.10 Complete Lyrics Engine, Forced Aligner & Romanization](#610-complete-lyrics-engine-forced-aligner--romanization)
-   - [6.11 On-Device Edge AI, Vector Search & Cultural Vibe Engine](#611-on-device-edge-ai-vector-search--cultural-vibe-engine)
-   - [6.12 Local Media Suite: TagLib Editor, Waveform Ringtone Cutter & Audios Partition](#612-local-media-suite-taglib-editor-waveform-ringtone-cutter--audios-partition)
-   - [6.13 Offline P2P Mesh Sync, Ecosystem Integrations & Backup Engine](#613-offline-p2p-mesh-sync-ecosystem-integrations--backup-engine)
-7. [Studio Brutalist Visual Design & Theme Engine](#studio-brutalist-visual-design--theme-engine)
-8. [Embedded Daemon API & IPC Contract](#embedded-daemon-api--ipc-contract)
-9. [Repository Directory Structure](#repository-directory-structure)
-10. [Building, Testing & Deployment](#building-testing--deployment)
-11. [Documentation Knowledge Base](#documentation-knowledge-base)
-12. [License & Security Disclosures](#license--security-disclosures)
-
----
-
 ## Lineage & Open Source Heritage
 
 > **Built upon the visionary foundation of SimpMusic.**

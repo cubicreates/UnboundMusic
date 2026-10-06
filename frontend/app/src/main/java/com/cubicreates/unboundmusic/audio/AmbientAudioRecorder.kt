@@ -49,7 +49,7 @@ object AmbientAudioRecorder {
      * Returns raw PCM byte array ready for Shazam DSP constellation extraction.
      */
     @SuppressLint("MissingPermission")
-    suspend fun recordPcm(durationMs: Int = 15000): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun recordPcm(durationMs: Int = 5000): ByteArray? = withContext(Dispatchers.IO) {
         isCancelledOrStopped.set(false)
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         if (minBufferSize <= 0) {
@@ -138,6 +138,10 @@ object AmbientAudioRecorder {
             Log.i(TAG, "Microphone capture completed: $totalRead bytes gathered, overallPeak=$overallPeak (source=$selectedSource)")
             if (overallPeak == 0) {
                 Log.e(TAG, "Recorded audio is completely silent (0 peak amplitude)! Microphone may be muted or blocked by OS.")
+            }
+            if (totalRead < 16000) {
+                Log.w(TAG, "Captured audio sample is too short ($totalRead bytes < 0.5s)")
+                return@withContext null
             }
             return@withContext outputStream.toByteArray()
         } catch (e: Exception) {

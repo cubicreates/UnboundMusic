@@ -58,7 +58,9 @@ fun LibraryScreen(
     onStartShazam: () -> Unit = {},
     onShufflePlayAll: () -> Unit = {},
     onIdentifyTrack: (TrackItem) -> Unit = {},
-    onBatchIdentify: () -> Unit = {}
+    onBatchIdentify: () -> Unit = {},
+    allFilesGranted: Boolean = true,
+    onRequestAllFilesPermission: () -> Unit = {}
 ) {
     // Dual-Mode Routing:
     // Mode 1: Logged-in YouTube user -> SignedInLibraryScreen (Cloud sync + merged favorites)
@@ -107,7 +109,9 @@ fun LibraryScreen(
             onStartShazam = onStartShazam,
             onShufflePlayAll = onShufflePlayAll,
             onIdentifyTrack = onIdentifyTrack,
-            onBatchIdentify = onBatchIdentify
+            onBatchIdentify = onBatchIdentify,
+            allFilesGranted = allFilesGranted,
+            onRequestAllFilesPermission = onRequestAllFilesPermission
         )
     } else {
         GuestLibraryScreen(
@@ -150,7 +154,9 @@ fun LibraryScreen(
             onStartShazam = onStartShazam,
             onShufflePlayAll = onShufflePlayAll,
             onIdentifyTrack = onIdentifyTrack,
-            onBatchIdentify = onBatchIdentify
+            onBatchIdentify = onBatchIdentify,
+            allFilesGranted = allFilesGranted,
+            onRequestAllFilesPermission = onRequestAllFilesPermission
         )
     }
 }

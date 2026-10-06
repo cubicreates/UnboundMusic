@@ -199,12 +199,17 @@ fun PermissionsOnboardingSheet(
                 Spacer(modifier = Modifier.height(22.dp))
 
                 // Big One-Tap Button
+                val isRPlus = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                val isFullyReady = allCoreGranted && (!isRPlus || allFilesGranted)
+
                 Button(
                     onClick = {
-                        if (allCoreGranted) {
+                        if (isFullyReady) {
                             onDismissOrSkip()
-                        } else {
+                        } else if (!allCoreGranted) {
                             onGrantAllClicked()
+                        } else {
+                            onRequestAllFilesClicked()
                         }
                     },
                     modifier = Modifier
@@ -218,13 +223,13 @@ fun PermissionsOnboardingSheet(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = if (allCoreGranted) Icons.Default.Check else Icons.Default.GraphicEq,
+                            imageVector = if (isFullyReady) Icons.Default.Check else Icons.Default.GraphicEq,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (allCoreGranted) "START LISTENING" else "GRANT ALL PERMISSIONS",
+                            text = if (isFullyReady) "START LISTENING" else "GRANT ALL PERMISSIONS",
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.Monospace,

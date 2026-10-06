@@ -88,26 +88,36 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
-                if (mediaStoreTracks.isNotEmpty()) {
-                    val initialMapped = mediaStoreTracks.map { it.toTrackItem() }
+                val knownKeys = mediaStoreTracks.map {
+                    try {
+                        java.io.File(it.filePath).canonicalPath.lowercase(java.util.Locale.ROOT)
+                    } catch (_: Exception) {
+                        it.filePath.lowercase(java.util.Locale.ROOT)
+                    }
+                }.toSet()
+                val directDiscovered = MediaStoreAudioBridge.scanPhysicalStorageDirect(getApplication(), knownKeys)
+                val allDiscoveredTracks = mediaStoreTracks + directDiscovered
+
+                if (allDiscoveredTracks.isNotEmpty()) {
+                    val initialMapped = allDiscoveredTracks.map { it.toTrackItem() }
                     _libraryTracks.value = initialMapped
                     _musicTracks.value = initialMapped.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
                     _mixedAudioTracks.value = initialMapped.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
 
                     val initialFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                    for (track in mediaStoreTracks) {
+                    for (track in allDiscoveredTracks) {
                         val folderName = track.sourceFolder.ifBlank { "Device Audio" }
                         initialFolders.getOrPut(folderName) { mutableListOf() }.add(track)
                     }
                     _libraryFolders.value = initialFolders
 
-                    _whatsappCount.value = mediaStoreTracks.count {
+                    _whatsappCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("WhatsApp", ignoreCase = true) || it.filePath.contains("WhatsApp", ignoreCase = true)
                     }
-                    _telegramCount.value = mediaStoreTracks.count {
+                    _telegramCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("Telegram", ignoreCase = true) || it.filePath.contains("Telegram", ignoreCase = true)
                     }
-                    _downloadsCount.value = mediaStoreTracks.count {
+                    _downloadsCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("Download", ignoreCase = true) || it.sourceFolder.contains("Unbound", ignoreCase = true) || it.filePath.contains("Download", ignoreCase = true)
                     }
                 }
@@ -115,13 +125,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 try {
                     val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
                     client.scanStorage(deviceRoots)
-                    if (mediaStoreTracks.isNotEmpty()) {
-                        client.ingestMediaStoreTracks(mediaStoreTracks)
+                    if (allDiscoveredTracks.isNotEmpty()) {
+                        client.ingestMediaStoreTracks(allDiscoveredTracks)
                     }
 
                     val daemonTracks = client.getLocalTracks("all")
                     val combinedMap = LinkedHashMap<String, LocalTrack>()
-                    for (track in mediaStoreTracks) {
+                    for (track in allDiscoveredTracks) {
                         combinedMap[track.filePath.lowercase(java.util.Locale.ROOT)] = track
                     }
                     for (track in daemonTracks) {

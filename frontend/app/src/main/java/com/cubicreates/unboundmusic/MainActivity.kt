@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,8 +47,61 @@ class MainActivity : ComponentActivity() {
     private lateinit var serviceConnection: ServiceConnection
     private val mainViewModel: MainViewModel by viewModels()
 
-
     private val showOnboardingState = androidx.compose.runtime.mutableStateOf(false)
+    private var lastKnownAllFilesGranted = false
+
+    private val manageStorageLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+            lastKnownAllFilesGranted = true
+            mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
+        }
+    }
+
+    private val voiceSearchLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = matches?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                mainViewModel.handleVoiceSearchResult(spokenText)
+            }
+        }
+    }
+
+    fun launchVoiceSearch() {
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak a song, artist, or lyrics...")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            }
+            voiceSearchLauncher.launch(intent)
+        } catch (e: Exception) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(this, "Voice search is not available on this device", isLong = false)
+        }
+    }
+
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:$packageName")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                manageStorageLauncher.launch(intent)
+            } catch (_: Exception) {
+                try {
+                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    manageStorageLauncher.launch(intent)
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -66,6 +120,9 @@ class MainActivity : ComponentActivity() {
             mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
         }
         promptBatteryOptimizationIfNeeded()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            requestAllFilesAccess()
+        }
         com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this, true)
         showOnboardingState.value = false
     }
@@ -92,6 +149,18 @@ class MainActivity : ComponentActivity() {
             try {
                 com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
             } catch (_: Throwable) {}
+        }
+
+        // Listen for Voice Search and All-Files Storage Access triggers from ViewModels
+        lifecycleScope.launch {
+            mainViewModel.voiceSearchRequestEvent.collect {
+                launchVoiceSearch()
+            }
+        }
+        lifecycleScope.launch {
+            mainViewModel.storagePermissionRequestEvent.collect {
+                requestAllFilesAccess()
+            }
         }
 
         // Check if first-run permissions onboarding should display
@@ -164,6 +233,8 @@ class MainActivity : ComponentActivity() {
 
                             if (toRequest.isNotEmpty()) {
                                 permissionLauncher.launch(toRequest.toTypedArray())
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !allFilesGranted) {
+                                requestAllFilesAccess()
                             } else {
                                 promptBatteryOptimizationIfNeeded()
                                 com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this@MainActivity, true)
@@ -171,15 +242,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onRequestAllFilesClicked = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                try {
-                                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                                        data = Uri.parse("package:$packageName")
-                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                    }
-                                    startActivity(intent)
-                                } catch (_: Exception) {}
-                            }
+                            requestAllFilesAccess()
                         },
                         onDismissOrSkip = {
                             com.cubicreates.unboundmusic.data.PlaybackStateStore.setCompletedOnboarding(this@MainActivity, true)
@@ -270,6 +333,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val isManager = Environment.isExternalStorageManager()
+            if (isManager && !lastKnownAllFilesGranted) {
+                lastKnownAllFilesGranted = true
+                mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
+            }
+        }
         try {
             DaemonManager.getInstance(this).startDaemonAuto(force = false)
         } catch (e: Throwable) {
@@ -279,5 +349,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            if (!com.cubicreates.unboundmusic.data.PlaybackStateStore.isPlaying(this)) {
+                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(this, synchronous = true)
+            }
+        } catch (_: Throwable) {}
     }
 }

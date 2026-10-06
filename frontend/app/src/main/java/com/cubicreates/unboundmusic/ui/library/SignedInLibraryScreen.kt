@@ -8,6 +8,7 @@
 
 package com.cubicreates.unboundmusic.ui.library
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
@@ -119,7 +120,9 @@ fun SignedInLibraryScreen(
     onStartShazam: () -> Unit = {},
     onShufflePlayAll: () -> Unit = {},
     onIdentifyTrack: (TrackItem) -> Unit = {},
-    onBatchIdentify: () -> Unit = {}
+    onBatchIdentify: () -> Unit = {},
+    allFilesGranted: Boolean = true,
+    onRequestAllFilesPermission: () -> Unit = {}
 ) {
     var subView by remember { mutableStateOf(LibrarySubView.HUB) }
     var selectedFolder by remember { mutableStateOf<AudioFolder?>(null) }
@@ -157,7 +160,12 @@ fun SignedInLibraryScreen(
     }
 
     val effectiveMusicTracks = remember(musicTracks, tracks) {
-        if (musicTracks.isNotEmpty()) musicTracks else tracks.filter { it.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MUSIC || it.isIdentifiedMusic }
+        if (musicTracks.isNotEmpty()) {
+            musicTracks
+        } else {
+            val filtered = tracks.filter { it.audioCategory == com.cubicreates.unboundmusic.data.AudioCategory.MUSIC || it.isIdentifiedMusic }
+            if (filtered.isNotEmpty()) filtered else tracks
+        }
     }
 
     val effectiveMixedAudioTracks = remember(mixedAudioTracks, tracks) {
@@ -259,6 +267,101 @@ fun SignedInLibraryScreen(
                                         color = if (isSelected) OnPrimary else OnSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                                     )
+                                }
+                            }
+                        }
+
+                        // Storage Permission Banner (Android 11+)
+                        if (!allFilesGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .clickable(onClick = onRequestAllFilesPermission),
+                                shape = RoundedCornerShape(18.dp),
+                                color = Color(0xFF261815),
+                                border = BorderStroke(
+                                    1.dp,
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color(0xFFFF9800).copy(alpha = 0.50f),
+                                            Color(0xFFFF5722).copy(alpha = 0.35f),
+                                            BorderGlass
+                                        )
+                                    )
+                                )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    Color(0xFFFF9800).copy(alpha = 0.16f),
+                                                    Color(0xFF221411),
+                                                    Color(0xFF18100E)
+                                                )
+                                            )
+                                        )
+                                        .padding(16.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(46.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(
+                                                    Brush.linearGradient(
+                                                        listOf(Color(0xFFFF9800), Color(0xFFFF5722))
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = Color.Black,
+                                                modifier = Modifier.size(26.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Unlock All Device Folders",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = OnSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Grant All Files access to scan WhatsApp audio, Downloads, Telegram, SD card and custom folders.",
+                                                fontSize = 11.sp,
+                                                color = OnSurfaceVariant,
+                                                lineHeight = 15.sp
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(10.dp))
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(20.dp))
+                                                .background(Color(0xFFFF9800))
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                text = "UNLOCK",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.Black
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

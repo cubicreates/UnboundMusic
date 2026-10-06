@@ -38,7 +38,8 @@ fun ShazamScreen(
     onToggleFavorite: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onDownload: (TrackItem) -> Unit = {},
-    onConnectYouTubeClick: () -> Unit = {}
+    onConnectYouTubeClick: () -> Unit = {},
+    onVoiceSearchClick: () -> Unit = {}
 ) {
     if (isYouTubeConnected) {
         SignedInShazamScreen(
@@ -62,7 +63,8 @@ fun ShazamScreen(
             onStartRadio = onStartRadio,
             onToggleFavorite = onToggleFavorite,
             onAddToPlaylist = onAddToPlaylist,
-            onDownload = onDownload
+            onDownload = onDownload,
+            onVoiceSearchClick = onVoiceSearchClick
         )
     } else {
         GuestShazamScreen(
@@ -84,7 +86,8 @@ fun ShazamScreen(
             onStartRadio = onStartRadio,
             onAddToPlaylist = onAddToPlaylist,
             onDownload = onDownload,
-            onConnectYouTubeClick = onConnectYouTubeClick
+            onConnectYouTubeClick = onConnectYouTubeClick,
+            onVoiceSearchClick = onVoiceSearchClick
         )
     }
 }

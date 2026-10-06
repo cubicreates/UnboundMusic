@@ -47,7 +47,8 @@ fun SearchScreen(
     onAddToQueueBatch: (List<TrackItem>) -> Unit = {},
     onDownloadBatch: (List<TrackItem>) -> Unit = {},
     isListeningAudio: Boolean = false,
-    onClearVibe: () -> Unit = {}
+    onClearVibe: () -> Unit = {},
+    onVoiceSearchClick: () -> Unit = {}
 ) {
     // Dual-Mode Routing:
     // Mode 1: Logged-in / history-active user -> SignedInSearchScreen (Recent searches & tailored suggestions)
@@ -87,7 +88,8 @@ fun SearchScreen(
             onAddToQueueBatch = onAddToQueueBatch,
             onDownloadBatch = onDownloadBatch,
             isListeningAudio = isListeningAudio,
-            onClearVibe = onClearVibe
+            onClearVibe = onClearVibe,
+            onVoiceSearchClick = onVoiceSearchClick
         )
     } else {
         GuestSearchScreen(
@@ -118,7 +120,8 @@ fun SearchScreen(
             onAddToQueueBatch = onAddToQueueBatch,
             onDownloadBatch = onDownloadBatch,
             isListeningAudio = isListeningAudio,
-            onClearVibe = onClearVibe
+            onClearVibe = onClearVibe,
+            onVoiceSearchClick = onVoiceSearchClick
         )
     }
 }

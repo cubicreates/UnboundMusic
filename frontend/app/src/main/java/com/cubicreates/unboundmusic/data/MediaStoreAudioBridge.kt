@@ -12,6 +12,8 @@ package com.cubicreates.unboundmusic.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -205,6 +207,8 @@ object MediaStoreAudioBridge {
         val primary = Environment.getExternalStorageDirectory()
         if (primary != null && primary.exists()) {
             val primaryPath = primary.absolutePath
+            // Include primary external storage root directly so the crawler sweeps every folder
+            roots.add(primaryPath)
             roots.add("$primaryPath/Music")
             roots.add("$primaryPath/Download")
             roots.add("$primaryPath/Downloads")
@@ -266,6 +270,186 @@ object MediaStoreAudioBridge {
         return roots.distinct().filter { File(it).exists() }
     }
 
+    private val SUPPORTED_AUDIO_EXTENSIONS = setOf(
+        "mp3", "m4a", "flac", "wav", "ogg", "opus", "aac", "wma", "alac", "aiff"
+    )
+
+    /**
+     * Direct recursive physical filesystem crawler.
+     * Discovers all audio files across device storage, bypassing MediaStore omissions and .nomedia flags.
+     * Parses ID3 metadata and registers newly found files with Android MediaScanner.
+     */
+    suspend fun scanPhysicalStorageDirect(
+        context: Context,
+        knownCanonicalPaths: Set<String>
+    ): List<LocalTrack> = withContext(Dispatchers.IO) {
+        val discovered = mutableListOf<LocalTrack>()
+        val filesToNotify = mutableListOf<String>()
+        val roots = discoverDeviceStorageRoots(context)
+
+        for (rootPath in roots) {
+            val rootDir = File(rootPath)
+            if (!rootDir.exists() || !rootDir.isDirectory) continue
+
+            crawlDirectoryRecursive(
+                dir = rootDir,
+                depth = 0,
+                maxDepth = 15,
+                knownPaths = knownCanonicalPaths,
+                outTracks = discovered,
+                outFilesToScan = filesToNotify
+            )
+        }
+
+        // Notify Android MediaScanner so system indexes are refreshed for the future
+        if (filesToNotify.isNotEmpty()) {
+            try {
+                val pathsChunked = filesToNotify.chunked(100)
+                for (chunk in pathsChunked) {
+                    MediaScannerConnection.scanFile(
+                        context,
+                        chunk.toTypedArray(),
+                        null,
+                        null
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "MediaScanner notification note: ${e.message}")
+            }
+        }
+
+        Log.i(TAG, "Direct storage crawler discovered ${discovered.size} un-indexed physical tracks")
+        discovered
+    }
+
+    private fun crawlDirectoryRecursive(
+        dir: File,
+        depth: Int,
+        maxDepth: Int,
+        knownPaths: Set<String>,
+        outTracks: MutableList<LocalTrack>,
+        outFilesToScan: MutableList<String>
+    ) {
+        if (depth > maxDepth) return
+        val files = try {
+            dir.listFiles()
+        } catch (_: Exception) {
+            null
+        } ?: return
+
+        for (file in files) {
+            if (file.isDirectory) {
+                val name = file.name
+                // Skip restricted system directories
+                if (name == "data" && dir.name == "Android") continue
+                if (name == "obb" && dir.name == "Android") continue
+                if (name.startsWith(".") && name != ".nomedia") continue
+
+                crawlDirectoryRecursive(
+                    dir = file,
+                    depth = depth + 1,
+                    maxDepth = maxDepth,
+                    knownPaths = knownPaths,
+                    outTracks = outTracks,
+                    outFilesToScan = outFilesToScan
+                )
+            } else if (file.isFile) {
+                val ext = file.extension.lowercase(Locale.ROOT)
+                if (ext in SUPPORTED_AUDIO_EXTENSIONS && file.length() >= 4096) {
+                    val canonicalKey = try {
+                        file.canonicalPath.lowercase(Locale.ROOT)
+                    } catch (_: Exception) {
+                        file.absolutePath.lowercase(Locale.ROOT)
+                    }
+
+                    if (!knownPaths.contains(canonicalKey)) {
+                        val track = extractTrackMetadata(file, canonicalKey)
+                        if (track != null) {
+                            outTracks.add(track)
+                            outFilesToScan.add(file.absolutePath)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun extractTrackMetadata(file: File, canonicalKey: String): LocalTrack? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }
+                ?: file.nameWithoutExtension
+            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }
+                ?: "Unknown Artist"
+            val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.takeIf { it.isNotBlank() }
+                ?: ""
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            val hasCover = retriever.embeddedPicture != null
+            val folderName = file.parentFile?.name ?: "Device Audio"
+            val sourceFolder = inferCategory(file.absolutePath, folderName)
+
+            val (category, isIdentified) = classifyAudioCategory(
+                rawPath = file.absolutePath,
+                sourceFolder = sourceFolder,
+                title = title,
+                artist = artist,
+                album = album,
+                durationMs = durationMs,
+                hasCoverArt = hasCover
+            )
+
+            LocalTrack(
+                id = hashPath(canonicalKey),
+                title = title,
+                artist = artist,
+                album = album,
+                durationMs = durationMs,
+                filePath = file.absolutePath,
+                fileSize = file.length(),
+                format = file.extension.lowercase(Locale.ROOT).ifBlank { "mp3" },
+                dateIndexed = System.currentTimeMillis() / 1000,
+                mtime = file.lastModified() / 1000,
+                sourceFolder = sourceFolder,
+                audioCategory = category,
+                isIdentifiedMusic = isIdentified
+            )
+        } catch (_: Exception) {
+            // Fallback from filename if retriever fails on corrupt/obscure formats
+            val title = file.nameWithoutExtension
+            val folderName = file.parentFile?.name ?: "Device Audio"
+            val sourceFolder = inferCategory(file.absolutePath, folderName)
+            val (category, isIdentified) = classifyAudioCategory(
+                rawPath = file.absolutePath,
+                sourceFolder = sourceFolder,
+                title = title,
+                artist = "Unknown Artist",
+                album = "",
+                durationMs = 0L,
+                hasCoverArt = false
+            )
+            LocalTrack(
+                id = hashPath(canonicalKey),
+                title = title,
+                artist = "Unknown Artist",
+                album = "",
+                durationMs = 0L,
+                filePath = file.absolutePath,
+                fileSize = file.length(),
+                format = file.extension.lowercase(Locale.ROOT).ifBlank { "mp3" },
+                dateIndexed = System.currentTimeMillis() / 1000,
+                mtime = file.lastModified() / 1000,
+                sourceFolder = sourceFolder,
+                audioCategory = category,
+                isIdentifiedMusic = isIdentified
+            )
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun inferCategory(rawPath: String, bucketName: String): String {
         val lowerPath = rawPath.lowercase(Locale.ROOT)
         val lowerBucket = bucketName.lowercase(Locale.ROOT)
@@ -318,35 +502,32 @@ object MediaStoreAudioBridge {
         val lowerFolder = sourceFolder.lowercase(Locale.ROOT)
 
         // 1. Explicit voice/chat app folders -> Mixed Audio
-        if (lowerFolder.contains("whatsapp") ||
-            lowerPath.contains("whatsapp") ||
-            lowerFolder.contains("telegram") ||
-            lowerPath.contains("telegram") ||
-            lowerFolder.contains("recording") ||
-            lowerPath.contains("recording") ||
+        if (lowerFolder.contains("whatsapp voice") ||
+            lowerPath.contains("whatsapp voice") ||
+            lowerFolder.contains("voice notes") ||
             lowerPath.contains("voice notes") ||
-            lowerPath.contains("call_rec") ||
+            lowerFolder.contains("call_rec") ||
             lowerPath.contains("sound_recorder")
         ) {
             return Pair(AudioCategory.MIXED_AUDIO, false)
         }
 
-        // 2. Chat audio filename patterns: AUD-2024..., PTT-2024..., Voice 001..., Rec_...
+        // 2. Chat voice note filename patterns: AUD-2024..., PTT-2024..., Voice 001..., Rec_...
         val isVoiceFilename = lowerTitle.matches(Regex("^(aud|ptt)-\\d{8}-wa\\d+.*")) ||
                 lowerTitle.matches(Regex("^(voice|rec|recording|audio)[_\\-\\s]?\\d+.*")) ||
-                lowerTitle.startsWith("ptt-") || lowerTitle.startsWith("aud-")
-        if (isVoiceFilename) {
+                lowerTitle.startsWith("ptt-")
+        if (isVoiceFilename && durationMs in 1..90_000L) {
             return Pair(AudioCategory.MIXED_AUDIO, false)
         }
 
-        // 3. Short clips without artist or album (< 40 seconds)
+        // 3. Short clips without artist or album (< 25 seconds)
         val isUnknownArtist = lowerArtist.isBlank() || lowerArtist == "unknown artist" || lowerArtist == "<unknown>"
         val isUnknownAlbum = album.isBlank() || album.equals("unknown", ignoreCase = true)
-        if (durationMs in 1..40_000L && isUnknownArtist && isUnknownAlbum && !hasCoverArt) {
+        if (durationMs in 1..25_000L && isUnknownArtist && isUnknownAlbum && !hasCoverArt) {
             return Pair(AudioCategory.MIXED_AUDIO, false)
         }
 
-        // 4. Default: Any standard-length audio track (>= 40s or with metadata) not in chat/recording directories is MUSIC
+        // 4. Default: Standard audio track is classified as MUSIC
         return Pair(AudioCategory.MUSIC, true)
     }
 }

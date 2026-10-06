@@ -8,6 +8,8 @@
 
 package com.cubicreates.unboundmusic.ui
 
+import android.os.Build
+import android.os.Environment
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -330,7 +332,13 @@ fun MainApp(
                                 onSearchHistoryCleared = { viewModel.clearSearchHistory() },
                                 onVibeSubmit = { viewModel.submitSearchVibeQuery(it) },
                                 onClearVibe = { viewModel.clearSearchVibeQuery() },
-                                onListenToSurroundings = { viewModel.startAmbientShazamRecognition() },
+                                onListenToSurroundings = {
+                                    selectedTab = NavigationTab.SHAZAM
+                                    viewModel.startAmbientShazamRecognition()
+                                },
+                                onVoiceSearchClick = {
+                                    viewModel.startVoiceSearch()
+                                },
                                 onVibeTagClick = { tag -> viewModel.submitSearchVibeQuery(tag.removePrefix("#")) },
                                 onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },
                                 onTrackSelect = { track, queue ->
@@ -391,7 +399,8 @@ fun MainApp(
                                 onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
                                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                                 onDownload = { track -> viewModel.startTrackDownload(track) },
-                                onConnectYouTubeClick = { launchYouTubeAuth() }
+                                onConnectYouTubeClick = { launchYouTubeAuth() },
+                                onVoiceSearchClick = { viewModel.startVoiceSearch() }
                             )
                         }
                         NavigationTab.LIBRARY -> {
@@ -440,7 +449,11 @@ fun MainApp(
                                 onStartShazam = { viewModel.startAmbientShazamRecognition() },
                                 onShufflePlayAll = { viewModel.shufflePlayMusicTracks() },
                                 onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
-                                onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() }
+                                onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() },
+                                allFilesGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    Environment.isExternalStorageManager()
+                                } else true,
+                                onRequestAllFilesPermission = { viewModel.requestAllFilesAccess() }
                             )
                         }
                     }

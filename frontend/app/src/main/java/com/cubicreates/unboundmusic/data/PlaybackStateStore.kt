@@ -271,6 +271,16 @@ object PlaybackStateStore {
         getPrefs(context).edit().putBoolean(KEY_ONBOARDING_COMPLETED, completed).apply()
     }
 
+    private const val KEY_IS_ACTIVELY_PLAYING = "key_is_actively_playing"
+
+    fun isPlaying(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_IS_ACTIVELY_PLAYING, false)
+    }
+
+    fun setIsPlaying(context: Context, playing: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_IS_ACTIVELY_PLAYING, playing).apply()
+    }
+
     // ==================== Queue & Position Persistence ====================
 
     fun savePlaybackState(context: Context, track: TrackItem, queue: List<TrackItem>, positionMs: Long) {

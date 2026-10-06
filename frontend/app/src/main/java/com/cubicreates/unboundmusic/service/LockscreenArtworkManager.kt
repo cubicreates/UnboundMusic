@@ -31,9 +31,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import java.io.File
+import java.io.FileInputStream
+
 object LockscreenArtworkManager {
 
     private const val TAG = "LockscreenArtwork"
+    private const val PREFS_NAME = "unbound_lockscreen_prefs"
+    private const val KEY_ORIGINAL_BACKUP_EXISTS = "key_orig_backup_exists"
+    private const val KEY_IS_ARTWORK_APPLIED = "key_is_artwork_applied"
+    private const val BACKUP_FILE_NAME = "original_lock_wallpaper.bak"
+
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
     @Volatile
@@ -42,18 +50,74 @@ object LockscreenArtworkManager {
     @Volatile
     private var isWallpaperApplied = false
 
+    private fun getPrefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * Returns true if Unbound Music has currently replaced the lockscreen wallpaper with album art.
+     */
+    fun isArtworkCurrentlyApplied(context: Context): Boolean {
+        return isWallpaperApplied || getPrefs(context).getBoolean(KEY_IS_ARTWORK_APPLIED, false)
+    }
+
+    /**
+     * Backs up the user's current lock screen wallpaper to private app storage before any album
+     * art is applied, guaranteeing it can be restored when music stops, the app closes, or RAM is cleared.
+     */
+    @Synchronized
+    private fun backupOriginalWallpaperIfNeeded(context: Context) {
+        val prefs = getPrefs(context)
+        val backupFile = File(context.filesDir, BACKUP_FILE_NAME)
+
+        // If album art is already currently active or a backup already exists, never overwrite!
+        if (isWallpaperApplied || prefs.getBoolean(KEY_IS_ARTWORK_APPLIED, false) || backupFile.exists()) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                val wallpaperManager = WallpaperManager.getInstance(context)
+                val pfd = wallpaperManager.getWallpaperFile(WallpaperManager.FLAG_LOCK)
+                if (pfd != null) {
+                    pfd.use { descriptor ->
+                        FileInputStream(descriptor.fileDescriptor).use { input ->
+                            backupFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                    prefs.edit()
+                        .putBoolean(KEY_ORIGINAL_BACKUP_EXISTS, true)
+                        .apply()
+                    Log.i(TAG, "Original custom lock screen wallpaper backed up (${backupFile.length()} bytes).")
+                } else {
+                    // No distinct custom lock wallpaper file set (lock screen uses system/home default)
+                    prefs.edit()
+                        .putBoolean(KEY_ORIGINAL_BACKUP_EXISTS, false)
+                        .apply()
+                    Log.i(TAG, "No separate custom lock screen wallpaper; system default will be restored on cleanup.")
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "Could not read original lock wallpaper file (${e.message}), will clear() on restore.")
+                prefs.edit().putBoolean(KEY_ORIGINAL_BACKUP_EXISTS, false).apply()
+            }
+        } else {
+            prefs.edit().putBoolean(KEY_ORIGINAL_BACKUP_EXISTS, false).apply()
+        }
+    }
+
     /**
      * Downloads, formats, and projects the track's album artwork onto the phone's lock screen.
      */
     fun updateLockscreenArtwork(context: Context, track: TrackItem?) {
         if (track == null || track.coverUrl.isBlank()) {
-            clearLockscreenArtwork(context)
+            restoreOriginalLockscreenArtwork(context, synchronous = false)
             return
         }
 
         if (!PlaybackStateStore.isLockscreenWallpaperEnabled(context)) {
-            if (isWallpaperApplied) {
-                clearLockscreenArtwork(context)
+            if (isArtworkCurrentlyApplied(context)) {
+                restoreOriginalLockscreenArtwork(context, synchronous = false)
             }
             return
         }
@@ -89,15 +153,18 @@ object LockscreenArtworkManager {
                     return@launch
                 }
 
-                // 2. Determine phone screen dimensions
+                // 2. Ensure user's original wallpaper is safely backed up before overwriting
+                backupOriginalWallpaperIfNeeded(context)
+
+                // 3. Determine phone screen dimensions
                 val metrics = context.resources.displayMetrics
                 val screenWidth = metrics.widthPixels.coerceAtLeast(720)
                 val screenHeight = metrics.heightPixels.coerceAtLeast(1280)
 
-                // 3. Render Studio Brutalist Lock Screen Composition
+                // 4. Render Studio Brutalist Lock Screen Composition
                 val composite = createCompositeLockscreenBitmap(sourceBitmap, screenWidth, screenHeight)
 
-                // 4. Apply specifically to the lock screen only (WallpaperManager.FLAG_LOCK)
+                // 5. Apply specifically to the lock screen only (WallpaperManager.FLAG_LOCK)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     wallpaperManager.setBitmap(
                         composite,
@@ -109,6 +176,7 @@ object LockscreenArtworkManager {
                     wallpaperManager.setBitmap(composite)
                 }
 
+                getPrefs(context).edit().putBoolean(KEY_IS_ARTWORK_APPLIED, true).apply()
                 lastAppliedArtworkUrl = coverUrl
                 isWallpaperApplied = true
                 Log.i(TAG, "Lock screen wallpaper successfully updated for '${track.title}'.")
@@ -119,26 +187,72 @@ object LockscreenArtworkManager {
     }
 
     /**
-     * Clears the custom lock screen wallpaper, restoring the user's system wallpaper.
+     * Restores the phone's original lock screen wallpaper.
+     * If a custom photo was backed up before playback, restores that exact photo;
+     * otherwise clears FLAG_LOCK so Android automatically restores the system default / home screen wallpaper.
      */
-    fun clearLockscreenArtwork(context: Context) {
-        if (!isWallpaperApplied && lastAppliedArtworkUrl == null) return
+    fun restoreOriginalLockscreenArtwork(context: Context, synchronous: Boolean = false) {
+        val prefs = getPrefs(context)
+        val backupFile = File(context.filesDir, BACKUP_FILE_NAME)
+        val isApplied = isWallpaperApplied || prefs.getBoolean(KEY_IS_ARTWORK_APPLIED, false)
+        if (!isApplied && !backupFile.exists()) {
+            return
+        }
 
-        scope.launch {
-            try {
-                val wallpaperManager = WallpaperManager.getInstance(context)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    wallpaperManager.clear(WallpaperManager.FLAG_LOCK)
-                } else {
-                    wallpaperManager.clear()
+        val restoreAction = {
+            synchronized(this) {
+                try {
+                    val wallpaperManager = WallpaperManager.getInstance(context)
+                    val hasBackup = prefs.getBoolean(KEY_ORIGINAL_BACKUP_EXISTS, false) && backupFile.exists() && backupFile.length() > 0
+
+                    if (hasBackup && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        try {
+                            FileInputStream(backupFile).use { fis ->
+                                wallpaperManager.setStream(fis, null, true, WallpaperManager.FLAG_LOCK)
+                            }
+                            Log.i(TAG, "Successfully restored original custom lock screen wallpaper from backup.")
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "Failed to restore custom wallpaper stream (${e.message}); clearing lock layer.")
+                            wallpaperManager.clear(WallpaperManager.FLAG_LOCK)
+                        }
+                    } else {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                            wallpaperManager.clear(WallpaperManager.FLAG_LOCK)
+                        } else {
+                            wallpaperManager.clear()
+                        }
+                        Log.i(TAG, "Cleared lock screen wallpaper, restored system default.")
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Could not restore lock screen wallpaper: ${e.message}")
+                } finally {
+                    try {
+                        if (backupFile.exists()) backupFile.delete()
+                    } catch (_: Throwable) {}
+
+                    prefs.edit()
+                        .putBoolean(KEY_IS_ARTWORK_APPLIED, false)
+                        .putBoolean(KEY_ORIGINAL_BACKUP_EXISTS, false)
+                        .apply()
+
+                    lastAppliedArtworkUrl = null
+                    isWallpaperApplied = false
                 }
-                lastAppliedArtworkUrl = null
-                isWallpaperApplied = false
-                Log.i(TAG, "Lock screen wallpaper restored to system default.")
-            } catch (e: Throwable) {
-                Log.w(TAG, "Could not clear lock screen wallpaper: ${e.message}")
             }
         }
+
+        if (synchronous) {
+            restoreAction()
+        } else {
+            scope.launch { restoreAction() }
+        }
+    }
+
+    /**
+     * Backward-compatible alias for [restoreOriginalLockscreenArtwork].
+     */
+    fun clearLockscreenArtwork(context: Context, synchronous: Boolean = false) {
+        restoreOriginalLockscreenArtwork(context, synchronous)
     }
 
     /**

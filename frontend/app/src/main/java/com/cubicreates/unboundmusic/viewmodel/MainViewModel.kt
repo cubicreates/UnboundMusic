@@ -2580,9 +2580,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ==================== Shazam Recognition ====================
+    // ==================== Shazam & Voice Recognition ====================
 
     val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val voiceSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val storagePermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
+    fun startVoiceSearch() {
+        voiceSearchRequestEvent.tryEmit(Unit)
+    }
+
+    fun requestAllFilesAccess() {
+        storagePermissionRequestEvent.tryEmit(Unit)
+    }
+
+    fun handleVoiceSearchResult(spokenQuery: String) {
+        val trimmed = spokenQuery.trim()
+        if (trimmed.isBlank()) return
+        submitSearch(trimmed)
+    }
 
     fun startAmbientShazamRecognition() {
         if (_isListeningShazam.value) {
@@ -2618,9 +2634,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val isHum = _shazamMode.value == ShazamMode.HUMMING
         _recordingDurationSeconds.value = 0
         _recognizedMessage.value = if (isHum) {
-            "Hum a tune... Tap radar when done to send"
+            "Hum or sing a tune... Tap radar to identify early"
         } else {
-            "Listening to audio... Tap radar when done to send"
+            "Listening to music... Identifying within seconds"
         }
 
         val tickerJob = viewModelScope.launch {
@@ -2632,7 +2648,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val pcmData = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.recordPcm(15000)
+                val pcmData = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.recordPcm(5000)
                 if (pcmData == null || pcmData.isEmpty()) {
                     _recognizedMessage.value = "Could not record ambient audio."
                     withContext(Dispatchers.Main) {
@@ -3199,27 +3215,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness
                 val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
-                if (mediaStoreTracks.isNotEmpty()) {
-                    val initialTracks = mediaStoreTracks.map { it.toTrackItem() }
+
+                // 1b. Direct recursive physical storage scan (finds files missed by MediaStore, .nomedia folders, USB transfers)
+                val knownKeys = mediaStoreTracks.map {
+                    try {
+                        java.io.File(it.filePath).canonicalPath.lowercase(java.util.Locale.ROOT)
+                    } catch (_: Exception) {
+                        it.filePath.lowercase(java.util.Locale.ROOT)
+                    }
+                }.toSet()
+                val directDiscovered = MediaStoreAudioBridge.scanPhysicalStorageDirect(getApplication(), knownKeys)
+                val allDiscoveredTracks = mediaStoreTracks + directDiscovered
+
+                if (allDiscoveredTracks.isNotEmpty()) {
+                    val initialTracks = allDiscoveredTracks.map { it.toTrackItem() }
                     setLibraryTracks(initialTracks)
                     refreshFavoritesList()
 
                     val initialFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                    for (track in mediaStoreTracks) {
+                    for (track in allDiscoveredTracks) {
                         val folderName = track.sourceFolder.ifBlank { "Device Audio" }
                         initialFolders.getOrPut(folderName) { mutableListOf() }.add(track)
                     }
                     _libraryFolders.value = initialFolders
 
-                    _whatsappCount.value = mediaStoreTracks.count {
+                    _whatsappCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
                         it.filePath.contains("WhatsApp", ignoreCase = true)
                     }
-                    _telegramCount.value = mediaStoreTracks.count {
+                    _telegramCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("Telegram", ignoreCase = true) ||
                         it.filePath.contains("Telegram", ignoreCase = true)
                     }
-                    _downloadsCount.value = mediaStoreTracks.count {
+                    _downloadsCount.value = allDiscoveredTracks.count {
                         it.sourceFolder.contains("Download", ignoreCase = true) ||
                         it.sourceFolder.contains("Unbound", ignoreCase = true) ||
                         it.filePath.contains("Download", ignoreCase = true)
@@ -3230,8 +3258,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
                     client.scanStorage(deviceRoots)
-                    if (mediaStoreTracks.isNotEmpty()) {
-                        client.ingestMediaStoreTracks(mediaStoreTracks)
+                    if (allDiscoveredTracks.isNotEmpty()) {
+                        client.ingestMediaStoreTracks(allDiscoveredTracks)
                     }
 
                     // 3. Retrieve fully indexed tracks from Go SQLite database
@@ -3244,7 +3272,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                     // 4. Merge discovered tracks with daemon tracks, deduplicating by normalized path
                     val combinedMap = LinkedHashMap<String, LocalTrack>()
-                    for (track in mediaStoreTracks) {
+                    for (track in allDiscoveredTracks) {
                         val key = track.filePath.lowercase(java.util.Locale.ROOT)
                         combinedMap[key] = track
                     }

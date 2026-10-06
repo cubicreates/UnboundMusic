@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -99,7 +100,8 @@ fun GuestShazamScreen(
     onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
     onDownload: (TrackItem) -> Unit = {},
-    onConnectYouTubeClick: () -> Unit = {}
+    onConnectYouTubeClick: () -> Unit = {},
+    onVoiceSearchClick: () -> Unit = {}
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "radar_waves")
     val pulseScale1 by infiniteTransition.animateFloat(
@@ -311,9 +313,9 @@ fun GuestShazamScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    val curSec = recordingDurationSeconds.coerceAtMost(15)
+                    val curSec = recordingDurationSeconds.coerceAtMost(5)
                     Text(
-                        text = "Finish & Identify Now (%02d:%02d / 0:15)".format(curSec / 60, curSec % 60),
+                        text = "Finish & Identify Now (%02d:%02d / 0:05)".format(curSec / 60, curSec % 60),
                         color = Color.White,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
@@ -322,29 +324,58 @@ fun GuestShazamScreen(
             }
 
             if (isHumming) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1E2226))
-                        .border(0.8.dp, BorderGlass, RoundedCornerShape(16.dp))
-                        .clickable { onLaunchGoogleSoundSearch() }
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Use Google Sound Search",
-                        color = OnSurfaceVariant,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFE040FB).copy(alpha = 0.2f))
+                            .border(0.8.dp, Color(0xFFE040FB).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                            .clickable { onVoiceSearchClick() }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = Color(0xFFE040FB),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Sing / Speak Song Name",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF1E2226))
+                            .border(0.8.dp, BorderGlass, RoundedCornerShape(16.dp))
+                            .clickable { onLaunchGoogleSoundSearch() }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Google Sound Search",
+                            color = OnSurfaceVariant,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 

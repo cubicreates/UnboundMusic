@@ -38,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -107,7 +108,8 @@ fun SignedInSearchScreen(
     onAddToQueueBatch: (List<TrackItem>) -> Unit = {},
     onDownloadBatch: (List<TrackItem>) -> Unit = {},
     isListeningAudio: Boolean = false,
-    onClearVibe: () -> Unit = {}
+    onClearVibe: () -> Unit = {},
+    onVoiceSearchClick: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
@@ -221,6 +223,18 @@ fun SignedInSearchScreen(
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(18.dp)
                         )
+                    } else {
+                        IconButton(
+                            onClick = onVoiceSearchClick,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice Search",
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }

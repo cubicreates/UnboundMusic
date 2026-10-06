@@ -377,9 +377,11 @@ class UnboundPlaybackService : MediaSessionService() {
                         coverUrl = meta.artworkUri?.toString() ?: "",
                         streamUrl = mediaItem.localConfiguration?.uri?.toString() ?: ""
                     )
-                    LockscreenArtworkManager.updateLockscreenArtwork(applicationContext, track)
+                    if (exoPlayer?.isPlaying == true) {
+                        LockscreenArtworkManager.updateLockscreenArtwork(applicationContext, track)
+                    }
                 } else {
-                    LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
+                    LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = false)
                 }
             }
 
@@ -393,14 +395,30 @@ class UnboundPlaybackService : MediaSessionService() {
                 }
                 Log.i(TAG, "Playback state: $stateName, playWhenReady=${exoPlayer?.playWhenReady}, isPlaying=${exoPlayer?.isPlaying}, volume=${exoPlayer?.volume}")
                 if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
-                    LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
+                    LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = false)
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 Log.i(TAG, "onIsPlayingChanged: isPlaying=$isPlaying")
+                com.cubicreates.unboundmusic.data.PlaybackStateStore.setIsPlaying(applicationContext, isPlaying)
                 if (isPlaying) {
                     com.cubicreates.unboundmusic.data.BackendClient.recordProxyStreamStatus(200, applicationContext)
+                    val mediaItem = exoPlayer?.currentMediaItem
+                    val meta = mediaItem?.mediaMetadata
+                    if (mediaItem != null && meta != null && !meta.title.isNullOrBlank()) {
+                        val track = TrackItem(
+                            id = mediaItem.mediaId,
+                            title = meta.title.toString(),
+                            artist = meta.artist?.toString() ?: "",
+                            coverUrl = meta.artworkUri?.toString() ?: "",
+                            streamUrl = mediaItem.localConfiguration?.uri?.toString() ?: ""
+                        )
+                        LockscreenArtworkManager.updateLockscreenArtwork(applicationContext, track)
+                    }
+                } else {
+                    // Playback paused or stopped: restore the user's original lock screen wallpaper
+                    LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = false)
                 }
             }
 
@@ -484,14 +502,17 @@ class UnboundPlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        if (player == null || !player.playWhenReady || player.mediaItemCount == 0) {
+        val isActivelyPlaying = player != null && player.isPlaying
+        if (!isActivelyPlaying) {
+            LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = true)
             stopSelf()
         }
     }
 
     override fun onDestroy() {
         Log.i(TAG, "Destroying Unbound Playback Service.")
-        LockscreenArtworkManager.clearLockscreenArtwork(applicationContext)
+        com.cubicreates.unboundmusic.data.PlaybackStateStore.setIsPlaying(applicationContext, false)
+        LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = true)
         daemonWatchdog?.stop()
         daemonWatchdog = null
         serviceScope.cancel()

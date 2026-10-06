@@ -30,6 +30,9 @@ class UnboundApplication : Application() {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
+                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(this, synchronous = true)
+            } catch (_: Throwable) {}
+            try {
                 Log.e(TAG, "CRASH DETECTED on thread ${thread.name}: ${throwable.message}", throwable)
                 val sw = java.io.StringWriter()
                 val pw = java.io.PrintWriter(sw)
@@ -107,6 +110,17 @@ class UnboundApplication : Application() {
             } catch (e: Throwable) {
                 Log.w(TAG, "Background deployUnboundStorage note: ${e.message}")
             }
+        }
+
+        // 6. Cold-start safety: Restore original lockscreen wallpaper if left applied by a previous abnormal termination
+        try {
+            if (com.cubicreates.unboundmusic.service.LockscreenArtworkManager.isArtworkCurrentlyApplied(this) &&
+                !com.cubicreates.unboundmusic.data.PlaybackStateStore.isPlaying(this)
+            ) {
+                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(this, synchronous = false)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Lockscreen wallpaper cold-start check note: ${e.message}")
         }
     }
 

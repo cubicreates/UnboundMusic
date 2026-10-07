@@ -606,8 +606,9 @@ fun GuestShazamScreen(
                 }
             }
         }
+    }
 
-        item {
+    item {
             // Cloud Sync Prompt Card for Guest Users
             Surface(
                 modifier = Modifier

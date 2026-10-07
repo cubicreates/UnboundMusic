@@ -655,8 +655,9 @@ fun SignedInShazamScreen(
                 }
             }
         }
+    }
 
-        item {
+    item {
             Spacer(modifier = Modifier.height(16.dp))
 
             // History Section Header

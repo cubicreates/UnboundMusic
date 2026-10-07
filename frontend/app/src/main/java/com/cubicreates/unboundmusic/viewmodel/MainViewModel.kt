@@ -343,13 +343,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _shazamHistory = MutableStateFlow<List<TrackItem>>(emptyList())
     val shazamHistory: StateFlow<List<TrackItem>> = _shazamHistory.asStateFlow()
 
+    private val _hummingHistory = MutableStateFlow<List<TrackItem>>(emptyList())
+    val hummingHistory: StateFlow<List<TrackItem>> = _hummingHistory.asStateFlow()
+
+    private val _lastHummedTrack = MutableStateFlow<TrackItem?>(null)
+    val lastHummedTrack: StateFlow<TrackItem?> = _lastHummedTrack.asStateFlow()
+
+    private val _hummedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
+    val hummedVariants: StateFlow<List<RecognizedTrackVariant>> = _hummedVariants.asStateFlow()
+
     fun clearLastRecognizedTrack() {
         _lastRecognizedTrack.value = null
         _recognizedVariants.value = emptyList()
     }
 
+    fun clearLastHummedTrack() {
+        _lastHummedTrack.value = null
+        _hummedVariants.value = emptyList()
+    }
+
     fun clearShazamHistory() {
         _shazamHistory.value = emptyList()
+    }
+
+    fun clearHummingHistory() {
+        _hummingHistory.value = emptyList()
     }
 
     private val _shazamMode = MutableStateFlow(ShazamMode.ACOUSTIC)
@@ -2610,10 +2628,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val voiceSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val humSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val storagePermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     fun startVoiceSearch() {
         voiceSearchRequestEvent.tryEmit(Unit)
+    }
+
+    fun startHumSearch() {
+        _recognizedMessage.value = "Listening for hummed melody, singing, or lyrics..."
+        humSearchRequestEvent.tryEmit(Unit)
     }
 
     fun requestAllFilesAccess() {
@@ -2626,7 +2650,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         submitSearch(trimmed)
     }
 
+    fun handleHumSearchResult(spokenQuery: String) {
+        val trimmed = spokenQuery.trim()
+        if (trimmed.isBlank()) return
+        _recognizedMessage.value = "Analyzing hummed melody: \"$trimmed\"..."
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (code, resp) = client.search(trimmed, "song")
+                if (code in 200..299 && resp.isNotBlank()) {
+                    val searchResults = client.parseSearchResults(resp)
+                    val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
+                    // Prefer songs that are not remixes
+                    val songs = searchResults.filter { it.itemType == "song" }
+                    val cleanSong = songs.firstOrNull { !remixIndicator.containsMatchIn(it.title) } ?: songs.firstOrNull()
+                    if (cleanSong != null) {
+                        val matchedTrack = TrackItem(
+                            id = cleanSong.id,
+                            title = cleanSong.title,
+                            artist = cleanSong.artist,
+                            album = cleanSong.album,
+                            durationMs = cleanSong.durationMs,
+                            coverUrl = cleanSong.coverUrl,
+                            source = "hum_search"
+                        )
+                        _lastHummedTrack.value = matchedTrack
+                        _hummingHistory.value = listOf(matchedTrack) + _hummingHistory.value.filter { it.id != matchedTrack.id }
+
+                        val variants = songs.take(3).mapIndexed { idx, s ->
+                            val isOrig = !remixIndicator.containsMatchIn(s.title)
+                            RecognizedTrackVariant(
+                                track = s,
+                                badge = if (idx == 0 && isOrig) "Top Melodic Match (Original)" else if (idx == 0) "Top Melodic Match" else "Melodic Alternative",
+                                isOriginal = isOrig,
+                                isRadarMatch = false,
+                                explanation = "Matched via Hum-to-Search melody deduction"
+                            )
+                        }
+                        _hummedVariants.value = variants
+                        _recognizedMessage.value = "Matched melody: ${matchedTrack.title} - ${matchedTrack.artist}"
+                        withContext(Dispatchers.Main) {
+                            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                getApplication(),
+                                "Matched: ${matchedTrack.title} - ${matchedTrack.artist}",
+                                isLong = true
+                            )
+                        }
+                        return@launch
+                    }
+                }
+                _recognizedMessage.value = "No melody match found for \"$trimmed\". Try humming a distinct section."
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "No melody match found for \"$trimmed\"."
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Hum search error: ${e.message}")
+                _recognizedMessage.value = "Could not identify hummed tune. Please try again."
+            }
+        }
+    }
+
     fun startAmbientShazamRecognition() {
+        if (_shazamMode.value == ShazamMode.HUMMING) {
+            startHumSearch()
+            return
+        }
         if (_isListeningShazam.value) {
             stopAndSendShazamRecording()
             return
@@ -2745,61 +2835,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        // If backend returned single/no variants, perform client-side Vibe AI remix disambiguation
+                        // If backend returned single/no variants, perform client-side Edge AI remix disambiguation
                         if (parsedVariants.size <= 1) {
+                            val parenRegex = Regex("""(?i)\s*[\(\[\{][^\)\]\}]*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|feat\.?|ft\.?|featuring)[^\)\]\}]*[\)\]\}]""")
+                            val dashRegex = Regex("""(?i)\s*-\s*.*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|version|instrumental).*""")
+                            val featRegex = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring|vs\.?|x|&)\s+.*""")
+
+                            val cleanTitle = trackTitle.replace(parenRegex, "").replace(dashRegex, "").trim().ifBlank { trackTitle }
+                            val cleanArtist = artist.replace(parenRegex, "").replace(dashRegex, "").replace(featRegex, "").trim().ifBlank { artist }
+
+                            val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
+                            val isRemix = remixIndicator.containsMatchIn(trackTitle) || remixIndicator.containsMatchIn(artist) || !cleanTitle.equals(trackTitle, ignoreCase = true)
+
                             val radarVariant = RecognizedTrackVariant(
                                 track = matchedTrack,
                                 badge = "Acoustic Radar Match",
-                                isOriginal = false,
+                                isOriginal = !isRemix,
                                 isRadarMatch = true,
-                                explanation = "Identified via Shazam Acoustic Radar"
+                                explanation = if (!isRemix) "Identified authentic original song from audio stream" else "Identified remix or altered version from audio stream"
                             )
                             parsedVariants.clear()
                             parsedVariants.add(radarVariant)
-
-                            val parenRegex = Regex("""(?i)\s*[\(\[\{][^\)\]\}]*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|feat\.?|ft\.?|featuring)[^\)\]\}]*[\)\]\}]""")
-                            val dashRegex = Regex("""(?i)\s*-\s*.*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|version).*""")
-                            val featRegex = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring|vs\.?|x|&)\s+""")
-
-                            val cleanTitle = trackTitle.replace(parenRegex, "").replace(dashRegex, "").trim()
-                            val cleanArtist = artist.split(featRegex).firstOrNull()?.trim() ?: artist
-
-                            val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental)\b""")
-                            val isRemix = remixIndicator.containsMatchIn(trackTitle) || remixIndicator.containsMatchIn(artist) || !cleanTitle.equals(trackTitle, ignoreCase = true)
 
                             if (isRemix && cleanTitle.isNotBlank()) {
                                 try {
                                     val (sCode, sResp) = client.search("$cleanTitle $cleanArtist", "music")
                                     if (sCode in 200..299 && sResp.isNotBlank()) {
                                         val results = client.parseSearchResults(sResp)
+                                        // Pick candidate that is strictly NOT a remix!
                                         val originalTrack = results.firstOrNull {
-                                            !it.title.equals(trackTitle, ignoreCase = true) &&
-                                            it.itemType == "song"
-                                        } ?: results.firstOrNull { it.itemType == "song" }
+                                            it.itemType == "song" &&
+                                            !remixIndicator.containsMatchIn(it.title) &&
+                                            !it.id.equals(matchedTrack.id, ignoreCase = true)
+                                        }
 
-                                        if (originalTrack != null && !originalTrack.id.equals(matchedTrack.id, ignoreCase = true)) {
-                                            parsedVariants.add(
+                                        if (originalTrack != null) {
+                                            parsedVariants.add(0,
                                                 RecognizedTrackVariant(
                                                     track = originalTrack,
-                                                    badge = "Vibe AI Original Suggestion",
+                                                    badge = "Canonical Original Version",
                                                     isOriginal = true,
                                                     isRadarMatch = false,
-                                                    explanation = "Vibe AI identified the canonical original version"
+                                                    explanation = "Edge AI resolved the authentic original recording"
                                                 )
                                             )
-
-                                            val altTrack = results.getOrNull(1)
-                                            if (altTrack != null && altTrack.id != matchedTrack.id && altTrack.id != originalTrack.id && altTrack.itemType == "song") {
-                                                parsedVariants.add(
-                                                    RecognizedTrackVariant(
-                                                        track = altTrack,
-                                                        badge = "Popular Alternative",
-                                                        isOriginal = false,
-                                                        isRadarMatch = false,
-                                                        explanation = "Top streaming alternative match"
-                                                    )
-                                                )
-                                            }
                                         }
                                     }
                                 } catch (se: Exception) {

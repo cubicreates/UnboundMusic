@@ -201,5 +201,15 @@ func TestAcousticDisambiguation(t *testing.T) {
 	if radarMatch["is_radar_match"] != true {
 		t.Errorf("expected is_radar_match=true, got %v", radarMatch["is_radar_match"])
 	}
+	if radarMatch["is_original"] != false {
+		t.Errorf("expected remix to have is_original=false, got %v", radarMatch["is_original"])
+	}
+
+	// 4. Test original song is marked is_original=true
+	cleanVariants := srv.resolveAcousticVariants(context.Background(), "Jaiye Sajna", "Sashwat Sachdev", "Album", "http://cover.jpg", "track_456")
+	cleanMatch := cleanVariants[0]
+	if cleanMatch["is_original"] != true {
+		t.Errorf("expected clean original song to have is_original=true, got %v", cleanMatch["is_original"])
+	}
 }
 

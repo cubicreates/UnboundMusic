@@ -71,6 +71,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val humSearchLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = matches?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                mainViewModel.handleHumSearchResult(spokenText)
+            }
+        }
+    }
+
     fun launchVoiceSearch() {
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -81,6 +93,34 @@ class MainActivity : ComponentActivity() {
             voiceSearchLauncher.launch(intent)
         } catch (e: Exception) {
             com.cubicreates.unboundmusic.util.UnboundToast.show(this, "Voice search is not available on this device", isLong = false)
+        }
+    }
+
+    fun launchHumSearch() {
+        val intents = listOf(
+            Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
+            Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            }
+        )
+        for (intent in intents) {
+            try {
+                humSearchLauncher.launch(intent)
+                return
+            } catch (_: Exception) {}
+        }
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Hum or sing a tune...")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            }
+            humSearchLauncher.launch(intent)
+        } catch (e: Exception) {
+            com.cubicreates.unboundmusic.util.UnboundToast.show(this, "Voice recognition is not available on this device", isLong = false)
         }
     }
 
@@ -151,10 +191,15 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {}
         }
 
-        // Listen for Voice Search and All-Files Storage Access triggers from ViewModels
+        // Listen for Voice Search, Hum Search, and All-Files Storage Access triggers from ViewModels
         lifecycleScope.launch {
             mainViewModel.voiceSearchRequestEvent.collect {
                 launchVoiceSearch()
+            }
+        }
+        lifecycleScope.launch {
+            mainViewModel.humSearchRequestEvent.collect {
+                launchHumSearch()
             }
         }
         lifecycleScope.launch {

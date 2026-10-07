@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
 )
 
@@ -375,36 +376,43 @@ func isRemixIndicator(s string) bool {
 	return remixKeywordRegex.MatchString(s)
 }
 
-// resolveAcousticVariants generates 2 to 3 disambiguated version choices:
-// 1. Acoustic Radar Match (Shazam match, e.g. Remix)
-// 2. Vibe AI Original Suggestion (Canonical master found via catalog search)
-// 3. Optional top streaming alternative match
+// resolveAcousticVariants generates disambiguated version choices using Edge AI:
+// 1. If detected track is the original, badges it as Original and avoids recommending remixes as original.
+// 2. If detected track is a remix/variant, finds and features the Canonical Original Version.
+// 3. Provides clean streaming alternatives without false remix labels.
 func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, album, coverURL, trackID string) []map[string]any {
 	var variants []map[string]any
 
-	// 1. Primary Acoustic Match (Shazam detection)
+	// 1. Analyze detected track using Edge AI to deduce if it is a remix/variant or original
+	resolution := ai.DeduceCanonicalOriginal(title, artist)
+	isDetectedRemix := resolution.IsRemixOrCover
+
+	// Radar match variant
+	radarBadge := "Acoustic Radar Match"
+	radarExpl := "Identified via Shazam Acoustic Radar"
+	if !isDetectedRemix {
+		radarExpl = "Identified authentic original song from audio stream"
+	} else if resolution.RemixDetail != "" {
+		radarExpl = fmt.Sprintf("Identified %s from audio stream", resolution.RemixDetail)
+	}
+
 	radarVariant := map[string]any{
 		"id":             trackID,
 		"title":          title,
 		"artist":         artist,
 		"album":          album,
 		"cover_url":      coverURL,
-		"badge":          "Acoustic Radar Match",
-		"is_original":    false,
+		"badge":          radarBadge,
+		"is_original":    !isDetectedRemix,
 		"is_radar_match": true,
-		"explanation":    "Identified via Shazam Acoustic Radar",
+		"explanation":    radarExpl,
 		"source":         "shazam",
 	}
 	variants = append(variants, radarVariant)
 
-	// 2. Check for remix/cover patterns and detect canonical original version
-	cleanTitle := cleanRemixTitle(title)
-	cleanArtist := cleanRemixArtist(artist)
-
-	isRemixOrVariant := !strings.EqualFold(cleanTitle, title) || isRemixIndicator(title) || isRemixIndicator(artist)
-
-	if s.ytClient != nil && cleanTitle != "" {
-		searchQuery := fmt.Sprintf("%s %s", cleanTitle, cleanArtist)
+	// 2. If the detected track was a remix, search catalog for the canonical original!
+	if s.ytClient != nil && resolution.CanonicalTitle != "" {
+		searchQuery := fmt.Sprintf("%s %s", resolution.CanonicalTitle, resolution.CanonicalArtist)
 		tracks, err := s.ytClient.SearchWithCategory(ctx, searchQuery, "song")
 		if err == nil && len(tracks) > 0 {
 			var origFound bool
@@ -414,8 +422,10 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 					continue
 				}
 
-				// Check if this candidate is the canonical original (distinct from the remix title)
-				if !origFound && (!strings.EqualFold(t.Title, title) || isRemixOrVariant) {
+				candidateIsRemix := ai.IsCandidateRemixOrVariant(t.Title)
+
+				// If detected track was a remix, we specifically search for and attach the CANONICAL ORIGINAL!
+				if isDetectedRemix && !origFound && !candidateIsRemix {
 					origVariant := map[string]any{
 						"id":             t.ID,
 						"title":          t.Title,
@@ -423,19 +433,25 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 						"album":          t.Album,
 						"cover_url":      t.ThumbnailURL,
 						"duration_ms":    t.DurationMs,
-						"badge":          "Vibe AI Original Suggestion",
+						"badge":          "Canonical Original Version",
 						"is_original":    true,
 						"is_radar_match": false,
-						"explanation":    "Vibe AI identified the canonical original version",
+						"explanation":    "Edge AI resolved the authentic original recording",
 						"source":         "vibe_ai",
 					}
-					variants = append(variants, origVariant)
+					// Place canonical original right at the top
+					variants = append([]map[string]any{origVariant}, variants...)
 					origFound = true
 					continue
 				}
 
-				// 3. Optional third alternative variant
-				if origFound && len(variants) < 3 && !strings.EqualFold(t.Title, title) && !strings.EqualFold(t.Title, cleanTitle) {
+				// If detected track was ALREADY the original, do NOT add a remix as original!
+				// Only add an alternative if distinct from primary and up to 3 variants
+				if len(variants) < 3 && !strings.EqualFold(t.ID, trackID) && !strings.EqualFold(t.Title, title) {
+					altBadge := "Streaming Alternative"
+					if candidateIsRemix {
+						altBadge = "Remix Alternative"
+					}
 					altVariant := map[string]any{
 						"id":             t.ID,
 						"title":          t.Title,
@@ -443,14 +459,16 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 						"album":          t.Album,
 						"cover_url":      t.ThumbnailURL,
 						"duration_ms":    t.DurationMs,
-						"badge":          "Popular Alternative",
+						"badge":          altBadge,
 						"is_original":    false,
 						"is_radar_match": false,
-						"explanation":    "Top streaming alternative match",
+						"explanation":    "Top streaming catalog match",
 						"source":         "vibe_ai",
 					}
 					variants = append(variants, altVariant)
-					break
+					if origFound || !isDetectedRemix {
+						break
+					}
 				}
 			}
 		}

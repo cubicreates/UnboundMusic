@@ -89,6 +89,9 @@ fun GuestShazamScreen(
     lastRecognizedTrack: TrackItem? = null,
     recognizedVariants: List<RecognizedTrackVariant> = emptyList(),
     shazamHistory: List<TrackItem> = emptyList(),
+    hummingHistory: List<TrackItem> = emptyList(),
+    lastHummedTrack: TrackItem? = null,
+    hummedVariants: List<RecognizedTrackVariant> = emptyList(),
     shazamMode: ShazamMode = ShazamMode.ACOUSTIC,
     recordingDurationSeconds: Int = 0,
     onModeChange: (ShazamMode) -> Unit = {},
@@ -96,6 +99,7 @@ fun GuestShazamScreen(
     onStartListening: () -> Unit = {},
     onStopListening: () -> Unit = {},
     onDismissRecognized: () -> Unit = {},
+    onDismissHummed: () -> Unit = {},
     onPlayTrack: (TrackItem) -> Unit = {},
     onStartRadio: (TrackItem) -> Unit = {},
     onAddToPlaylist: (TrackItem) -> Unit = {},
@@ -136,6 +140,17 @@ fun GuestShazamScreen(
     val reactiveScale1 = pulseScale1 + (if (isListening) audioAmplitude * 0.25f else 0f)
     val reactiveScale2 = pulseScale2 + (if (isListening) audioAmplitude * 0.35f else 0f)
     val reactiveAlpha = (waveAlpha + (if (isListening) audioAmplitude * 0.35f else 0f)).coerceIn(0f, 1f)
+
+    val isHumming = shazamMode == ShazamMode.HUMMING
+    val radarThemeColor = if (isHumming) Color(0xFFE040FB) else UnboundPrimary
+    val radarSecondaryColor = if (isHumming) Color(0xFF7B1FA2) else Color(0xFF007799)
+    val activeHistory = if (isHumming) hummingHistory else shazamHistory
+    val activeHistoryTitle = if (isHumming) "Recent Hummed Melodies" else "Recent Identifications"
+    val activeEmptyText = if (isHumming) {
+        "No hummed tunes identified yet.\nTap the radar above and hum, sing, or whistle a melody."
+    } else {
+        "No songs identified yet.\nWhen audio is playing around you, tap the radar above."
+    }
 
     LazyColumn(
         modifier = modifier
@@ -229,10 +244,6 @@ fun GuestShazamScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
-
-            val isHumming = shazamMode == ShazamMode.HUMMING
-            val radarThemeColor = if (isHumming) Color(0xFFE040FB) else UnboundPrimary
-            val radarSecondaryColor = if (isHumming) Color(0xFF7B1FA2) else Color(0xFF007799)
 
             // Central Animated Radar Sensor
             Box(
@@ -390,12 +401,16 @@ fun GuestShazamScreen(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            val activeLastTrack = if (isHumming) lastHummedTrack else lastRecognizedTrack
+            val activeVariants = if (isHumming) hummedVariants else recognizedVariants
+            val activeDismiss = if (isHumming) onDismissHummed else onDismissRecognized
+
             // Live Status Text
             Text(
                 text = when {
                     isListening -> statusMessage ?: if (isHumming) "Recording melody... Tap radar or button to identify" else "Recording acoustics... Tap radar or button to identify"
                     !statusMessage.isNullOrBlank() -> statusMessage
-                    lastRecognizedTrack != null -> "Match Found!"
+                    activeLastTrack != null -> "Match Found!"
                     isHumming -> "Tap the radar & hum a tune"
                     else -> "Tap the radar to identify"
                 },
@@ -409,14 +424,14 @@ fun GuestShazamScreen(
 
             // Result Card / Disambiguation Variants when track is recognized
             AnimatedVisibility(
-                visible = recognizedVariants.size > 1 || lastRecognizedTrack != null,
+                visible = activeVariants.size > 1 || activeLastTrack != null,
                 enter = fadeIn() + slideInVertically(),
                 exit = fadeOut() + slideOutVertically()
             ) {
-                if (recognizedVariants.size > 1) {
+                if (activeVariants.size > 1) {
                     AcousticVariantsSection(
-                        variants = recognizedVariants,
-                        onDismiss = onDismissRecognized,
+                        variants = activeVariants,
+                        onDismiss = activeDismiss,
                         onPlayTrack = onPlayTrack,
                         onToggleFavorite = null,
                         onStartRadio = onStartRadio,
@@ -424,14 +439,14 @@ fun GuestShazamScreen(
                         onDownload = onDownload
                     )
                 } else {
-                    lastRecognizedTrack?.let { track ->
+                    activeLastTrack?.let { track ->
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp),
                             shape = RoundedCornerShape(20.dp),
                         color = Color(0xFF1E2226),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.5f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, radarThemeColor.copy(alpha = 0.5f)),
                         shadowElevation = 8.dp
                     ) {
                         Column(
@@ -592,6 +607,7 @@ fun GuestShazamScreen(
             }
         }
 
+        item {
             // Cloud Sync Prompt Card for Guest Users
             Surface(
                 modifier = Modifier
@@ -639,14 +655,14 @@ fun GuestShazamScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.History,
+                    imageVector = if (shazamMode == ShazamMode.HUMMING) Icons.Default.MusicNote else Icons.Default.History,
                     contentDescription = null,
-                    tint = UnboundPrimary,
+                    tint = radarThemeColor,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Recent Identifications",
+                    text = activeHistoryTitle,
                     color = OnSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
@@ -655,7 +671,7 @@ fun GuestShazamScreen(
         }
 
         // History items
-        if (shazamHistory.isEmpty()) {
+        if (activeHistory.isEmpty()) {
             item {
                 Box(
                     modifier = Modifier
@@ -664,7 +680,7 @@ fun GuestShazamScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No songs identified yet.\nWhen audio is playing around you, tap the radar above.",
+                        text = activeEmptyText,
                         color = OnSurfaceVariant,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
@@ -672,7 +688,7 @@ fun GuestShazamScreen(
                 }
             }
         } else {
-            items(shazamHistory, key = { it.id }) { track ->
+            items(activeHistory, key = { it.id }) { track ->
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()

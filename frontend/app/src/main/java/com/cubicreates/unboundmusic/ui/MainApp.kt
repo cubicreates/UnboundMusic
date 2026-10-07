@@ -112,6 +112,9 @@ fun MainApp(
     val lastRecognizedTrack by viewModel.lastRecognizedTrack.collectAsStateWithLifecycle()
     val recognizedVariants by viewModel.recognizedVariants.collectAsStateWithLifecycle()
     val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
+    val hummingHistory by viewModel.hummingHistory.collectAsStateWithLifecycle()
+    val lastHummedTrack by viewModel.lastHummedTrack.collectAsStateWithLifecycle()
+    val hummedVariants by viewModel.hummedVariants.collectAsStateWithLifecycle()
     val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
     val shazamMode by viewModel.shazamMode.collectAsStateWithLifecycle()
     val recordingDurationSeconds by viewModel.recordingDurationSeconds.collectAsStateWithLifecycle()
@@ -385,7 +388,10 @@ fun MainApp(
                                 lastRecognizedTrack = lastRecognizedTrack,
                                 recognizedVariants = recognizedVariants,
                                 shazamHistory = shazamHistory,
-                                isFavorite = lastRecognizedTrack?.let { it.id == currentTrack.id && isFavorite } ?: false,
+                                hummingHistory = hummingHistory,
+                                lastHummedTrack = lastHummedTrack,
+                                hummedVariants = hummedVariants,
+                                isFavorite = (lastRecognizedTrack ?: lastHummedTrack)?.let { it.id == currentTrack.id && isFavorite } ?: false,
                                 shazamMode = shazamMode,
                                 recordingDurationSeconds = recordingDurationSeconds,
                                 onModeChange = { viewModel.setShazamMode(it) },
@@ -393,6 +399,7 @@ fun MainApp(
                                 onStartListening = { viewModel.startAmbientShazamRecognition() },
                                 onStopListening = { viewModel.stopAndSendShazamRecording() },
                                 onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
+                                onDismissHummed = { viewModel.clearLastHummedTrack() },
                                 onPlayTrack = { track ->
                                     viewModel.playTrack(track)
                                     overlayState.isPlayerExpanded = true

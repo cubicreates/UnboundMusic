@@ -44,9 +44,9 @@ type PlayerRequestBody struct {
 }
 
 var fallbackConfigs = []ClientConfig{
-	ConfigVisionOS,
-	ConfigAndroid,
 	ConfigIOS,
+	ConfigAndroid,
+	ConfigVisionOS,
 	ConfigWebRemix,
 }
 
@@ -60,6 +60,9 @@ func (c *Client) GetStreamInfoWithQuality(ctx context.Context, videoID string, q
 	if strings.TrimSpace(videoID) == "" {
 		return nil, fmt.Errorf("video ID cannot be empty")
 	}
+
+	// Bootstrap or ensure valid visitorData session identity before stream resolution
+	_ = c.EnsureVisitorData(ctx)
 
 	sigTimestamp := int(time.Now().Unix() / 86400)
 

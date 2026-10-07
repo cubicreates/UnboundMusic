@@ -28,7 +28,7 @@ const (
 	// User Agents
 	UserAgentWebRemix = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 	UserAgentAndroid  = "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 14) gzip"
-	UserAgentIOS      = "com.google.ios.youtube/20.08.3 (iPhone16,2; U; CPU iOS 18_3_1 like Mac OS X;)"
+	UserAgentIOS      = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)"
 	UserAgentTV       = "Mozilla/5.0 (PlayStation; PlayStation 4/12.00) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.4 Safari/605.1.15"
 )
 
@@ -129,6 +129,23 @@ func (c *Client) GetVisitorData() string {
 	return c.visitorData
 }
 
+// EnsureVisitorData ensures the client has a valid guest visitorData token, bootstrapping via /browse if necessary.
+func (c *Client) EnsureVisitorData(ctx context.Context) error {
+	c.mu.RLock()
+	if c.visitorData != "" {
+		c.mu.RUnlock()
+		return nil
+	}
+	c.mu.RUnlock()
+
+	body := map[string]any{
+		"context":  c.buildContext(ConfigAndroid),
+		"browseId": "FEwhat_to_watch",
+	}
+	_, err := c.post(ctx, "browse", body, ConfigAndroid)
+	return err
+}
+
 // SetPoToken configures YouTube Proof of Origin token for stream access.
 func (c *Client) SetPoToken(pot string) {
 	c.mu.Lock()
@@ -161,9 +178,9 @@ type ClientConfig struct {
 var (
 	ConfigAndroid = ClientConfig{
 		Name:              "ANDROID",
-		Version:           "20.10.38",
+		Version:           "21.26.364",
 		APIKey:            "AIzaSyAOghZGza2MQSZkY_zfZ370N-PUdXEo8AI",
-		UserAgent:         "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip",
+		UserAgent:         "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
 		BaseURL:           "https://www.youtube.com/youtubei/v1",
 		XClientName:       "3",
 		DeviceMake:        "Google",
@@ -193,7 +210,7 @@ var (
 
 	ConfigIOS = ClientConfig{
 		Name:        "IOS",
-		Version:     "20.08.3",
+		Version:     "21.26.4",
 		APIKey:      "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
 		UserAgent:   UserAgentIOS,
 		BaseURL:     "https://www.youtube.com/youtubei/v1",
@@ -201,7 +218,7 @@ var (
 		DeviceMake:  "Apple",
 		DeviceModel: "iPhone16,2",
 		OSName:      "iPhone",
-		OSVersion:   "18.3.1.22D72",
+		OSVersion:   "18.3.2.22D82",
 	}
 
 	ConfigAndroidMusic = ClientConfig{
@@ -330,13 +347,21 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		req.Header.Set("X-YouTube-Client-Name", cfg.XClientName)
 	}
 	req.Header.Set("X-YouTube-Client-Version", cfg.Version)
+
+	c.mu.RLock()
+	vd := c.visitorData
+	c.mu.RUnlock()
+	if vd != "" {
+		req.Header.Set("X-Goog-Visitor-Id", vd)
+	}
+
 	origin := "https://www.youtube.com"
 	if cfg.BaseURL == "https://music.youtube.com/youtubei/v1" {
 		origin = "https://music.youtube.com"
 		req.Header.Set("Origin", origin)
 		req.Header.Set("Referer", "https://music.youtube.com/")
 		req.Header.Set("x-origin", origin)
-	} else {
+	} else if cfg.Name == "WEB" || cfg.Name == "WEB_REMIX" || cfg.Name == "MWEB" {
 		req.Header.Set("Origin", origin)
 		req.Header.Set("Referer", "https://www.youtube.com/")
 	}

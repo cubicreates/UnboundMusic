@@ -507,6 +507,8 @@ object MediaStoreAudioBridge {
             lowerFolder.contains("voice notes") ||
             lowerPath.contains("voice notes") ||
             lowerFolder.contains("call_rec") ||
+            lowerFolder.contains("recording") ||
+            lowerPath.contains("/recordings/") ||
             lowerPath.contains("sound_recorder")
         ) {
             return Pair(AudioCategory.MIXED_AUDIO, false)

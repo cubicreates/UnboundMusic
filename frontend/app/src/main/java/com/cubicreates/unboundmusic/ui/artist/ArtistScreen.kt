@@ -62,6 +62,7 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.ui.draw.alpha
 

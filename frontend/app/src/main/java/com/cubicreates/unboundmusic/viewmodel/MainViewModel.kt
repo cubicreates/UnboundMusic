@@ -1917,11 +1917,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun buildHierarchicalAffinityQueue(seedTrack: TrackItem): List<TrackItem> {
         val result = mutableListOf<TrackItem>()
         val seenIds = mutableSetOf<String>()
-        val seenTitles = mutableSetOf<String>()
+        val cleanArtist = extractArtistName(seedTrack)
+
+        fun isNonPlayableEntity(item: TrackItem): Boolean {
+            if (item.itemType.equals("artist", ignoreCase = true) ||
+                item.itemType.equals("channel", ignoreCase = true) ||
+                item.itemType.equals("playlist", ignoreCase = true) ||
+                item.itemType.equals("album", ignoreCase = true)) {
+                return true
+            }
+            if (item.browseId.startsWith("UC") || item.id.startsWith("UC")) return true
+            if (item.id.startsWith("MPREb_") || item.id.startsWith("VL") || item.id.startsWith("PL")) return true
+            if (item.browseId.startsWith("MPREb_") || item.browseId.startsWith("VL") || item.browseId.startsWith("PL")) return true
+            if (item.id.length != 11 && !item.id.startsWith("local:")) return true
+            if (cleanArtist.isNotBlank() && item.title.trim().equals(cleanArtist.trim(), ignoreCase = true)) return true
+            return false
+        }
 
         fun addTrack(t: TrackItem, allowSeedDuplicate: Boolean = false): Boolean {
             if (t.title.isBlank()) return false
             if (!allowSeedDuplicate && isSameSong(t, seedTrack)) return false
+            if (!allowSeedDuplicate && isNonPlayableEntity(t)) return false
             val clean = cleanSongTitle(t.title)
             if (clean.isBlank()) return false
             if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
@@ -1937,8 +1953,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Tier 0: Seed track itself (always first in queue)
         addTrack(seedTrack, allowSeedDuplicate = true)
-
-        val cleanArtist = extractArtistName(seedTrack)
 
         // 1. Tier 1: Same Artist Popular Tracks (1-2 other tracks by same artist)
         if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {

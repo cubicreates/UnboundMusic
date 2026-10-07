@@ -72,14 +72,28 @@ fun BackendClient.parseSearchResults(jsonStr: String): List<TrackItem> {
             val thumb = item.optString("thumbnail",
                 item.optString("thumbnail_url", item.optString("cover_url", "")))
             val durMs = item.optLong("duration_ms", 0L)
-            val itemType = item.optString("item_type", "song")
+            var itemType = item.optString("item_type", "song")
             val browseId = item.optString("browse_id", "")
+            if (itemType == "song") {
+                if (browseId.startsWith("UC") || id.startsWith("UC")) {
+                    itemType = "artist"
+                } else if (browseId.startsWith("VL") || browseId.startsWith("PL") || id.startsWith("VL") || id.startsWith("PL")) {
+                    itemType = "playlist"
+                } else if (browseId.startsWith("MPREb_") || id.startsWith("MPREb_")) {
+                    itemType = "album"
+                }
+            }
+            val resolvedArtist = if ((artist == "Unknown Artist" || artist.isBlank()) && itemType == "artist") {
+                title
+            } else {
+                artist
+            }
             val year = item.optString("year", "")
             list.add(
                 TrackItem(
                     id = id,
                     title = title,
-                    artist = artist,
+                    artist = resolvedArtist,
                     coverUrl = thumb.ifBlank { if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "" },
                     streamUrl = "",
                     durationMs = durMs,

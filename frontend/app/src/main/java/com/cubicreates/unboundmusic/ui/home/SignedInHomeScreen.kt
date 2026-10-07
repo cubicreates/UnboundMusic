@@ -100,6 +100,7 @@ fun SignedInHomeScreen(
     onCapsuleSelect: (MoodCapsule) -> Unit = {},
     onMixClick: (MixDto) -> Unit = {},
     onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
+    onArtistClick: (artistName: String) -> Unit = {},
     onProfileClick: () -> Unit = {},
     onSyncClick: () -> Unit = {},
     onPlayNext: (TrackItem) -> Unit = {},
@@ -328,7 +329,8 @@ fun SignedInHomeScreen(
                         PersonalizedShelfItem(
                             shelf = shelf,
                             onTrackSelect = onTrackSelect,
-                            onAlbumPlaylistClick = onAlbumPlaylistClick
+                            onAlbumPlaylistClick = onAlbumPlaylistClick,
+                            onArtistClick = onArtistClick
                         )
                         Spacer(modifier = Modifier.height(28.dp))
                     }
@@ -1240,7 +1242,8 @@ private fun PersonalizedSyncingPlaceholder(
 private fun PersonalizedShelfItem(
     shelf: SmartShelfDto,
     onTrackSelect: (track: TrackItem, queue: List<TrackItem>) -> Unit,
-    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> }
+    onAlbumPlaylistClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> },
+    onArtistClick: (artistName: String) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1269,14 +1272,22 @@ private fun PersonalizedShelfItem(
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(shelf.tracks, key = { it.id }) { track ->
-                val isAlbumOrPlaylist = track.id.startsWith("MPREb_") || track.id.startsWith("VL") || track.id.startsWith("PL")
+                val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_") || track.id.startsWith("MPREb_")
+                val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC") || track.id.startsWith("UC")
+                val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL") || track.id.startsWith("VL") || track.id.startsWith("PL")
                 PersonalizedShelfTrackCard(
                     track = track,
                     onClick = {
-                        if (isAlbumOrPlaylist) {
-                            onAlbumPlaylistClick(track.id, track.title, track.coverUrl)
+                        val resolvedArtistName = if (track.itemType.equals("artist", ignoreCase = true) || track.artist.isBlank()) {
+                            track.title.ifBlank { track.artist }
                         } else {
-                            onTrackSelect(track, shelf.tracks)
+                            track.artist.ifBlank { track.title }
+                        }
+                        val resolvedId = track.browseId.ifBlank { track.id }
+                        when {
+                            isArtist -> onArtistClick(resolvedArtistName)
+                            isAlbum || isPlaylist -> onAlbumPlaylistClick(resolvedId, track.title, track.coverUrl)
+                            else -> onTrackSelect(track, shelf.tracks)
                         }
                     }
                 )

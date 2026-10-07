@@ -411,14 +411,20 @@ fun GuestSearchScreen(
                                 track = track,
                                 isCurrentPlaying = track.id == currentTrackId && isPlaying,
                                 onClick = {
-                                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
-                                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
-                                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_") || track.id.startsWith("MPREb_")
+                                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC") || track.id.startsWith("UC")
+                                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL") || track.id.startsWith("VL") || track.id.startsWith("PL")
+
+                                    val resolvedArtistName = if (track.itemType.equals("artist", ignoreCase = true) || track.artist.isBlank() || track.artist.contains("subscriber", ignoreCase = true)) {
+                                        track.title.ifBlank { track.artist }
+                                    } else {
+                                        track.artist.ifBlank { track.title }
+                                    }
+                                    val resolvedAlbumPlaylistId = track.browseId.ifBlank { track.id }
 
                                     when {
-                                        isAlbum -> onAlbumClick(track.browseId, track.title, track.coverUrl)
-                                        isArtist -> onArtistClick(track.artist)
-                                        isPlaylist -> onAlbumClick(track.browseId, track.title, track.coverUrl)
+                                        isArtist -> onArtistClick(resolvedArtistName)
+                                        isAlbum || isPlaylist -> onAlbumClick(resolvedAlbumPlaylistId, track.title, track.coverUrl)
                                         else -> onTrackSelect(track, listOf(track))
                                     }
                                 },

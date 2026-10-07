@@ -93,7 +93,23 @@ class MainOverlayState(
 }
 
 @Composable
-fun rememberMainOverlayState(): MainOverlayState = remember { MainOverlayState() }
+fun rememberMainOverlayState(): MainOverlayState {
+    return androidx.compose.runtime.saveable.rememberSaveable(
+        saver = androidx.compose.runtime.saveable.Saver(
+            save = { listOf(it.isPlayerExpanded, it.showSettings, it.showDownloadsScreen, it.viewingArtist) },
+            restore = {
+                MainOverlayState(
+                    isPlayerExpanded = (it.getOrNull(0) as? Boolean) ?: false,
+                    showSettings = (it.getOrNull(1) as? Boolean) ?: false,
+                    showDownloadsScreen = (it.getOrNull(2) as? Boolean) ?: false,
+                    viewingArtist = it.getOrNull(3) as? String
+                )
+            }
+        )
+    ) {
+        MainOverlayState()
+    }
+}
 
 /**
  * Host component managing the presentation of all full-screen modals, sheets,
@@ -255,29 +271,37 @@ fun MainOverlayHost(
     }
 
     // Modal: Artist Profile Screen
-    if (overlayState.viewingArtist != null) {
+    val currentViewingArtist = overlayState.viewingArtist
+    if (currentViewingArtist != null) {
         BackHandler(enabled = true) { overlayState.viewingArtist = null }
-        artistProfile?.let { prof ->
-            ArtistScreen(
-                profile = prof,
-                isLoading = isLoadingArtist,
-                onBack = { overlayState.viewingArtist = null },
-                onTrackSelect = { track ->
-                    viewModel.playTrack(track)
+        val effectiveProfile = artistProfile ?: com.cubicreates.unboundmusic.ui.artist.ArtistProfileData(
+            name = currentViewingArtist,
+            heroImageUrl = "",
+            monthlyListeners = "Loading monthly listeners...",
+            bio = ""
+        )
+        ArtistScreen(
+            profile = effectiveProfile,
+            isLoading = isLoadingArtist || artistProfile == null,
+            onBack = { overlayState.viewingArtist = null },
+            onTrackSelect = { track ->
+                viewModel.playTrack(track)
+                overlayState.isPlayerExpanded = true
+            },
+            onPlayAll = {
+                if (effectiveProfile.topTracks.isNotEmpty()) {
+                    viewModel.playTrackWithQueue(effectiveProfile.topTracks[0], effectiveProfile.topTracks)
                     overlayState.isPlayerExpanded = true
-                },
-                onPlayAll = {
-                    if (prof.topTracks.isNotEmpty()) {
-                        viewModel.playTrack(prof.topTracks[0])
-                        overlayState.isPlayerExpanded = true
-                    }
-                },
-                onArtistClick = { nextArtist ->
-                    overlayState.viewingArtist = nextArtist
-                    viewModel.loadArtistProfile(nextArtist)
                 }
-            )
-        }
+            },
+            onArtistClick = { nextArtist ->
+                overlayState.viewingArtist = nextArtist
+                viewModel.loadArtistProfile(nextArtist)
+            },
+            onAlbumClick = { id, title, coverUrl ->
+                viewModel.openAlbumPlaylist(id, title, coverUrl)
+            }
+        )
     }
 
     // Modal: Genre Detail Screen

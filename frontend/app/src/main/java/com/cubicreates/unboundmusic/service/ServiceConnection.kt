@@ -442,6 +442,17 @@ class ServiceConnection private constructor(private val context: Context) {
         controller?.stop()
     }
 
+    fun clearPlayback() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { clearPlayback() }
+            return
+        }
+        controller?.stop()
+        controller?.clearMediaItems()
+        originalQueue.clear()
+        syncState()
+    }
+
     // --- Queue Management ---
 
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {

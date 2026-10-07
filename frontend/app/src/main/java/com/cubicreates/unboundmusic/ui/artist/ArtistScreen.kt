@@ -62,7 +62,8 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
-import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.ui.draw.alpha
 
 data class ArtistProfileData(
     val name: String,
@@ -75,6 +76,7 @@ data class ArtistProfileData(
 )
 
 data class ArtistAlbumItem(
+    val id: String = "",
     val title: String,
     val year: String,
     val coverUrl: String
@@ -92,16 +94,71 @@ fun ArtistScreen(
     onBack: () -> Unit = {},
     onTrackSelect: (TrackItem) -> Unit = {},
     onPlayAll: () -> Unit = {},
-    onArtistClick: (String) -> Unit = {}
+    onArtistClick: (String) -> Unit = {},
+    onAlbumClick: (id: String, title: String, coverUrl: String) -> Unit = { _, _, _ -> }
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(UnboundBackground)
     ) {
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = UnboundPrimary)
+        if (isLoading && profile.topTracks.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 120.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp)
+                            .background(SurfaceGlassHighest)
+                    ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier
+                                .padding(top = 40.dp, start = 16.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(SurfaceGlassHighest)
+                                .border(width = 1.dp, color = BorderGlass, shape = CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowBack,
+                                contentDescription = "Back",
+                                tint = OnSurface
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(horizontal = 20.dp, vertical = 16.dp)
+                        ) {
+                            Text(
+                                text = profile.name.ifBlank { "Artist" },
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Loading artist discography...",
+                                fontSize = 14.sp,
+                                color = OnSurfaceVariant
+                            )
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 60.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = UnboundPrimary)
+                    }
+                }
             }
         } else {
             Column(
@@ -164,6 +221,24 @@ fun ArtistScreen(
                             .align(Alignment.BottomStart)
                             .padding(horizontal = 20.dp, vertical = 16.dp)
                     ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Verified Artist",
+                                tint = Color(0xFF1DB954),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Verified Artist",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
                         Text(
                             text = profile.name,
                             fontSize = 36.sp,
@@ -335,6 +410,7 @@ fun ArtistScreen(
                                 modifier = Modifier
                                     .width(130.dp)
                                     .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onAlbumClick(album.id.ifBlank { album.title }, album.title, album.coverUrl) }
                             ) {
                                 Box(
                                     modifier = Modifier

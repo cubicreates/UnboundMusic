@@ -53,6 +53,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:clearTaskOnLaunch="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:theme="@style/Theme.UnboundMusic">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

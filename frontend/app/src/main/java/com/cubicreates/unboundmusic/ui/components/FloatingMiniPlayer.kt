@@ -46,6 +46,16 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
+
 @Composable
 fun FloatingMiniPlayer(
     modifier: Modifier = Modifier,
@@ -56,12 +66,54 @@ fun FloatingMiniPlayer(
     isFavorite: Boolean = true,
     onPlayerClick: () -> Unit = {},
     onFavoriteToggle: () -> Unit = {},
-    onPlayPauseToggle: () -> Unit = {}
+    onPlayPauseToggle: () -> Unit = {},
+    onDismiss: () -> Unit = {}
 ) {
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    val animatedOffsetX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = offsetX,
+        label = "mini_player_offset_x"
+    )
+    val animatedOffsetY by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = offsetY,
+        label = "mini_player_offset_y"
+    )
+    val dragAlpha = (1f - (abs(animatedOffsetX) / 320f + animatedOffsetY / 160f)).coerceIn(0f, 1f)
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
+            .graphicsLayer {
+                translationX = animatedOffsetX
+                translationY = animatedOffsetY
+                alpha = dragAlpha
+            }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        offsetX += dragAmount.x
+                        if (dragAmount.y > 0 || offsetY > 0) {
+                            offsetY = (offsetY + dragAmount.y).coerceAtLeast(0f)
+                        }
+                    },
+                    onDragEnd = {
+                        if (abs(offsetX) > 180f || offsetY > 70f) {
+                            onDismiss()
+                        } else {
+                            offsetX = 0f
+                            offsetY = 0f
+                        }
+                    },
+                    onDragCancel = {
+                        offsetX = 0f
+                        offsetY = 0f
+                    }
+                )
+            }
             .clickable(onClick = onPlayerClick),
         shape = RoundedCornerShape(18.dp),
         color = Color(0xFF222222),
@@ -113,20 +165,20 @@ fun FloatingMiniPlayer(
                 }
             }
 
-            // Right: Favorite & Play Buttons
+            // Right: Favorite, Play/Pause & Close (YouTube Music Remover)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 IconButton(
                     onClick = onFavoriteToggle,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = "Favorite",
                         tint = if (isFavorite) UnboundPrimary else Color(0xFF888888),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
@@ -139,6 +191,18 @@ fun FloatingMiniPlayer(
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = Color.White,
                         modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Remove Mini Player",
+                        tint = Color(0xFFAAAAAA),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

@@ -225,7 +225,8 @@ fun MainApp(
                             isFavorite = isFavorite,
                             onPlayPauseToggle = { viewModel.togglePlayPause() },
                             onFavoriteToggle = { viewModel.toggleFavorite() },
-                            onPlayerClick = { overlayState.isPlayerExpanded = true }
+                            onPlayerClick = { overlayState.isPlayerExpanded = true },
+                            onDismiss = { viewModel.dismissMiniPlayer() }
                         )
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -284,6 +285,10 @@ fun MainApp(
                                 },
                                 onAlbumPlaylistClick = { id, title, coverUrl ->
                                     viewModel.openAlbumPlaylist(id, title, coverUrl)
+                                },
+                                onArtistClick = { artistName ->
+                                    overlayState.viewingArtist = artistName
+                                    viewModel.loadArtistProfile(artistName)
                                 },
                                 onTrackSelect = { track, queue ->
                                     viewModel.playTrackWithQueue(track, queue)

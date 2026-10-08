@@ -108,6 +108,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val downloadNotificationHelper = com.cubicreates.unboundmusic.notification.DownloadNotificationHelper(application)
 
     // ==================== Domain ViewModels Delegation ====================
+    val playbackDomainViewModel by lazy { PlaybackViewModel(application) }
+    val libraryDomainViewModel by lazy { LibraryViewModel(application) }
     val searchDomainViewModel by lazy { SearchViewModel(application) }
     val equalizerDomainViewModel by lazy { EqualizerViewModel(application) }
     val lyricsDomainViewModel by lazy { LyricsViewModel(application) }

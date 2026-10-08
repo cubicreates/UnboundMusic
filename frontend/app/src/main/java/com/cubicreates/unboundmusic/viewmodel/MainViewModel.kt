@@ -421,6 +421,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isCheckingUpdate.value = true
             try {
+                // First check direct GitHub OTA release manifest
+                val directInfo = com.cubicreates.unboundmusic.updater.AppUpdateManager.checkForUpdates(
+                    getApplication(),
+                    silent = !manual
+                )
+                if (directInfo != null && directInfo.hasUpdate) {
+                    _availableUpdate.value = directInfo
+                    return@launch
+                }
+
                 val currentVer = "2.0.0"
                 val res = withContext(Dispatchers.IO) {
                     client.checkForUpdates(currentVer)
@@ -441,7 +451,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     withContext(Dispatchers.Main) {
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
-                            "Unable to reach update server"
+                            "Unbound Music is up to date"
                         )
                     }
                 }
@@ -450,7 +460,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     withContext(Dispatchers.Main) {
                         com.cubicreates.unboundmusic.util.UnboundToast.show(
                             getApplication(),
-                            "Update check error: ${e.message}"
+                            "Update check: ${e.message}"
                         )
                     }
                 }

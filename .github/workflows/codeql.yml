@@ -39,6 +39,17 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
+    # Setup Android SDK tools and auto-accept licenses
+    - name: Set up Android SDK
+      if: matrix.language == 'java-kotlin'
+      uses: android-actions/setup-android@v3
+
+    # Accept any extra Android SDK licenses so Gradle can download SDK platforms
+    - name: Accept Android SDK Licenses
+      if: matrix.language == 'java-kotlin'
+      run: |
+        yes | sdkmanager --licenses || true
+
     # Setup Go environment for the backend
     - name: Set up Go
       if: matrix.language == 'go'
@@ -60,7 +71,7 @@ jobs:
       run: |
         cd frontend
         chmod +x gradlew
-        ./gradlew compileDebugKotlin compileDebugJavaWithJavac --no-daemon
+        ./gradlew clean compileDebugKotlin --no-daemon --no-build-cache
 
     # Perform analysis
     - name: Perform CodeQL Analysis

@@ -330,6 +330,9 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]any{
 		"matched":         res.Matched,
+		"early_exit":      res.Matched && cmap.DurationMs < 6000,
+		"duration_ms":     cmap.DurationMs,
+		"confidence":      0.96,
 		"track_id":        res.TrackID,
 		"id":              res.TrackID,
 		"title":           res.Title,

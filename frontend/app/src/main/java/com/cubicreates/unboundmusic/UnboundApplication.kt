@@ -26,47 +26,8 @@ class UnboundApplication : Application() {
         super.onCreate()
         Log.i(TAG, "Initializing Unbound Music Production Application...")
 
-        // 1. Install global uncaught exception handler to prevent silent crash exits and diagnose failures
-        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            try {
-                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(this, synchronous = true)
-            } catch (_: Throwable) {}
-            try {
-                Log.e(TAG, "CRASH DETECTED on thread ${thread.name}: ${throwable.message}", throwable)
-                val sw = java.io.StringWriter()
-                val pw = java.io.PrintWriter(sw)
-                throwable.printStackTrace(pw)
-                val crashReport = buildString {
-                    appendLine("=========================================")
-                    appendLine("UNBOUND MUSIC CRASH REPORT")
-                    appendLine("Time: ${java.util.Date()}")
-                    appendLine("Thread: ${thread.name} (id=${thread.id})")
-                    appendLine("Exception: ${throwable.javaClass.name}: ${throwable.message}")
-                    appendLine("Cause: ${throwable.cause?.javaClass?.name}: ${throwable.cause?.message}")
-                    appendLine("Stacktrace:")
-                    appendLine(sw.toString())
-                    appendLine("=========================================")
-                }
-
-                // Write to internal files directory
-                try {
-                    val crashFile = java.io.File(filesDir, "crash_dump.txt")
-                    crashFile.writeText(crashReport)
-                } catch (_: Throwable) {}
-
-                // Attempt writing to public Unbound directory if accessible
-                try {
-                    val publicDir = com.cubicreates.unboundmusic.service.UnboundStorageManager.getPublicUnboundDir(this)
-                    if (publicDir.exists()) {
-                        java.io.File(publicDir, "crash_dump.txt").writeText(crashReport)
-                    }
-                } catch (_: Throwable) {}
-            } catch (e: Throwable) {
-                Log.e(TAG, "Failed writing crash dump: ${e.message}")
-            }
-            defaultHandler?.uncaughtException(thread, throwable)
-        }
+        // 1. Install structured crash reporter to record diagnostics and restore state on crash
+        com.cubicreates.unboundmusic.util.CrashReporter.install(this)
 
         // 2. Clean up any stale sockets or locks left over from previous process
         try {

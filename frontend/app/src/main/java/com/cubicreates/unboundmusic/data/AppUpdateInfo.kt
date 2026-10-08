@@ -15,7 +15,8 @@ data class AppUpdateInfo(
     val hasUpdate: Boolean,
     val releaseNotes: String,
     val downloadUrl: String,
-    val publishedAt: String
+    val publishedAt: String,
+    val versionCode: Int = 0
 ) {
     companion object {
         fun fromJson(jsonStr: String): AppUpdateInfo? {
@@ -23,11 +24,12 @@ data class AppUpdateInfo(
                 val json = JSONObject(jsonStr)
                 AppUpdateInfo(
                     currentVersion = json.optString("current_version", ""),
-                    latestVersion = json.optString("latest_version", ""),
+                    latestVersion = json.optString("latest_version", json.optString("version_name", "")),
                     hasUpdate = json.optBoolean("has_update", false),
                     releaseNotes = json.optString("release_notes", ""),
                     downloadUrl = json.optString("download_url", ""),
-                    publishedAt = json.optString("published_at", "")
+                    publishedAt = json.optString("published_at", ""),
+                    versionCode = json.optInt("version_code", 0)
                 )
             } catch (_: Exception) {
                 null

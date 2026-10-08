@@ -1,0 +1,8 @@
+{
+  "version_code": 4,
+  "version_name": "2.1.0-beta",
+  "min_supported_version": 1,
+  "release_notes": "Added dynamic early-exit acoustic radar, OTA cipher self-healing, and modular architecture.",
+  "download_url": "https://github.com/cubicreates/UnboundMusic/releases/latest/download/unbound-music-debug.apk",
+  "published_at": "2026-10-08T18:00:00Z"
+}

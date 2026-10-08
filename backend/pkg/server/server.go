@@ -285,6 +285,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/shazam/recognize", s.handleShazamRecognize)
 	mux.HandleFunc("/api/v1/shazam/file", s.handleShazamFile)
 	mux.HandleFunc("/api/v1/shazam/identify", s.handleShazamIdentify)
+	mux.HandleFunc("/api/v1/shazam/stream", s.handleShazamIdentify)
 	mux.HandleFunc("/api/v1/fingerprint/identify", s.handleFingerprintIdentify)
 
 	// --- 8. Offline Storage & Background Downloader ---

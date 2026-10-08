@@ -243,11 +243,17 @@ fun UpdateAvailableDialog(
                         onClick = {
                             if (updateInfo.downloadUrl.isNotBlank()) {
                                 try {
+                                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                                        context,
+                                        "Downloading update in background..."
+                                    )
+                                    com.cubicreates.unboundmusic.updater.AppUpdateManager.startDownloadAndInstall(context, updateInfo)
+                                } catch (_: Exception) {
                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.downloadUrl)).apply {
                                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                     }
                                     context.startActivity(intent)
-                                } catch (_: Exception) {}
+                                }
                             }
                             onDismiss()
                         },
@@ -265,7 +271,7 @@ fun UpdateAvailableDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Download",
+                            text = "Install Update",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

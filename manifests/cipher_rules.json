@@ -1,0 +1,10 @@
+{
+  "version": "2026.10.08",
+  "player_url": "https://www.youtube.com/s/player/28169123/player_ias.vflset/en_US/base.js",
+  "cipher_ops": [
+    { "type": "reverse", "param": 0 },
+    { "type": "swap", "param": 53 },
+    { "type": "splice", "param": 2 }
+  ],
+  "notes": "Remote cipher manifest fallback for over-the-air signature descrambling"
+}

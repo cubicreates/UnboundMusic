@@ -10,12 +10,15 @@ package ytmusic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -416,7 +419,7 @@ func FetchAndExtractCipherOps(ctx context.Context, httpClient *http.Client, play
 }
 
 var (
-	regexPlayerJSSrc = regexp.MustCompile(`(?:src=["']|/s/player/)([a-zA-Z0-9_/-]+(?:player_ias|base)[^"']*\.js)`)
+	regexPlayerJSSrc = regexp.MustCompile(`(?:"(?:playerUrl|jsUrl)":\s*"|src=["']|/s/player/)([a-zA-Z0-9_/-]+(?:player_ias|base)[^"'\\]*\.js)`)
 )
 
 // ExtractPlayerJSURLFromHTML parses YouTube web pages or iframe APIs to discover the current base player JS.
@@ -432,7 +435,7 @@ func ExtractPlayerJSURLFromHTML(htmlContent string) string {
 		}
 		return "https://www.youtube.com" + path
 	}
-	return "https://www.youtube.com/s/player/28169123/player_ias.vflset/en_US/base.js"
+	return ""
 }
 
 // BootstrapPlayerOps fetches the latest YouTube player JS and initializes cipher operations.
@@ -441,28 +444,99 @@ func BootstrapPlayerOps(ctx context.Context, httpClient *http.Client) error {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.youtube.com/iframe_api", nil)
-	if err != nil {
-		return err
+	cachePath := filepath.Join(os.TempDir(), "unbound_cipher_ops.json")
+	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
+		var diskOps []CipherOp
+		if err := json.Unmarshal(data, &diskOps); err == nil && len(diskOps) > 0 {
+			SetCachedCipherOps(diskOps)
+			log.Printf("[CIPHER] Loaded %d cached cipher operations from disk", len(diskOps))
+		}
 	}
-	req.Header.Set("User-Agent", UserAgentWebRemix)
 
-	resp, err := httpClient.Do(req)
+	discoveryEndpoints := []string{
+		"https://www.youtube.com/iframe_api",
+		"https://www.youtube.com/embed/dQw4w9WgXcQ",
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+	}
+
 	var playerURL string
-	if err == nil && resp.StatusCode == http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		playerURL = ExtractPlayerJSURLFromHTML(string(body))
-	} else {
-		if resp != nil {
+	for _, ep := range discoveryEndpoints {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, ep, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("User-Agent", UserAgentWebRemix)
+		resp, err := httpClient.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			found := ExtractPlayerJSURLFromHTML(string(body))
+			if found != "" {
+				playerURL = found
+				log.Printf("[CIPHER] Discovered player JS URL from %s: %s", ep, playerURL)
+				break
+			}
+		} else if resp != nil {
 			resp.Body.Close()
 		}
-		playerURL = "https://www.youtube.com/s/player/28169123/player_ias.vflset/en_US/base.js"
+	}
+
+	if playerURL == "" {
+		otaManifestURL := "https://raw.githubusercontent.com/cubicreates/UnboundMusic/main/manifests/cipher_rules.json"
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, otaManifestURL, nil)
+		if err == nil {
+			resp, err := httpClient.Do(req)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var manifest struct {
+					PlayerURL string     `json:"player_url"`
+					CipherOps []CipherOp `json:"cipher_ops"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&manifest); err == nil {
+					if len(manifest.CipherOps) > 0 {
+						SetCachedCipherOps(manifest.CipherOps)
+						if b, err := json.Marshal(manifest.CipherOps); err == nil {
+							_ = os.WriteFile(cachePath, b, 0644)
+						}
+						log.Printf("[CIPHER] Successfully loaded %d cipher ops from OTA manifest", len(manifest.CipherOps))
+						resp.Body.Close()
+						return nil
+					}
+					if manifest.PlayerURL != "" {
+						playerURL = manifest.PlayerURL
+					}
+				}
+				resp.Body.Close()
+			} else if resp != nil {
+				resp.Body.Close()
+			}
+		}
+	}
+
+	if playerURL == "" {
+		cachedOpsMu.RLock()
+		hasOps := len(cachedOps) > 0
+		cachedOpsMu.RUnlock()
+		if hasOps {
+			return nil
+		}
+		return fmt.Errorf("could not discover player JS URL from any endpoint")
 	}
 
 	ops, err := FetchAndExtractCipherOps(ctx, httpClient, playerURL)
 	if err != nil {
+		cachedOpsMu.RLock()
+		hasOps := len(cachedOps) > 0
+		cachedOpsMu.RUnlock()
+		if hasOps {
+			return nil
+		}
 		return fmt.Errorf("failed bootstrapping cipher ops: %w", err)
+	}
+
+	if len(ops) > 0 {
+		if data, err := json.Marshal(ops); err == nil {
+			_ = os.WriteFile(cachePath, data, 0644)
+		}
 	}
 
 	log.Printf("[CIPHER] Successfully bootstrapped %d cipher operations from player JS", len(ops))

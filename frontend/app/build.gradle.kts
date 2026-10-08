@@ -50,10 +50,15 @@ android {
     }
     splits {
         abi {
-            isEnable = false
+            isEnable = true
             isUniversalApk = true
             reset()
             include("arm64-v8a", "x86_64")
+        }
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
     androidResources {

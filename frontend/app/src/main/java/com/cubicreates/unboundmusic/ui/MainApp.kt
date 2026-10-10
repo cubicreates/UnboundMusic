@@ -47,7 +47,7 @@ import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
 import com.cubicreates.unboundmusic.ui.shazam.ShazamScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
-import com.cubicreates.unboundmusic.viewmodel.MainViewModel
+import com.cubicreates.unboundmusic.viewmodel.*
 
 /**
  * Root composable hosting the primary tab navigation shell, floating mini-player,

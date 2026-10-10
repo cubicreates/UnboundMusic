@@ -1,9 +1,8 @@
 /*
  * Package: com.cubicreates.unboundmusic.viewmodel
  * File: MainViewModel.kt
- * Purpose: Production ViewModel orchestrating live UI state, native Go daemon API calls,
- *          Media3 playback service, YouTube Music search, stream resolution, lyrics,
- *          analytics logging, and AI-powered vibe search.
+ * Purpose: Central ViewModel coordinating reactive state flows, Media3 playback service,
+ *          Go engine daemon lifecycle, and domain ViewModel extensions.
  * Subsystem: Application UI / Domain Layer
  * Concurrency: StateFlow reactive architecture running background I/O on viewModelScope.
  */
@@ -11,13 +10,6 @@
 package com.cubicreates.unboundmusic.viewmodel
 
 import android.app.Application
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.net.ConnectivityManager
-import android.net.Uri
-import android.os.BatteryManager
-import android.os.Looper
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,87 +17,48 @@ import com.cubicreates.unboundmusic.audio.EqualizerCurve
 import com.cubicreates.unboundmusic.daemon.DaemonLifecycleState
 import com.cubicreates.unboundmusic.daemon.DaemonManager
 import com.cubicreates.unboundmusic.data.*
-import com.cubicreates.unboundmusic.data.AccountStatusData
-import com.cubicreates.unboundmusic.data.AudioQuality
-import com.cubicreates.unboundmusic.data.CascadeSearchResponse
-import com.cubicreates.unboundmusic.data.CuratedCollections
-import com.cubicreates.unboundmusic.data.DaypartingState
-import com.cubicreates.unboundmusic.data.DeviceCodeData
-import com.cubicreates.unboundmusic.data.CustomPlaylist
-import com.cubicreates.unboundmusic.data.DownloadStartRequest
-import com.cubicreates.unboundmusic.data.DownloadTaskDto
-import com.cubicreates.unboundmusic.data.DownloadUiStatus
-import com.cubicreates.unboundmusic.data.LocalPlaylistStore
-import com.cubicreates.unboundmusic.data.MediaStoreAudioBridge
-import com.cubicreates.unboundmusic.data.GenreItemDto
-import com.cubicreates.unboundmusic.data.AppUpdateInfo
-import com.cubicreates.unboundmusic.data.GenreSectionDto
-import com.cubicreates.unboundmusic.data.LocalTrack
-import com.cubicreates.unboundmusic.data.MixDto
-import com.cubicreates.unboundmusic.data.MoodCapsule
-import com.cubicreates.unboundmusic.data.PlaybackStateStore
-import com.cubicreates.unboundmusic.data.PlaylistItemDto
-import com.cubicreates.unboundmusic.data.PlaylistShelfDto
-import com.cubicreates.unboundmusic.data.RydVoteData
-import com.cubicreates.unboundmusic.data.SkipSegmentDto
-import com.cubicreates.unboundmusic.data.SleepTimerState
-import com.cubicreates.unboundmusic.data.UserEqPresetDto
-import com.cubicreates.unboundmusic.data.VibeResult
-import com.cubicreates.unboundmusic.data.VibeSearchResponse
-import com.cubicreates.unboundmusic.data.VibeSearchUiState
-import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.service.PlaybackUiState
 import com.cubicreates.unboundmusic.service.ServiceConnection
 import com.cubicreates.unboundmusic.service.StorageInitializer
-import com.cubicreates.unboundmusic.service.UnboundPlaybackService
 import com.cubicreates.unboundmusic.ui.album.AlbumPlaylistData
-import com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem
 import com.cubicreates.unboundmusic.ui.artist.ArtistProfileData
-import com.cubicreates.unboundmusic.ui.artist.SimilarArtistItem
 import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
 import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
 import com.cubicreates.unboundmusic.ui.recap.RecapData
+import com.cubicreates.unboundmusic.ui.search.SearchCategory
 import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
-import java.util.Calendar
 
 /**
  * Central ViewModel orchestrating all app state: playback, search, lyrics, analytics, library.
  * Uses Media3 ServiceConnection for audio playback and BackendClient for Go daemon IPC.
+ * Domain logic is modularized across domain extension files in com.cubicreates.unboundmusic.viewmodel.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
-        private const val TAG = "MainViewModel"
+        internal const val TAG = "MainViewModel"
     }
 
-    private val daemonManager = DaemonManager.getInstance(application)
-    private val client = daemonManager.client
-    private val serviceConnection = ServiceConnection.getInstance(application)
-    private val downloadNotificationHelper = com.cubicreates.unboundmusic.notification.DownloadNotificationHelper(application)
+    internal val daemonManager = DaemonManager.getInstance(application)
+    internal val client = daemonManager.client
+    internal val serviceConnection = ServiceConnection.getInstance(application)
+    internal val downloadNotificationHelper = com.cubicreates.unboundmusic.notification.DownloadNotificationHelper(application)
 
     // ==================== Domain ViewModels Delegation ====================
     val playbackDomainViewModel by lazy { PlaybackViewModel(application) }
@@ -135,284 +88,192 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Playback State ====================
 
-    private val _currentTrack = MutableStateFlow(TrackItem())
+    internal val _currentTrack = MutableStateFlow(TrackItem())
     val currentTrack: StateFlow<TrackItem> = _currentTrack.asStateFlow()
 
-    private val _isFavorite = MutableStateFlow(false)
+    internal val _isFavorite = MutableStateFlow(false)
     val isFavorite: StateFlow<Boolean> = _isFavorite.asStateFlow()
 
     // ==================== Return YouTube Dislike (RYD) State ====================
 
-    private val _rydVotes = MutableStateFlow<RydVoteData?>(null)
+    internal val _rydVotes = MutableStateFlow<RydVoteData?>(null)
     val rydVotes: StateFlow<RydVoteData?> = _rydVotes.asStateFlow()
 
-    // ==================== Playback Quality & Automation (Batch 1) ====================
+    // ==================== Playback Quality & Automation ====================
 
-    private val _autoDownloadLikedSongs = MutableStateFlow(false)
+    internal val _autoDownloadLikedSongs = MutableStateFlow(false)
     val autoDownloadLikedSongs: StateFlow<Boolean> = _autoDownloadLikedSongs.asStateFlow()
 
-    private val _skipSilenceEnabled = MutableStateFlow(false)
+    internal val _skipSilenceEnabled = MutableStateFlow(false)
     val skipSilenceEnabled: StateFlow<Boolean> = _skipSilenceEnabled.asStateFlow()
 
-    private val _normalizeVolumeEnabled = MutableStateFlow(false)
+    internal val _normalizeVolumeEnabled = MutableStateFlow(false)
     val normalizeVolumeEnabled: StateFlow<Boolean> = _normalizeVolumeEnabled.asStateFlow()
 
-    private val _sponsorBlockEnabled = MutableStateFlow(true)
+    internal val _sponsorBlockEnabled = MutableStateFlow(true)
     val sponsorBlockEnabled: StateFlow<Boolean> = _sponsorBlockEnabled.asStateFlow()
 
-    private val _streamingQuality = MutableStateFlow(PlaybackStateStore.getStreamingQuality(application))
+    internal val _streamingQuality = MutableStateFlow(PlaybackStateStore.getStreamingQuality(application))
     val streamingQuality: StateFlow<AudioQuality> = _streamingQuality.asStateFlow()
 
-    private val _downloadQuality = MutableStateFlow(PlaybackStateStore.getDownloadQuality(application))
+    internal val _downloadQuality = MutableStateFlow(PlaybackStateStore.getDownloadQuality(application))
     val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
 
-    private val _isLockscreenWallpaperEnabled = MutableStateFlow(PlaybackStateStore.isLockscreenWallpaperEnabled(application))
+    internal val _isLockscreenWallpaperEnabled = MutableStateFlow(PlaybackStateStore.isLockscreenWallpaperEnabled(application))
     val isLockscreenWallpaperEnabled: StateFlow<Boolean> = _isLockscreenWallpaperEnabled.asStateFlow()
 
-    fun setLockscreenWallpaperEnabled(enabled: Boolean) {
-        _isLockscreenWallpaperEnabled.value = enabled
-        PlaybackStateStore.setLockscreenWallpaperEnabled(getApplication(), enabled)
-        if (!enabled) {
-            com.cubicreates.unboundmusic.service.LockscreenArtworkManager.clearLockscreenArtwork(getApplication())
-        } else {
-            val track = _currentTrack.value
-            if (track.id.isNotBlank() && track.title.isNotBlank()) {
-                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.updateLockscreenArtwork(getApplication(), track)
-            }
-        }
-    }
-
-    private val _isVlcAutoScanEnabled = MutableStateFlow(PlaybackStateStore.isVlcAutoScanEnabled(application))
+    internal val _isVlcAutoScanEnabled = MutableStateFlow(PlaybackStateStore.isVlcAutoScanEnabled(application))
     val isVlcAutoScanEnabled: StateFlow<Boolean> = _isVlcAutoScanEnabled.asStateFlow()
-
-    fun setVlcAutoScanEnabled(enabled: Boolean) {
-        _isVlcAutoScanEnabled.value = enabled
-        PlaybackStateStore.setVlcAutoScanEnabled(getApplication(), enabled)
-    }
-
-    fun setStreamingQuality(quality: AudioQuality) {
-        _streamingQuality.value = quality
-        PlaybackStateStore.setStreamingQuality(getApplication(), quality)
-    }
-
-    fun setDownloadQuality(quality: AudioQuality) {
-        _downloadQuality.value = quality
-        PlaybackStateStore.setDownloadQuality(getApplication(), quality)
-    }
-
-    fun setPlaybackSpeed(speed: Float, pitch: Float = 1.0f) {
-        serviceConnection.setPlaybackSpeed(speed, pitch)
-    }
 
     // ==================== Home Mood Filtering ====================
 
-    private val _selectedHomeMood = MutableStateFlow("All")
+    internal val _selectedHomeMood = MutableStateFlow("All")
     val selectedHomeMood: StateFlow<String> = _selectedHomeMood.asStateFlow()
 
-    private val _moodTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _moodTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val moodTracks: StateFlow<List<TrackItem>> = _moodTracks.asStateFlow()
 
-    private val _isMoodLoading = MutableStateFlow(false)
+    internal val _isMoodLoading = MutableStateFlow(false)
     val isMoodLoading: StateFlow<Boolean> = _isMoodLoading.asStateFlow()
 
-    private val moodCache = java.util.concurrent.ConcurrentHashMap<String, List<TrackItem>>()
+    internal val moodCache = java.util.concurrent.ConcurrentHashMap<String, List<TrackItem>>()
 
     // ==================== Equalizer & DSP State ====================
 
-    private val _equalizerCurve = MutableStateFlow(EqualizerCurve.FLAT)
+    internal val _equalizerCurve = MutableStateFlow(EqualizerCurve.FLAT)
     val equalizerCurve: StateFlow<EqualizerCurve> = _equalizerCurve.asStateFlow()
 
-    private val _autoEqResults = MutableStateFlow<List<AutoEqHeadphoneItem>>(emptyList())
+    internal val _autoEqResults = MutableStateFlow<List<AutoEqHeadphoneItem>>(emptyList())
     val autoEqResults: StateFlow<List<AutoEqHeadphoneItem>> = _autoEqResults.asStateFlow()
 
-    private val _isSearchingAutoEq = MutableStateFlow(false)
+    internal val _isSearchingAutoEq = MutableStateFlow(false)
     val isSearchingAutoEq: StateFlow<Boolean> = _isSearchingAutoEq.asStateFlow()
 
     // Stream resolution & playback diagnostics
-    private val _streamDebugMessage = MutableStateFlow<String?>(null)
+    internal val _streamDebugMessage = MutableStateFlow<String?>(null)
     val streamDebugMessage: StateFlow<String?> = _streamDebugMessage.asStateFlow()
 
     fun clearStreamDebugMessage() {
         _streamDebugMessage.value = null
     }
 
-    // ==================== Phase 3: Theme Engine, DSP & Settings Studio ====================
+    // ==================== Theme Engine, DSP & Settings ====================
 
-    private val _selectedTheme = MutableStateFlow(AppThemePreset.STUDIO_DARK)
+    internal val _selectedTheme = MutableStateFlow(AppThemePreset.STUDIO_DARK)
     val selectedTheme: StateFlow<AppThemePreset> = _selectedTheme.asStateFlow()
 
-    private val _bassBoostStrength = MutableStateFlow(0)
+    internal val _bassBoostStrength = MutableStateFlow(0)
     val bassBoostStrength: StateFlow<Int> = _bassBoostStrength.asStateFlow()
 
-    private val _virtualizerStrength = MutableStateFlow(0)
+    internal val _virtualizerStrength = MutableStateFlow(0)
     val virtualizerStrength: StateFlow<Int> = _virtualizerStrength.asStateFlow()
 
-    private val _loudnessGainMb = MutableStateFlow(0)
+    internal val _loudnessGainMb = MutableStateFlow(0)
     val loudnessGainMb: StateFlow<Int> = _loudnessGainMb.asStateFlow()
 
-    private val _reverbPreset = MutableStateFlow<Short>(0)
+    internal val _reverbPreset = MutableStateFlow<Short>(0)
     val reverbPreset: StateFlow<Short> = _reverbPreset.asStateFlow()
 
-    private val _recentlyPlayedTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _recentlyPlayedTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val recentlyPlayedTracks: StateFlow<List<TrackItem>> = _recentlyPlayedTracks.asStateFlow()
 
-    private val _favoriteTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _favoriteTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val favoriteTracks: StateFlow<List<TrackItem>> = _favoriteTracks.asStateFlow()
 
-    private val _customEqPresets = MutableStateFlow<List<UserEqPresetDto>>(emptyList())
+    internal val _customEqPresets = MutableStateFlow<List<UserEqPresetDto>>(emptyList())
     val customEqPresets: StateFlow<List<UserEqPresetDto>> = _customEqPresets.asStateFlow()
 
-    private val _cachePurgeStatus = MutableStateFlow<String?>(null)
+    internal val _cachePurgeStatus = MutableStateFlow<String?>(null)
     val cachePurgeStatus: StateFlow<String?> = _cachePurgeStatus.asStateFlow()
 
-    // ==================== Phase 4: Genre & Mood Boards State ====================
+    // ==================== Genre & Mood Boards State ====================
 
-    private val _genreSections = MutableStateFlow<List<GenreSectionDto>>(emptyList())
+    internal val _genreSections = MutableStateFlow<List<GenreSectionDto>>(emptyList())
     val genreSections: StateFlow<List<GenreSectionDto>> = _genreSections.asStateFlow()
 
-    private val _activeGenreShelves = MutableStateFlow<List<PlaylistShelfDto>>(emptyList())
+    internal val _activeGenreShelves = MutableStateFlow<List<PlaylistShelfDto>>(emptyList())
     val activeGenreShelves: StateFlow<List<PlaylistShelfDto>> = _activeGenreShelves.asStateFlow()
 
-    private val _isLoadingGenreDetail = MutableStateFlow(false)
+    internal val _isLoadingGenreDetail = MutableStateFlow(false)
     val isLoadingGenreDetail: StateFlow<Boolean> = _isLoadingGenreDetail.asStateFlow()
 
-    private val _selectedGenreTitle = MutableStateFlow("Genre")
+    internal val _selectedGenreTitle = MutableStateFlow("Genre")
     val selectedGenreTitle: StateFlow<String> = _selectedGenreTitle.asStateFlow()
 
     // ==================== Artist & Album State ====================
 
-    private val _artistProfile = MutableStateFlow<ArtistProfileData?>(null)
+    internal val _artistProfile = MutableStateFlow<ArtistProfileData?>(null)
     val artistProfile: StateFlow<ArtistProfileData?> = _artistProfile.asStateFlow()
 
-    private val _isLoadingArtist = MutableStateFlow(false)
+    internal val _isLoadingArtist = MutableStateFlow(false)
     val isLoadingArtist: StateFlow<Boolean> = _isLoadingArtist.asStateFlow()
 
-    private val _albumPlaylistData = MutableStateFlow<AlbumPlaylistData?>(null)
+    internal val _albumPlaylistData = MutableStateFlow<AlbumPlaylistData?>(null)
     val albumPlaylistData: StateFlow<AlbumPlaylistData?> = _albumPlaylistData.asStateFlow()
 
     // ==================== Recap State ====================
 
-    private val _recapData = MutableStateFlow(RecapData())
+    internal val _recapData = MutableStateFlow(RecapData())
     val recapData: StateFlow<RecapData> = _recapData.asStateFlow()
 
     // ==================== Search State ====================
 
-    private val _searchCategory = MutableStateFlow(com.cubicreates.unboundmusic.ui.search.SearchCategory.ALL)
-    val searchCategory: StateFlow<com.cubicreates.unboundmusic.ui.search.SearchCategory> = _searchCategory.asStateFlow()
+    internal val _searchCategory = MutableStateFlow(SearchCategory.ALL)
+    val searchCategory: StateFlow<SearchCategory> = _searchCategory.asStateFlow()
 
-    fun setSearchCategory(category: com.cubicreates.unboundmusic.ui.search.SearchCategory) {
-        if (_searchCategory.value != category) {
-            _searchCategory.value = category
-            val currentQ = _searchQuery.value
-            if (currentQ.isNotBlank()) {
-                onSearchQueryChanged(currentQ)
-            }
-        }
-    }
-
-    private val _searchQuery = MutableStateFlow("")
+    internal val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _searchResults = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _searchResults = MutableStateFlow<List<TrackItem>>(emptyList())
     val searchResults: StateFlow<List<TrackItem>> = _searchResults.asStateFlow()
 
-    private val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    internal val _searchSuggestions = MutableStateFlow<List<String>>(emptyList())
     val searchSuggestions: StateFlow<List<String>> = _searchSuggestions.asStateFlow()
 
-    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    internal val _searchHistory = MutableStateFlow<List<String>>(emptyList())
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
-    private val _isSearching = MutableStateFlow(false)
+    internal val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
 
-    private val _isListeningShazam = MutableStateFlow(false)
+    internal val _isListeningShazam = MutableStateFlow(false)
     val isListeningShazam: StateFlow<Boolean> = _isListeningShazam.asStateFlow()
 
-    private val _recordingDurationSeconds = MutableStateFlow(0)
+    internal val _recordingDurationSeconds = MutableStateFlow(0)
     val recordingDurationSeconds: StateFlow<Int> = _recordingDurationSeconds.asStateFlow()
 
     val audioWaveAmplitude: StateFlow<Float> = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.audioAmplitude
 
-    private val _recognizedMessage = MutableStateFlow<String?>(null)
+    internal val _recognizedMessage = MutableStateFlow<String?>(null)
     val recognizedMessage: StateFlow<String?> = _recognizedMessage.asStateFlow()
 
-    private val _lastRecognizedTrack = MutableStateFlow<TrackItem?>(null)
+    internal val _lastRecognizedTrack = MutableStateFlow<TrackItem?>(null)
     val lastRecognizedTrack: StateFlow<TrackItem?> = _lastRecognizedTrack.asStateFlow()
 
-    private val _recognizedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
+    internal val _recognizedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
     val recognizedVariants: StateFlow<List<RecognizedTrackVariant>> = _recognizedVariants.asStateFlow()
 
-    private val _shazamHistory = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _shazamHistory = MutableStateFlow<List<TrackItem>>(emptyList())
     val shazamHistory: StateFlow<List<TrackItem>> = _shazamHistory.asStateFlow()
 
-    private val _hummingHistory = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _hummingHistory = MutableStateFlow<List<TrackItem>>(emptyList())
     val hummingHistory: StateFlow<List<TrackItem>> = _hummingHistory.asStateFlow()
 
-    private val _lastHummedTrack = MutableStateFlow<TrackItem?>(null)
+    internal val _lastHummedTrack = MutableStateFlow<TrackItem?>(null)
     val lastHummedTrack: StateFlow<TrackItem?> = _lastHummedTrack.asStateFlow()
 
-    private val _hummedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
+    internal val _hummedVariants = MutableStateFlow<List<RecognizedTrackVariant>>(emptyList())
     val hummedVariants: StateFlow<List<RecognizedTrackVariant>> = _hummedVariants.asStateFlow()
 
-    fun clearLastRecognizedTrack() {
-        _lastRecognizedTrack.value = null
-        _recognizedVariants.value = emptyList()
-    }
-
-    fun clearLastHummedTrack() {
-        _lastHummedTrack.value = null
-        _hummedVariants.value = emptyList()
-    }
-
-    fun clearShazamHistory() {
-        _shazamHistory.value = emptyList()
-    }
-
-    fun clearHummingHistory() {
-        _hummingHistory.value = emptyList()
-    }
-
-    private val _shazamMode = MutableStateFlow(ShazamMode.ACOUSTIC)
+    internal val _shazamMode = MutableStateFlow(ShazamMode.ACOUSTIC)
     val shazamMode: StateFlow<ShazamMode> = _shazamMode.asStateFlow()
-
-    fun setShazamMode(mode: ShazamMode) {
-        _shazamMode.value = mode
-        _recognizedMessage.value = if (mode == ShazamMode.HUMMING) {
-            "Tap radar to hum a tune... Tap again to stop & send"
-        } else {
-            "Tap the radar to identify playing music"
-        }
-    }
-
-    fun launchGoogleSoundSearch(context: Context): Boolean {
-        val intents = listOf(
-            android.content.Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
-            android.content.Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
-            android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH),
-            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
-            },
-            android.content.Intent(android.content.Intent.ACTION_WEB_SEARCH).apply {
-                putExtra(android.app.SearchManager.QUERY, "what is this song")
-            }
-        )
-        for (intent in intents) {
-            try {
-                intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                context.startActivity(intent)
-                return true
-            } catch (_: Exception) {}
-        }
-        return false
-    }
 
     // ==================== Application Lifecycle & Update State ====================
 
-    private val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
+    internal val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
     val availableUpdate: StateFlow<AppUpdateInfo?> = _availableUpdate.asStateFlow()
 
-    private val _isCheckingUpdate = MutableStateFlow(false)
+    internal val _isCheckingUpdate = MutableStateFlow(false)
     val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
 
     fun dismissUpdateDialog() {
@@ -472,445 +333,200 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val voiceSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val humSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val storagePermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+
     // ==================== Library & Storage State ====================
 
-    private val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _libraryTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val libraryTracks: StateFlow<List<TrackItem>> = _libraryTracks.asStateFlow()
 
-    private val _musicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _musicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val musicTracks: StateFlow<List<TrackItem>> = _musicTracks.asStateFlow()
 
-    private val _mixedAudioTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _mixedAudioTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val mixedAudioTracks: StateFlow<List<TrackItem>> = _mixedAudioTracks.asStateFlow()
 
-    private val _artistPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    internal val _artistPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
     val artistPlaylists: StateFlow<List<CustomPlaylist>> = _artistPlaylists.asStateFlow()
 
-    fun synthesizeArtistPlaylists(tracks: List<TrackItem>): List<CustomPlaylist> {
-        val pureTracks = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
-        val grouped = pureTracks
-            .filter { it.artist.isNotBlank() && !it.artist.equals("Unknown Artist", ignoreCase = true) && !it.artist.equals("Unknown", ignoreCase = true) }
-            .groupBy { it.artist.trim() }
-
-        val playlists = grouped
-            .filter { (_, artistTracks) -> artistTracks.size >= 2 }
-            .map { (artistName, artistTracks) ->
-                val safeId = "artist_${artistName.lowercase().replace(Regex("[^a-z0-9]"), "_")}"
-                CustomPlaylist(
-                    id = safeId,
-                    title = "$artistName - Essentials",
-                    description = "Smart artist mix featuring ${artistTracks.size} downloaded tracks",
-                    coverUrl = artistTracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: "",
-                    tracks = artistTracks,
-                    playlistType = SmartPlaylistType.ARTIST_SMART,
-                    targetArtist = artistName
-                )
-            }
-            .sortedByDescending { it.tracks.size }
-
-        _artistPlaylists.value = playlists
-        return playlists
-    }
-
-    private val _albumicPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    internal val _albumicPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
     val albumicPlaylists: StateFlow<List<CustomPlaylist>> = _albumicPlaylists.asStateFlow()
 
-    private val _albumCompletions = MutableStateFlow<List<AlbumCompletionStatus>>(emptyList())
+    internal val _albumCompletions = MutableStateFlow<List<AlbumCompletionStatus>>(emptyList())
     val albumCompletions: StateFlow<List<AlbumCompletionStatus>> = _albumCompletions.asStateFlow()
 
-    fun synthesizeAlbumicPlaylists(tracks: List<TrackItem>): List<CustomPlaylist> {
-        val pureTracks = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
-        val grouped = pureTracks
-            .filter { !it.album.isNullOrBlank() && !it.album.equals("Unknown Album", ignoreCase = true) && !it.album.equals("Unknown", ignoreCase = true) }
-            .groupBy { it.album.trim() }
-
-        val playlists = grouped
-            .filter { (_, albumTracks) -> albumTracks.isNotEmpty() }
-            .map { (albumName, albumTracks) ->
-                val safeId = "album_${albumName.lowercase().replace(Regex("[^a-z0-9]"), "_")}"
-                val primaryArtist = albumTracks.firstOrNull { it.artist.isNotBlank() }?.artist ?: ""
-                CustomPlaylist(
-                    id = safeId,
-                    title = albumName,
-                    description = "Album compilation featuring ${albumTracks.size} local tracks",
-                    coverUrl = albumTracks.firstOrNull { it.coverUrl.isNotBlank() }?.coverUrl ?: "",
-                    tracks = albumTracks,
-                    playlistType = SmartPlaylistType.ALBUMIC_SMART,
-                    targetAlbum = albumName,
-                    targetArtist = primaryArtist
-                )
-            }
-            .sortedByDescending { it.tracks.size }
-
-        _albumicPlaylists.value = playlists
-        checkAlbumCompletions(playlists)
-        return playlists
-    }
-
-    private fun checkAlbumCompletions(albumPlaylists: List<CustomPlaylist>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val completionList = mutableListOf<AlbumCompletionStatus>()
-            val updatedAlbumics = albumPlaylists.toMutableList()
-
-            for (playlist in albumPlaylists.take(15)) {
-                val album = playlist.targetAlbum ?: playlist.title
-                val artist = playlist.targetArtist ?: ""
-                if (album.isBlank()) continue
-
-                try {
-                    val client = DaemonManager.getInstance(getApplication()).client
-                    val (code, jsonStr) = client.getAlbumDetails(artist = artist, album = album)
-                    if (code == 200 && jsonStr.isNotBlank()) {
-                        val root = org.json.JSONObject(jsonStr)
-                        val officialCount = root.optInt("track_count", 0)
-                        val browseId = root.optString("id", "")
-                        val tracksArr = root.optJSONArray("tracks")
-
-                        if (officialCount > 0) {
-                            val downloaded = playlist.tracks.size
-                            val ratio = downloaded.toFloat() / officialCount.toFloat()
-                            val missing = mutableListOf<TrackItem>()
-
-                            if (tracksArr != null) {
-                                val downloadedTitles = playlist.tracks.map { it.title.trim().lowercase() }.toSet()
-                                for (i in 0 until tracksArr.length()) {
-                                    val tObj = tracksArr.optJSONObject(i) ?: continue
-                                    val tTitle = tObj.optString("title", "")
-                                    if (tTitle.isNotBlank() && !downloadedTitles.contains(tTitle.trim().lowercase())) {
-                                        missing.add(
-                                            TrackItem(
-                                                id = tObj.optString("id", ""),
-                                                title = tTitle,
-                                                artist = tObj.optString("artist", artist),
-                                                album = album,
-                                                durationMs = tObj.optLong("duration_ms", 0L),
-                                                coverUrl = tObj.optString("thumbnail_url", playlist.effectiveCoverUrl),
-                                                streamUrl = tObj.optString("stream_url", ""),
-                                                source = "ytmusic_album"
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-
-                            val status = AlbumCompletionStatus(
-                                albumTitle = album,
-                                artistName = artist,
-                                downloadedCount = downloaded,
-                                officialTotalCount = officialCount,
-                                completionRatio = ratio,
-                                albumBrowseId = browseId,
-                                missingTracks = missing
-                            )
-                            if (status.isEligibleForPrompt) {
-                                completionList.add(status)
-                            }
-
-                            val pIdx = updatedAlbumics.indexOfFirst { it.id == playlist.id }
-                            if (pIdx >= 0) {
-                                updatedAlbumics[pIdx] = updatedAlbumics[pIdx].copy(
-                                    officialTrackCount = officialCount,
-                                    completionRatio = ratio,
-                                    albumBrowseId = browseId
-                                )
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("MainViewModel", "Failed to check album completion for $album: ${e.message}")
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                _albumCompletions.value = completionList
-                _albumicPlaylists.value = updatedAlbumics
-            }
-        }
-    }
-
-    fun downloadMissingAlbumTracks(status: AlbumCompletionStatus) {
-        val missing = status.missingTracks
-        if (missing.isEmpty()) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Album is already complete!", isLong = false)
-            return
-        }
-        for (track in missing) {
-            startTrackDownload(track)
-        }
-        com.cubicreates.unboundmusic.util.UnboundToast.show(
-            getApplication(),
-            "Downloading ${missing.size} remaining tracks from '${status.albumTitle}'",
-            isLong = true
-        )
-    }
-
-    private fun setLibraryTracks(tracks: List<TrackItem>) {
-        _libraryTracks.value = tracks
-        val music = tracks.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
-        _musicTracks.value = music
-        _mixedAudioTracks.value = tracks.filter { it.audioCategory == AudioCategory.MIXED_AUDIO && !it.isIdentifiedMusic }
-        synthesizeArtistPlaylists(music)
-        synthesizeAlbumicPlaylists(music)
-    }
-
-    private val _savedGB = MutableStateFlow(0.0)
+    internal val _savedGB = MutableStateFlow(0.0)
     val savedGB: StateFlow<Double> = _savedGB.asStateFlow()
 
-    private val _downloadsCount = MutableStateFlow(0)
+    internal val _downloadsCount = MutableStateFlow(0)
     val downloadsCount: StateFlow<Int> = _downloadsCount.asStateFlow()
 
-    private val _whatsappCount = MutableStateFlow(0)
+    internal val _whatsappCount = MutableStateFlow(0)
     val whatsappCount: StateFlow<Int> = _whatsappCount.asStateFlow()
 
-    private val _telegramCount = MutableStateFlow(0)
+    internal val _telegramCount = MutableStateFlow(0)
     val telegramCount: StateFlow<Int> = _telegramCount.asStateFlow()
 
-    private val _youtubeCount = MutableStateFlow(0)
+    internal val _youtubeCount = MutableStateFlow(0)
     val youtubeCount: StateFlow<Int> = _youtubeCount.asStateFlow()
 
-    // ==================== Phase 5: Offline Downloader & Storage Engine ====================
+    // ==================== Offline Downloader & Storage Engine ====================
 
-    private val _downloadTasks = MutableStateFlow<Map<String, DownloadTaskDto>>(emptyMap())
+    internal val _downloadTasks = MutableStateFlow<Map<String, DownloadTaskDto>>(emptyMap())
     val downloadTasks: StateFlow<Map<String, DownloadTaskDto>> = _downloadTasks.asStateFlow()
 
-    private val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
+    internal val _downloadedTrackIds = MutableStateFlow<Set<String>>(emptySet())
     val downloadedTrackIds: StateFlow<Set<String>> = _downloadedTrackIds.asStateFlow()
 
-    private val _downloadSpeedBps = MutableStateFlow(0L)
+    internal val _downloadSpeedBps = MutableStateFlow(0L)
     val downloadSpeedBps: StateFlow<Long> = _downloadSpeedBps.asStateFlow()
 
-    private val _downloadedMusicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _downloadedMusicTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val downloadedMusicTracks: StateFlow<List<TrackItem>> = _downloadedMusicTracks.asStateFlow()
 
-    private val _cacheSizeMB = MutableStateFlow(0.0)
+    internal val _cacheSizeMB = MutableStateFlow(0.0)
     val cacheSizeMB: StateFlow<Double> = _cacheSizeMB.asStateFlow()
 
-    private val _downloadsSizeMB = MutableStateFlow(0.0)
+    internal val _downloadsSizeMB = MutableStateFlow(0.0)
     val downloadsSizeMB: StateFlow<Double> = _downloadsSizeMB.asStateFlow()
 
-    private val _freeStorageGB = MutableStateFlow(0.0)
+    internal val _freeStorageGB = MutableStateFlow(0.0)
     val freeStorageGB: StateFlow<Double> = _freeStorageGB.asStateFlow()
 
     // ==================== Custom User Playlists State ====================
 
-    private val _customPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
+    internal val _customPlaylists = MutableStateFlow<List<CustomPlaylist>>(emptyList())
     val customPlaylists: StateFlow<List<CustomPlaylist>> = _customPlaylists.asStateFlow()
 
-    private val _activeCustomPlaylist = MutableStateFlow<CustomPlaylist?>(null)
+    internal val _activeCustomPlaylist = MutableStateFlow<CustomPlaylist?>(null)
     val activeCustomPlaylist: StateFlow<CustomPlaylist?> = _activeCustomPlaylist.asStateFlow()
 
-    private val _trackToAddToPlaylist = MutableStateFlow<TrackItem?>(null)
+    internal val _trackToAddToPlaylist = MutableStateFlow<TrackItem?>(null)
     val trackToAddToPlaylist: StateFlow<TrackItem?> = _trackToAddToPlaylist.asStateFlow()
 
-    private var isPollingDownloads = false
+    internal var isPollingDownloads = false
 
     // ==================== YouTube Account & Synced Library State ====================
 
-    private val _isYouTubeConnected = MutableStateFlow(false)
+    internal val _isYouTubeConnected = MutableStateFlow(false)
     val isYouTubeConnected: StateFlow<Boolean> = _isYouTubeConnected.asStateFlow()
 
-    private val _accountName = MutableStateFlow("Local User")
+    internal val _accountName = MutableStateFlow("Local User")
     val accountName: StateFlow<String> = _accountName.asStateFlow()
 
-    private val _userAvatarUrl = MutableStateFlow<String?>(null)
+    internal val _userAvatarUrl = MutableStateFlow<String?>(null)
     val userAvatarUrl: StateFlow<String?> = _userAvatarUrl.asStateFlow()
 
-    private val _syncedYouTubeTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _syncedYouTubeTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val syncedYouTubeTracks: StateFlow<List<TrackItem>> = _syncedYouTubeTracks.asStateFlow()
 
-    private val _userMixes = MutableStateFlow<List<com.cubicreates.unboundmusic.data.MixDto>>(emptyList())
-    val userMixes: StateFlow<List<com.cubicreates.unboundmusic.data.MixDto>> = _userMixes.asStateFlow()
+    internal val _userMixes = MutableStateFlow<List<MixDto>>(emptyList())
+    val userMixes: StateFlow<List<MixDto>> = _userMixes.asStateFlow()
 
-    private val _smartShelves = MutableStateFlow<List<com.cubicreates.unboundmusic.data.SmartShelfDto>>(emptyList())
-    val smartShelves: StateFlow<List<com.cubicreates.unboundmusic.data.SmartShelfDto>> = _smartShelves.asStateFlow()
+    internal val _smartShelves = MutableStateFlow<List<SmartShelfDto>>(emptyList())
+    val smartShelves: StateFlow<List<SmartShelfDto>> = _smartShelves.asStateFlow()
 
-    private val _isSyncingAccount = MutableStateFlow(false)
+    internal val _isSyncingAccount = MutableStateFlow(false)
     val isSyncingAccount: StateFlow<Boolean> = _isSyncingAccount.asStateFlow()
 
-    private val _deviceAuthData = MutableStateFlow<DeviceCodeData?>(null)
+    internal val _deviceAuthData = MutableStateFlow<DeviceCodeData?>(null)
     val deviceAuthData: StateFlow<DeviceCodeData?> = _deviceAuthData.asStateFlow()
 
-    private val _isStartingDeviceAuth = MutableStateFlow(false)
+    internal val _isStartingDeviceAuth = MutableStateFlow(false)
     val isStartingDeviceAuth: StateFlow<Boolean> = _isStartingDeviceAuth.asStateFlow()
 
-    private val _isPollingDeviceAuth = MutableStateFlow(false)
+    internal val _isPollingDeviceAuth = MutableStateFlow(false)
     val isPollingDeviceAuth: StateFlow<Boolean> = _isPollingDeviceAuth.asStateFlow()
 
-    private val _deviceAuthError = MutableStateFlow<String?>(null)
+    internal val _deviceAuthError = MutableStateFlow<String?>(null)
     val deviceAuthError: StateFlow<String?> = _deviceAuthError.asStateFlow()
 
-    private var deviceAuthJob: Job? = null
+    internal var deviceAuthJob: Job? = null
 
-    private val _cascadeSearchResponse = MutableStateFlow<CascadeSearchResponse?>(null)
+    internal val _cascadeSearchResponse = MutableStateFlow<CascadeSearchResponse?>(null)
     val cascadeSearchResponse: StateFlow<CascadeSearchResponse?> = _cascadeSearchResponse.asStateFlow()
+
+    internal val _isLoadingMoreTracks = MutableStateFlow(false)
+    val isLoadingMoreTracks: StateFlow<Boolean> = _isLoadingMoreTracks.asStateFlow()
 
     // ==================== Lyrics State ====================
 
-    private val _lyricsLines = MutableStateFlow<List<LyricLine>>(emptyList())
+    internal val _lyricsLines = MutableStateFlow<List<LyricLine>>(emptyList())
     val lyricsLines: StateFlow<List<LyricLine>> = _lyricsLines.asStateFlow()
 
-    private val _lyricsSource = MutableStateFlow("")
+    internal val _lyricsSource = MutableStateFlow("")
     val lyricsSource: StateFlow<String> = _lyricsSource.asStateFlow()
 
-    private val _romanizationMode = MutableStateFlow(com.cubicreates.unboundmusic.data.RomanizationMode.ORIGINAL)
-    val romanizationMode: StateFlow<com.cubicreates.unboundmusic.data.RomanizationMode> = _romanizationMode.asStateFlow()
+    internal val _romanizationMode = MutableStateFlow(RomanizationMode.ORIGINAL)
+    val romanizationMode: StateFlow<RomanizationMode> = _romanizationMode.asStateFlow()
 
-    private val _lyricsTimingOffsetMs = MutableStateFlow(0L)
+    internal val _lyricsTimingOffsetMs = MutableStateFlow(0L)
     val lyricsTimingOffsetMs: StateFlow<Long> = _lyricsTimingOffsetMs.asStateFlow()
 
-    private val _isInstrumental = MutableStateFlow(false)
+    internal val _isInstrumental = MutableStateFlow(false)
     val isInstrumental: StateFlow<Boolean> = _isInstrumental.asStateFlow()
 
-    private var lyricsFetchJob: kotlinx.coroutines.Job? = null
-
-    fun setRomanizationMode(mode: com.cubicreates.unboundmusic.data.RomanizationMode) {
-        _romanizationMode.value = mode
-    }
-
-    fun setLyricsTimingOffsetMs(offsetMs: Long) {
-        _lyricsTimingOffsetMs.value = offsetMs
-    }
+    internal var lyricsFetchJob: Job? = null
 
     // ==================== Canvas / Visual State ====================
 
-    private val _canvasVideoUrl = MutableStateFlow<String?>(null)
+    internal val _canvasVideoUrl = MutableStateFlow<String?>(null)
     val canvasVideoUrl: StateFlow<String?> = _canvasVideoUrl.asStateFlow()
 
-    private val _canvasArtUrl = MutableStateFlow<String?>(null)
+    internal val _canvasArtUrl = MutableStateFlow<String?>(null)
     val canvasArtUrl: StateFlow<String?> = _canvasArtUrl.asStateFlow()
 
-    // ==================== Phase 7: Playback Resilience, Skit Skipping & Sleep Engine ====================
+    // ==================== Playback Resilience, Skit Skipping & Sleep Engine ====================
 
-    private val _activeSkipSegments = MutableStateFlow<List<SkipSegmentDto>>(emptyList())
+    internal val _activeSkipSegments = MutableStateFlow<List<SkipSegmentDto>>(emptyList())
     val activeSkipSegments: StateFlow<List<SkipSegmentDto>> = _activeSkipSegments.asStateFlow()
 
-    private val _skippedSkitNotice = MutableStateFlow<SkitSkipNotice?>(null)
+    internal val _skippedSkitNotice = MutableStateFlow<SkitSkipNotice?>(null)
     val skippedSkitNotice: StateFlow<SkitSkipNotice?> = _skippedSkitNotice.asStateFlow()
 
-    private val _sleepTimerState = MutableStateFlow(SleepTimerState())
+    internal val _sleepTimerState = MutableStateFlow(SleepTimerState())
     val sleepTimerState: StateFlow<SleepTimerState> = _sleepTimerState.asStateFlow()
 
-    private var skitNoticeDismissJob: kotlinx.coroutines.Job? = null
-    private var lastSkippedSegmentId: String? = null
-    private var sleepTimerJob: kotlinx.coroutines.Job? = null
+    internal var skitNoticeDismissJob: Job? = null
+    internal var lastSkippedSegmentId: String? = null
+    internal var sleepTimerJob: Job? = null
 
     // ==================== Home Feed State ====================
 
-    private val _moodCategories = MutableStateFlow<List<MoodCategory>>(emptyList())
+    internal val _moodCategories = MutableStateFlow<List<MoodCategory>>(emptyList())
     val moodCategories: StateFlow<List<MoodCategory>> = _moodCategories.asStateFlow()
 
-    private val _chartTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _chartTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val chartTracks: StateFlow<List<TrackItem>> = _chartTracks.asStateFlow()
 
-    // ==================== Phase 0 Cold Start & Guest State ====================
+    // ==================== Cold Start & Guest State ====================
 
-    private val _regionalCharts = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _regionalCharts = MutableStateFlow<List<TrackItem>>(emptyList())
     val regionalCharts: StateFlow<List<TrackItem>> = _regionalCharts.asStateFlow()
 
-    private val _daypartingState = MutableStateFlow<DaypartingState?>(null)
+    internal val _daypartingState = MutableStateFlow<DaypartingState?>(null)
     val daypartingState: StateFlow<DaypartingState?> = _daypartingState.asStateFlow()
 
-    private val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
+    internal val _libraryFolders = MutableStateFlow<Map<String, List<LocalTrack>>>(emptyMap())
     val libraryFolders: StateFlow<Map<String, List<LocalTrack>>> = _libraryFolders.asStateFlow()
 
-    private val _adaptiveQuickPicks = MutableStateFlow<List<TrackItem>>(emptyList())
+    internal val _adaptiveQuickPicks = MutableStateFlow<List<TrackItem>>(emptyList())
     val adaptiveQuickPicks: StateFlow<List<TrackItem>> = _adaptiveQuickPicks.asStateFlow()
 
-    private val _quickPicksTitle = MutableStateFlow("Trending Quick Picks")
+    internal val _quickPicksTitle = MutableStateFlow("Trending Quick Picks")
     val quickPicksTitle: StateFlow<String> = _quickPicksTitle.asStateFlow()
 
-    private val _quickPicksSubtitle = MutableStateFlow("Start a radio or continuous mix")
+    internal val _quickPicksSubtitle = MutableStateFlow("Start a radio or continuous mix")
     val quickPicksSubtitle: StateFlow<String> = _quickPicksSubtitle.asStateFlow()
 
-    /**
-     * Dynamically shifts Home Quick Picks from generic charts to the user's listened genres,
-     * artists, and algorithmic discoveries as they listen to songs.
-     */
-    fun refreshAdaptiveQuickPicks() {
-        val history = _recentlyPlayedTracks.value
-        val fallbackCharts = _regionalCharts.value.ifEmpty { _chartTracks.value }
-        if (history.isEmpty()) {
-            _adaptiveQuickPicks.value = fallbackCharts
-            _quickPicksTitle.value = "Trending Quick Picks"
-            _quickPicksSubtitle.value = "Start a radio or continuous mix"
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val candidateList = mutableListOf<TrackItem>()
-                val seenIds = mutableSetOf<String>()
-                val seenTitles = mutableSetOf<String>()
-
-                fun addPick(t: TrackItem): Boolean {
-                    if (t.title.isBlank()) return false
-                    val clean = t.title.lowercase().trim()
-                    if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
-                    if (seenTitles.contains(clean)) return false
-                    if (t.id.isNotBlank()) seenIds.add(t.id)
-                    seenTitles.add(clean)
-                    candidateList.add(t)
-                    return true
-                }
-
-                // 1. Gather recent favorite artists (up to 3 distinct artists)
-                val recentArtists = history.map { it.artist.trim() }
-                    .filter { it.isNotBlank() && !it.equals("Unknown Artist", ignoreCase = true) }
-                    .distinct()
-                    .take(3)
-
-                for (art in recentArtists) {
-                    val (code, resp) = client.search("$art song", type = "song")
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val songs = client.parseSearchResults(resp)
-                        var count = 0
-                        for (s in songs) {
-                            if (count >= 2) break
-                            if (addPick(s)) count++
-                        }
-                    }
-                }
-
-                // 2. Gather algorithmic genre / radio continuum from most recent track
-                val seed = history.firstOrNull()
-                if (seed != null && seed.id.isNotBlank() && !seed.id.startsWith("local:")) {
-                    val (code, resp) = client.getRadioNext(seed.id)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val radioSongs = client.parseRadioNext(resp)
-                        var rCount = 0
-                        for (rs in radioSongs) {
-                            if (rCount >= 6) break
-                            if (addPick(rs)) rCount++
-                        }
-                    }
-                }
-
-                // 3. Blend in trending chart tracks for novelty and discovery balance
-                for (ch in fallbackCharts) {
-                    if (candidateList.size >= 16) break
-                    addPick(ch)
-                }
-
-                if (candidateList.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        _adaptiveQuickPicks.value = candidateList.take(24)
-                        _quickPicksTitle.value = "Quick Picks for You"
-                        _quickPicksSubtitle.value = "Personalized from your recent listening & discoveries"
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Adaptive quick picks refresh note: ${e.message}")
-            }
-        }
-    }
-
     // ==================== Affective MIR & Decoupled Vibe State ====================
-    // Invariant: Home Vibe state and Search Vibe state are strictly decoupled.
-    // Submitting a Home Vibe prompt NEVER mutates _searchResults or modifies Discover tab state.
-    private val _homeVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
+    internal val _homeVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
     val homeVibeState: StateFlow<VibeSearchUiState> = _homeVibeState.asStateFlow()
 
-    private val _searchVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
+    internal val _searchVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
     val searchVibeState: StateFlow<VibeSearchUiState> = _searchVibeState.asStateFlow()
 
     // Backward-compatibility bridge
@@ -918,21 +534,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Startup & Telemetry State ====================
 
-    private val _startupPhase = MutableStateFlow("SYSTEM_INIT")
+    internal val _startupPhase = MutableStateFlow("SYSTEM_INIT")
     val startupPhase: StateFlow<String> = _startupPhase.asStateFlow()
 
-    private val _startupProgress = MutableStateFlow(0.1f)
+    internal val _startupProgress = MutableStateFlow(0.1f)
     val startupProgress: StateFlow<Float> = _startupProgress.asStateFlow()
 
-    private val _isAppReady = MutableStateFlow(false)
+    internal val _isAppReady = MutableStateFlow(false)
     val isAppReady: StateFlow<Boolean> = _isAppReady.asStateFlow()
 
-    data class UnboundFolderPromptState(
-        val folderPaths: List<String>
-    )
-
-    private val _unboundFolderPrompt = MutableStateFlow<UnboundFolderPromptState?>(null)
+    internal val _unboundFolderPrompt = MutableStateFlow<UnboundFolderPromptState?>(null)
     val unboundFolderPrompt: StateFlow<UnboundFolderPromptState?> = _unboundFolderPrompt.asStateFlow()
+
+    internal var lastSavedStateTick = 0L
+    internal var lastMagicRadioTriggerTime = 0L
+    internal val magicRadioMutex = Mutex()
+
+    internal val _currentQueue = MutableStateFlow<List<TrackItem>>(emptyList())
+    val currentQueue: StateFlow<List<TrackItem>> = _currentQueue.asStateFlow()
+
+    internal var guestRadioJob: Job? = null
+    internal var automixJob: Job? = null
+    internal var searchJob: Job? = null
+    internal var suggestionJob: Job? = null
+    internal val _fallbackStatus = MutableStateFlow<FallbackStatusDto?>(null)
+    val fallbackStatus: StateFlow<FallbackStatusDto?> = _fallbackStatus.asStateFlow()
+
+    internal val isUniversalScanning = java.util.concurrent.atomic.AtomicBoolean(false)
+    internal val _isIdentifyingTrack = MutableStateFlow<String?>(null)
+    val isIdentifyingTrack: StateFlow<String?> = _isIdentifyingTrack.asStateFlow()
+    internal val recentlyCancelledIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     init {
         // Connect to Media3 playback service safely
@@ -989,7 +620,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Restore persistent YouTube Music session from local disk store immediately
         try {
-            val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(application)
+            val sessionStore = SessionStore.getInstance(application)
             if (sessionStore.hasActiveSession) {
                 _isYouTubeConnected.value = true
                 sessionStore.accountName?.let { _accountName.value = it }
@@ -1069,7 +700,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun restoreLastPlaybackState() {
+    internal fun restoreLastPlaybackState() {
         try {
             val saved = PlaybackStateStore.loadPlaybackState(getApplication()) ?: return
             if (saved.track.id.isNotBlank() || saved.track.title.isNotBlank()) {
@@ -1091,9 +722,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private var lastSavedStateTick = 0L
-
-    private fun saveCurrentPlaybackState(positionMs: Long? = null) {
+    internal fun saveCurrentPlaybackState(positionMs: Long? = null) {
         val track = _currentTrack.value
         if (track.id.isBlank() && track.title.isBlank()) return
         val queue = getEffectiveQueue()
@@ -1173,7 +802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initializeColdStart(userCountry, userLanguage)
                     loadHomeFeed()
                     refreshLibrary()
-                    val sessionStore = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
+                    val sessionStore = SessionStore.getInstance(getApplication())
                     if (sessionStore.hasActiveSession && !sessionStore.cookie.isNullOrBlank()) {
                         try {
                             client.syncAccount(sessionStore.cookie!!)
@@ -1198,4326 +827,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isAppReady.value = true
     }
 
-    /**
-     * Phase 0 Cold Start initialization:
-     * 1. Unpacks native assets (fpcalc, llama-cli, models.zst).
-     * 2. Fetches regional charts and 24-hour time-aware mood capsules concurrently.
-     * 3. Scans local storage directories and indexes WhatsApp, Telegram, and Downloads audio.
-     */
-    fun initializeColdStart(countryCode: String? = null, languageCode: String? = null) {
-        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-        val actualLanguage = if (!languageCode.isNullOrBlank()) languageCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-        viewModelScope.launch(Dispatchers.IO) {
-            // First-boot asset unpacker
-            StorageInitializer.initialize(getApplication())
-
-            // 1. Fetch explore charts & mood capsules concurrently
-            launch {
-                val charts = client.getCharts(actualCountry, actualLanguage)
-                if (charts.isNotEmpty()) {
-                    _regionalCharts.value = charts
-                    _chartTracks.value = charts
-                    if (_recentlyPlayedTracks.value.isEmpty()) {
-                        _adaptiveQuickPicks.value = charts
-                    }
-                }
-            }
-            launch {
-                val dp = client.getMoodCapsules()
-                if (dp != null) {
-                    _daypartingState.value = dp
-                }
-            }
-
-            // 2. Trigger VLC-style universal storage crawl (including .nomedia bypass)
-            launch {
-                performUniversalAudioScan()
-            }
-        }
-    }
-
-    /**
-     * Natural Language Home Vibe AI query runner.
-     * Crucial: Does NOT modify _searchResults to prevent hijacking the Discover / Search screen!
-     * Crucial: Does NOT auto-play tracks; music only plays upon explicit user tap.
-     */
-    fun submitHomeVibeQuery(query: String, autoPlay: Boolean = false) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return
-        val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-        val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-        viewModelScope.launch(Dispatchers.IO) {
-            _homeVibeState.value = VibeSearchUiState.Loading
-            try {
-                val res = client.searchVibe(trimmed, region = country, language = lang)
-                // Filter strictly to songs only: reject albums, artists, playlists, and browse IDs
-                val songsOnly = res.radioTracks.filter { track ->
-                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
-                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
-                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
-                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
-                }
-                withContext(Dispatchers.Main) {
-                    _homeVibeState.value = VibeSearchUiState.Success(res.vibeResult, songsOnly)
-                    // Intentionally leave _searchResults untouched so SearchScreen remains independent
-                    if (songsOnly.isNotEmpty() && autoPlay) {
-                        val first = songsOnly.first()
-                        playTrackWithQueue(first, songsOnly)
-                        val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Tuning into $moodTag: ${first.title}",
-                            isLong = true
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "submitHomeVibeQuery error: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Vibe Search: ${e.message ?: "Failed"}",
-                        isLong = true
-                    )
-                    _homeVibeState.value = VibeSearchUiState.Error(e.message ?: "Search failed")
-                }
-            }
-        }
-    }
-
-    fun clearHomeVibeQuery() {
-        _homeVibeState.value = VibeSearchUiState.Idle
-    }
-
-    /**
-     * Natural Language Search / Discover Screen Vibe AI query runner.
-     * Isolated exclusively to the Search Screen.
-     */
-    fun submitSearchVibeQuery(query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return
-        val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-        val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-        viewModelScope.launch(Dispatchers.IO) {
-            _searchVibeState.value = VibeSearchUiState.Loading
-            try {
-                val res = client.searchVibe(trimmed, region = country, language = lang)
-                // Filter strictly to songs only: reject albums, artists, playlists, and browse IDs
-                val songsOnly = res.radioTracks.filter { track ->
-                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
-                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
-                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
-                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
-                }
-                withContext(Dispatchers.Main) {
-                    _searchVibeState.value = VibeSearchUiState.Success(res.vibeResult, songsOnly)
-                    if (songsOnly.isNotEmpty()) {
-                        _searchResults.value = songsOnly
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "submitSearchVibeQuery error: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    _searchVibeState.value = VibeSearchUiState.Error(e.message ?: "Search failed")
-                }
-            }
-        }
-    }
-
-    fun clearSearchVibeQuery() {
-        _searchVibeState.value = VibeSearchUiState.Idle
-    }
-
-    /** Backward-compatibility wrappers */
-    fun submitVibeQuery(query: String, autoPlay: Boolean = false) {
-        submitHomeVibeQuery(query, autoPlay = autoPlay)
-    }
-
-    fun playVibePrompt(prompt: String) {
-        submitHomeVibeQuery(prompt, autoPlay = false)
-    }
-
-    fun clearVibeQuery() {
-        clearHomeVibeQuery()
-    }
-
-
-    /**
-     * Fetches mood radio tracks for a selected capsule and starts playback.
-     */
-    fun playMoodCapsule(capsule: MoodCapsule) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val tracks = client.getMoodRadio(capsule.browseId)
-                if (tracks.isNotEmpty()) {
-                    playTrack(tracks.first())
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to play mood capsule: ${e.message}")
-            }
-        }
-    }
-
-
-    // ==================== Phase 1: Magic Serendipity Radio & Telemetry ====================
-
-    private var lastMagicRadioTriggerTime = 0L
-    private val magicRadioMutex = Mutex()
-
-    /**
-     * Triggers the on-device Magic Serendipity Radio algorithm when the player is idle (< 300ms).
-     * Populates the 25-track queue, starts playback of the seed track, and invokes onReady to expand NowPlayingScreen.
-     */
-    fun triggerMagicRadio(onReady: () -> Unit) {
-        val now = System.currentTimeMillis()
-        if (now - lastMagicRadioTriggerTime < 500L) return
-        lastMagicRadioTriggerTime = now
-
-        viewModelScope.launch(Dispatchers.IO) {
-            magicRadioMutex.withLock {
-                try {
-                    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                    val result = client.getMagicRadio(localHour = hour)
-                    if (result != null && result.queue.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            serviceConnection.setQueue(result.queue)
-                            playTrack(result.seedTrack)
-                            onReady()
-                        }
-                        return@withLock
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Magic radio error: ${e.message}")
-                }
-
-                // Resilient Fallback: If daemon magic radio didn't produce a queue, use libraryTracks or defaultTopTracks
-                val candidateList = _libraryTracks.value.ifEmpty { defaultTopTracks }
-                if (candidateList.isNotEmpty()) {
-                    val shuffled = candidateList.shuffled()
-                    val seed = shuffled.first()
-                    withContext(Dispatchers.Main) {
-                        serviceConnection.setQueue(shuffled)
-                        playTrack(seed)
-                        onReady()
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Starts an on-demand Magic Serendipity Radio session seeded by the specified track.
-     * Queries the on-device Markov transition generator (/api/v1/radio/magic) with local taste affinity.
-     * Falls back seamlessly to InnerTube /next or YouTube search radio to ensure 100% reliability.
-     */
-    fun startRadio(seedTrack: TrackItem, onStarted: (() -> Unit)? = null) {
-        if (seedTrack.id.isBlank() && seedTrack.title.isBlank()) return
-        if (!_isYouTubeConnected.value) {
-            playTrack(seedTrack)
-            fetchGuestAlgorithmicRadio(seedTrack, append = false)
-            onStarted?.invoke()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
-
-                // 1. Query Go daemon on-device Markov Serendipity Radio generator
-                val result = client.getMagicRadio(localHour = hour, seedTrackId = cleanId)
-                var radioQueue = result?.queue?.filter { it.id != seedTrack.id } ?: emptyList()
-
-                // 2. Fallback to InnerTube /next
-                if (radioQueue.isEmpty() && cleanId.isNotBlank()) {
-                    val (code, resp) = client.getRadioNext(cleanId)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        radioQueue = client.parseRadioNext(resp).filter { it.id != seedTrack.id }
-                    }
-                }
-
-                // 3. Fallback to YouTube search radio query
-                if (radioQueue.isEmpty()) {
-                    val query = "${seedTrack.artist} ${seedTrack.title} radio"
-                    val (sCode, sResp) = client.search(query, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        radioQueue = client.parseSearchResults(sResp).filter { it.id != seedTrack.id }
-                    }
-                }
-
-                val fullQueue = listOf(seedTrack) + radioQueue
-                withContext(Dispatchers.Main) {
-                    playTrackWithQueue(seedTrack, fullQueue)
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Radio: ${seedTrack.title}")
-                    onStarted?.invoke()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting radio: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    playTrack(seedTrack)
-                    onStarted?.invoke()
-                }
-            }
-        }
-    }
-
-    /**
-     * Ingests physical playback behavior telemetry (completions, skips, loops) into on-device taste engine.
-     */
-    fun logPlaybackTelemetry(track: TrackItem, listenedMs: Long, durationMs: Long, isCompleted: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val eventType = when {
-                isCompleted || (durationMs > 0 && listenedMs.toDouble() / durationMs >= 0.85) -> "COMPLETE"
-                listenedMs < 15000 -> "FAST_SKIP"
-                listenedMs < 45000 -> "MILD_SKIP"
-                else -> "COMPLETE"
-            }
-            client.recordTasteEvent(
-                trackId = track.title,
-                title = track.title,
-                artistId = track.artist,
-                artistName = track.artist,
-                durationMs = durationMs,
-                listenedMs = listenedMs,
-                eventType = eventType
-            )
-        }
-    }
-
-    // ==================== Playback Commands ====================
-
-    /**
-     * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
-     */
-    /**
-     * Plays a track by first resolving its stream URL via the Go daemon, then sending to Media3.
-     */
-    fun playTrack(track: TrackItem, preserveQueue: Boolean = false) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            viewModelScope.launch(Dispatchers.Main) {
-                playTrack(track, preserveQueue)
-            }
-            return
-        }
-        val offlineMatch = findMatchingOfflineTrack(track)
-        val targetTrack = if (offlineMatch != null) {
-            track.copy(
-                streamUrl = offlineMatch.streamUrl,
-                coverUrl = offlineMatch.coverUrl.ifBlank { track.coverUrl }
-            )
-        } else {
-            track
-        }
-
-        _currentTrack.value = targetTrack
-        saveCurrentPlaybackState(0L)
-        try {
-            PlaybackStateStore.addRecentlyPlayed(getApplication(), targetTrack)
-            _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
-            refreshAdaptiveQuickPicks()
-        } catch (_: Exception) {}
-
-        if (offlineMatch != null) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing offline downloaded version (0 MB data)", isLong = false)
-        } else {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
-        }
-
-        // If an explicit album/playlist requested queue preservation, retain it
-        if (preserveQueue && _currentQueue.value.size > 1) {
-            serviceConnection.setQueue(_currentQueue.value)
-        } else {
-            val initialQ = listOf(targetTrack)
-            _currentQueue.value = initialQ
-            serviceConnection.setQueue(initialQ)
-            if (!_isYouTubeConnected.value) {
-                fetchGuestAlgorithmicRadio(targetTrack)
-            } else {
-                fetchAutomixQueue(targetTrack)
-            }
-        }
-
-        // Immediately reset lyrics state and fetch for this specific track
-        loadLyricsForTrack(targetTrack)
-        _rydVotes.value = null
-        viewModelScope.launch(Dispatchers.IO) {
-            fetchRydVotes(targetTrack)
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val streamUrl = resolveStreamUrl(targetTrack)
-                val resolvedTrack = targetTrack.copy(streamUrl = streamUrl)
-                withContext(Dispatchers.Main) {
-                    _currentTrack.value = resolvedTrack
-                }
-
-                if (streamUrl.isNotBlank()) {
-                    // Play via Media3 service
-                    serviceConnection.playTrack(resolvedTrack, streamUrl)
-                } else {
-                    Log.w(TAG, "Direct stream resolution empty for ${targetTrack.title}, using localhost proxy stream")
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream empty for '${targetTrack.title}', falling back to proxy")
-                    val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
-                        "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
-                    } else targetTrack.streamUrl
-                    if (fallbackUrl.isNotBlank()) {
-                        serviceConnection.playTrack(targetTrack.copy(streamUrl = fallbackUrl), fallbackUrl)
-                    } else {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Error: No fallback URL for '${targetTrack.title}'")
-                    }
-                }
-
-                // Fetch canvas visuals and SponsorBlock skip segments in parallel
-                launch { fetchCanvas(resolvedTrack) }
-                launch { fetchSkipSegments(resolvedTrack) }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error playing track: ${e.message}")
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Play Track Exception:\n${e.message}")
-                val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
-                    "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
-                } else targetTrack.streamUrl
-                if (fallbackUrl.isNotBlank()) {
-                    serviceConnection.playTrack(targetTrack.copy(streamUrl = fallbackUrl), fallbackUrl)
-                }
-            }
-        }
-    }
-
-    /**
-     * Searches downloaded tracks and local library tracks for a local matching version of the given track.
-     * Checks exact ID, partial ID, and fuzzy normalized (title + artist) match.
-     */
-    fun findMatchingOfflineTrack(track: TrackItem): TrackItem? {
-        val candidates = (_downloadedMusicTracks.value + _libraryTracks.value).distinctBy { it.id }
-        if (candidates.isEmpty()) return null
-
-        fun clean(s: String): String = s.lowercase(java.util.Locale.ROOT)
-            .replace(Regex("\\[.*?\\]|\\(.*?\\)"), "")
-            .replace(Regex("[^a-z0-9]"), "")
-
-        val targetTitleClean = clean(track.title)
-        val targetArtistClean = clean(track.artist)
-
-        // 1. Direct ID match
-        if (track.id.isNotBlank()) {
-            val byId = candidates.firstOrNull { cand ->
-                cand.streamUrl.isNotBlank() &&
-                (cand.streamUrl.startsWith("file://") || cand.streamUrl.startsWith("content://")) &&
-                (cand.id == track.id || cand.id == "local_dl_${track.id}" || cand.id.contains(track.id) || track.id.contains(cand.id))
-            }
-            if (byId != null && isLocalAudioPlayable(byId.streamUrl)) return byId
-        }
-
-        // 2. Normalized Title & Artist match
-        if (targetTitleClean.length >= 3) {
-            for (cand in candidates) {
-                if (!cand.streamUrl.startsWith("file://") && !cand.streamUrl.startsWith("content://")) continue
-                val candTitleClean = clean(cand.title)
-                val candArtistClean = clean(cand.artist)
-
-                val titleMatches = candTitleClean == targetTitleClean ||
-                        (candTitleClean.length >= 5 && targetTitleClean.length >= 5 &&
-                                (candTitleClean.contains(targetTitleClean) || targetTitleClean.contains(candTitleClean)))
-
-                if (titleMatches) {
-                    val artistMatches = targetArtistClean.isBlank() || candArtistClean.isBlank() ||
-                            candArtistClean == "unknownartist" || targetArtistClean == "unknownartist" ||
-                            candArtistClean == targetArtistClean ||
-                            candArtistClean.contains(targetArtistClean) || targetArtistClean.contains(candArtistClean)
-
-                    if (artistMatches && isLocalAudioPlayable(cand.streamUrl)) {
-                        return cand
-                    }
-                }
-            }
-        }
-        return null
-    }
-
-    private fun isLocalAudioPlayable(streamUrl: String): Boolean {
-        return try {
-            when {
-                streamUrl.startsWith("file://") -> {
-                    val f = java.io.File(streamUrl.removePrefix("file://"))
-                    f.exists() && f.length() > 0
-                }
-                streamUrl.startsWith("content://") -> true
-                else -> false
-            }
-        } catch (_: Exception) { false }
-    }
-
-    /**
-     * Resolves a stream URL for a track via the Go daemon /api/v1/stream endpoint.
-     * Implements zero-data interception: checks local storage first, falls back to remote.
-     * Retries up to 5 times if the daemon is cold-starting.
-     */
-    private suspend fun resolveStreamUrl(track: TrackItem): String {
-        // 1. If the track already has a local file://, content://, localhost proxy audio stream, or valid http stream, use it directly
-        if (track.streamUrl.startsWith("file://") ||
-            track.streamUrl.startsWith("content://") ||
-            (track.streamUrl.contains("127.0.0.1") && track.streamUrl.contains("/proxy/stream")) ||
-            (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing direct URL for '${track.title}'", isLong = false)
-            return track.streamUrl
-        }
-
-        // 2. Zero-Data Local Interception: Check if song is already downloaded or in local storage
-        val offlineMatch = findMatchingOfflineTrack(track)
-        if (offlineMatch != null && offlineMatch.streamUrl.isNotBlank()) {
-            Log.i(TAG, "Zero-Data Match: Redirecting search track '${track.title}' to offline '${offlineMatch.title}' -> ${offlineMatch.streamUrl}")
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                getApplication(),
-                "Playing offline downloaded version (0 MB data)",
-                isLong = false
-            )
-            return offlineMatch.streamUrl
-        }
-
-        // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
-        _streamDebugMessage.value = "Resolving stream for ${track.title}..."
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolving '${track.title}' (ID: ${track.id})...", isLong = false)
-        for (attempt in 1..5) {
-            try {
-                val (code, resp) = client.getStream(
-                    videoId = track.id,
-                    title = track.title,
-                    artist = track.artist
-                )
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val direct = json.optString("direct_stream_url", "")
-                    val proxy = json.optString("proxy_stream_url", "")
-                    val resolved = json.optString("stream_url", "")
-                    val streamType = json.optString("stream_type", "REMOTE")
-
-                    // Prefer local cached file, then localhost proxy (bounded chunking prevents CDN 403), then direct CDN
-                    val finalUrl = when {
-                        resolved.isNotBlank() && (resolved.startsWith("file://") || resolved.startsWith("content://")) -> resolved
-                        proxy.isNotBlank() && proxy.startsWith("http") -> proxy
-                        direct.isNotBlank() && direct.startsWith("http") -> direct
-                        resolved.isNotBlank() && resolved.startsWith("http") -> resolved
-                        else -> ""
-                    }
-
-                    if (finalUrl.isNotBlank()) {
-                        Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
-                        _streamDebugMessage.value = "Stream ready: $streamType ($finalUrl)"
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Stream Ready: $streamType", isLong = false)
-                        return finalUrl
-                    }
-                } else {
-                    Log.w(TAG, "Daemon stream resolution error attempt $attempt: code=$code, resp=$resp")
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Daemon error (try $attempt/5): code=$code\n$resp")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
-                _streamDebugMessage.value = "Attempt $attempt failed: ${e.message}"
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolution try $attempt failed: ${e.message}")
-            }
-            if (attempt < 5) {
-                kotlinx.coroutines.delay(400)
-            }
-        }
-
-        // Secondary fallback: search track title + artist to find matching YouTube stream
-        if (track.title.isNotBlank()) {
-            try {
-                _streamDebugMessage.value = "Direct stream not ready; searching for '${track.title}'"
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream failed. Searching YouTube for '${track.title}'...")
-                val searchQuery = "${track.title} ${track.artist}".trim()
-                val (searchCode, searchResp) = client.search(searchQuery)
-                if (searchCode in 200..299 && searchResp.isNotBlank()) {
-                    val searchJson = JSONObject(searchResp)
-                    val tracksArr = searchJson.optJSONArray("tracks") ?: searchJson.optJSONArray("results")
-                    if (tracksArr != null && tracksArr.length() > 0) {
-                        val firstMatch = tracksArr.getJSONObject(0)
-                        val matchId = firstMatch.optString("id", firstMatch.optString("video_id", ""))
-                        if (matchId.isNotBlank() && matchId.length == 11) {
-                            val (streamCode, streamResp) = client.getStream(videoId = matchId)
-                            if (streamCode in 200..299 && streamResp.isNotBlank()) {
-                                val json = JSONObject(streamResp)
-                                val proxy = json.optString("proxy_stream_url", "")
-                                val resolved = json.optString("stream_url", "")
-                                val target = if (proxy.isNotBlank() && proxy.startsWith("http")) proxy else resolved
-                                if (target.isNotBlank()) {
-                                    Log.i(TAG, "Stream resolved via search fallback for '${track.title}' -> $target")
-                                    _streamDebugMessage.value = "Stream resolved via search match for '${track.title}'"
-                                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolved via YouTube search!", isLong = false)
-                                    return target
-                                }
-                            }
-                            // Direct localhost proxy fallback for matched video ID
-                            _streamDebugMessage.value = "Using proxy fallback for match ID $matchId"
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using proxy for matched ID $matchId")
-                            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$matchId"
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Search fallback resolution failed: ${e.message}")
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Search fallback failed: ${e.message}")
-            }
-        }
-
-        // Tertiary fallback: if track.id is a valid 11-char YouTube ID, use the embedded Go daemon proxy stream endpoint directly
-        if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
-            Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
-            _streamDebugMessage.value = "Using localhost proxy stream for '${track.title}'"
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using engine proxy stream for '${track.title}'")
-            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
-        }
-
-        // Quaternary fallback: use title + artist on localhost proxy (Go engine automatically searches YouTube)
-        if (track.title.isNotBlank()) {
-            val query = if (track.artist.isNotBlank()) "${track.title} ${track.artist}" else track.title
-            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-            Log.i(TAG, "Stream resolved via query proxy fallback for '$query'")
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Falling back to engine query proxy for '${track.title}'")
-            return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$encodedQuery"
-        }
-
-        // Fallback: return existing stream URL if valid, otherwise empty string
-        val fallback = track.streamUrl
-        if (fallback.isBlank()) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "FATAL: No stream URL could be found for '${track.title}'. Daemon may be offline.")
-        }
-        return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://") || fallback.startsWith("content://")) {
-            fallback
-        } else {
-            ""
-        }
-    }
-
-    private val _currentQueue = MutableStateFlow<List<TrackItem>>(emptyList())
-    val currentQueue: StateFlow<List<TrackItem>> = _currentQueue.asStateFlow()
-
-    /**
-     * Plays a selected track within a playlist context, populating the queue so Next/Previous work.
-     */
-    fun playTrackWithQueue(track: TrackItem, queue: List<TrackItem>) {
-        if (Looper.myLooper() != Looper.getMainLooper()) {
-            viewModelScope.launch(Dispatchers.Main) {
-                playTrackWithQueue(track, queue)
-            }
-            return
-        }
-        // If queue has multiple tracks (e.g. an Album or Playlist), preserve the entire album queue
-        if (queue.size > 1) {
-            _currentQueue.value = queue
-            serviceConnection.setQueue(queue)
-            playTrack(track, preserveQueue = true)
-        } else {
-            playTrack(track, preserveQueue = false)
-        }
-        saveCurrentPlaybackState(0L)
-    }
-
-    private var guestRadioJob: Job? = null
-
-    /**
-     * Sanitizes and normalizes song titles by stripping off YouTube metadata annotations,
-     * video descriptors (Official Video, Lyric Video, Audio), featured artists, and punctuation.
-     */
-    private fun cleanSongTitle(raw: String): String {
-        if (raw.isBlank()) return ""
-        var title = raw
-        val splitRegex = Regex("""\s*[-–—:]\s*""")
-        if (splitRegex.containsMatchIn(title)) {
-            val parts = title.split(splitRegex)
-            if (parts.size >= 2 && parts[0].length <= 35) {
-                title = parts.drop(1).joinToString(" - ")
-            }
-        }
-        return title
-            .replace(Regex("""(?i)\(official\s*(music)?\s*video\)"""), "")
-            .replace(Regex("""(?i)\[official\s*(music)?\s*video\]"""), "")
-            .replace(Regex("""(?i)\(lyric\s*video\)"""), "")
-            .replace(Regex("""(?i)\[lyric\s*video\]"""), "")
-            .replace(Regex("""(?i)\(official\s*audio\)"""), "")
-            .replace(Regex("""(?i)\[official\s*audio\]"""), "")
-            .replace(Regex("""(?i)\(full\s*audio\)"""), "")
-            .replace(Regex("""(?i)\[full\s*audio\]"""), "")
-            .replace(Regex("""(?i)\(audio\)"""), "")
-            .replace(Regex("""(?i)\[audio\]"""), "")
-            .replace(Regex("""(?i)\(visualizer\)"""), "")
-            .replace(Regex("""(?i)\[visualizer\]"""), "")
-            .replace(Regex("""(?i)\(video\)"""), "")
-            .replace(Regex("""(?i)\(live[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[live[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(acoustic[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[acoustic[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(remix[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[remix[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(slowed[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[slowed[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(reverb[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[reverb[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(feat[^\)]*\)"""), "")
-            .replace(Regex("""(?i)\[feat[^\]]*\]"""), "")
-            .replace(Regex("""(?i)\(from\s+[^)]+\)"""), "")
-            .replace(Regex("""(?i)\[from\s+[^\]]+\]"""), "")
-            .replace(Regex("""[^\p{L}\p{Nd}\s]"""), " ")
-            .replace(Regex("""\s+"""), " ")
-            .lowercase()
-            .trim()
-    }
-
-    /**
-     * Determines whether two TrackItems represent the exact same musical song or versions of it.
-     */
-    private fun isSameSong(a: TrackItem, b: TrackItem): Boolean {
-        if (a.id.isNotBlank() && b.id.isNotBlank() && a.id == b.id) return true
-        val titleA = cleanSongTitle(a.title)
-        val titleB = cleanSongTitle(b.title)
-        if (titleA.isBlank() || titleB.isBlank()) return false
-        if (titleA == titleB) return true
-        if (titleA.length >= 4 && titleB.length >= 4) {
-            if (titleA.contains(titleB) || titleB.contains(titleA)) return true
-        }
-        return false
-    }
-
-    /**
-     * Cleans up channel noise from artist names (e.g. " - Topic", "VEVO", "Official").
-     */
-    private fun extractArtistName(track: TrackItem): String {
-        var rawArtist = track.artist.trim()
-        if (rawArtist.isBlank() || rawArtist.equals("Unknown Artist", ignoreCase = true) || rawArtist.equals("Unknown", ignoreCase = true)) {
-            val splitRegex = Regex("""\s*[-–—:]\s*""")
-            if (splitRegex.containsMatchIn(track.title)) {
-                val parts = track.title.split(splitRegex)
-                if (parts.size >= 2) {
-                    val candidate = parts[0].trim()
-                    if (candidate.isNotBlank() && candidate.length <= 40) {
-                        rawArtist = candidate
-                    }
-                }
-            }
-        }
-        return rawArtist
-            .replace(Regex("""(?i)\s*-\s*topic"""), "")
-            .replace(Regex("""(?i)\s*official"""), "")
-            .replace(Regex("""(?i)\s*vevo"""), "")
-            .replace(Regex("""(?i)\s*records"""), "")
-            .replace(Regex("""(?i)\s*music"""), "")
-            .replace(Regex("""(?i)\s*channel"""), "")
-            .trim()
-    }
-
-    /**
-     * Extracts movie, album, or soundtrack context from track metadata and title annotations.
-     */
-    private fun extractMovieOrAlbumContext(track: TrackItem): String? {
-        val album = track.album.trim()
-        if (album.isNotBlank() &&
-            !album.equals(track.title, ignoreCase = true) &&
-            !album.equals("Single", ignoreCase = true) &&
-            !album.equals("Unknown Album", ignoreCase = true)
-        ) {
-            return album
-        }
-        val title = track.title
-        val movieRegexes = listOf(
-            Regex("""(?i)\(From\s+["']?([^"'\)]+)["']?\)"""),
-            Regex("""(?i)\[From\s+["']?([^"'\]]+)["']?\]"""),
-            Regex("""(?i)-\s*From\s+["']?([^"'\-]+)["']?"""),
-            Regex("""(?i)\(Soundtrack\s+from\s+["']?([^"'\)]+)["']?\)"""),
-            Regex("""(?i)(?:OST|Soundtrack)\s*[:\-]\s*([^\(\)]+)""")
-        )
-        for (regex in movieRegexes) {
-            val match = regex.find(title)
-            if (match != null && match.groupValues.size > 1) {
-                val extracted = match.groupValues[1].trim()
-                if (extracted.isNotBlank()) return extracted
-            }
-        }
-        return null
-    }
-
-    /**
-     * Builds a 50-track hierarchical affinity queue matching the user's affinity architecture:
-     * Tier 1: Seed track
-     * Tier 2: 1-2 tracks by the same artist (excluding the seed track)
-     * Tier 3: 3-5 tracks from the same movie / soundtrack / album (if applicable, excluding seed track)
-     * Tier 4: 15-20 tracks from the same genre / sonic acoustic profile (excluding seed track)
-     * Tier 5: Algorithmic serendipity & discovery tracks to complete a 50-track queue (excluding seed track)
-     */
-    suspend fun buildHierarchicalAffinityQueue(seedTrack: TrackItem): List<TrackItem> {
-        val result = mutableListOf<TrackItem>()
-        val seenIds = mutableSetOf<String>()
-        val seenTitles = mutableSetOf<String>()
-        val cleanArtist = extractArtistName(seedTrack)
-
-        fun isNonPlayableEntity(item: TrackItem): Boolean {
-            if (item.itemType.equals("artist", ignoreCase = true) ||
-                item.itemType.equals("channel", ignoreCase = true) ||
-                item.itemType.equals("playlist", ignoreCase = true) ||
-                item.itemType.equals("album", ignoreCase = true)) {
-                return true
-            }
-            if (item.browseId.startsWith("UC") || item.id.startsWith("UC")) return true
-            if (item.id.startsWith("MPREb_") || item.id.startsWith("VL") || item.id.startsWith("PL")) return true
-            if (item.browseId.startsWith("MPREb_") || item.browseId.startsWith("VL") || item.browseId.startsWith("PL")) return true
-            if (item.id.length != 11 && !item.id.startsWith("local:")) return true
-            if (cleanArtist.isNotBlank() && item.title.trim().equals(cleanArtist.trim(), ignoreCase = true)) return true
-            return false
-        }
-
-        fun addTrack(t: TrackItem, allowSeedDuplicate: Boolean = false): Boolean {
-            if (t.title.isBlank()) return false
-            if (!allowSeedDuplicate && isSameSong(t, seedTrack)) return false
-            if (!allowSeedDuplicate && isNonPlayableEntity(t)) return false
-            val clean = cleanSongTitle(t.title)
-            if (clean.isBlank()) return false
-            if (t.id.isNotBlank() && seenIds.contains(t.id)) return false
-            if (seenTitles.contains(clean)) return false
-            if (seenTitles.any { it.length >= 4 && clean.length >= 4 && (it.contains(clean) || clean.contains(it)) }) {
-                return false
-            }
-            if (t.id.isNotBlank()) seenIds.add(t.id)
-            seenTitles.add(clean)
-            result.add(t)
-            return true
-        }
-
-        // Tier 0: Seed track itself (always first in queue)
-        addTrack(seedTrack, allowSeedDuplicate = true)
-
-        // 1. Tier 1: Same Artist Popular Tracks (1-2 other tracks by same artist)
-        if (cleanArtist.isNotBlank() && !cleanArtist.equals("Unknown Artist", ignoreCase = true)) {
-            try {
-                var artistTracks = emptyList<TrackItem>()
-                val (code, resp) = client.getArtistProfile(cleanArtist)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val tracksArr = json.optJSONArray("top_tracks")
-                    if (tracksArr != null) {
-                        val parsed = mutableListOf<TrackItem>()
-                        for (i in 0 until minOf(tracksArr.length(), 10)) {
-                            val obj = tracksArr.getJSONObject(i)
-                            val vId = obj.optString("id").ifBlank { obj.optString("video_id", "") }
-                            parsed.add(
-                                TrackItem(
-                                    id = vId,
-                                    title = obj.optString("title"),
-                                    artist = obj.optString("artist", cleanArtist),
-                                    coverUrl = obj.optString("thumbnail_url"),
-                                    streamUrl = ""
-                                )
-                            )
-                        }
-                        artistTracks = parsed
-                    }
-                }
-                if (artistTracks.isEmpty()) {
-                    val (sCode, sResp) = client.search("$cleanArtist top songs", type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        artistTracks = client.parseSearchResults(sResp)
-                    }
-                }
-                var artistCount = 0
-                for (t in artistTracks) {
-                    if (artistCount >= 2) break
-                    if (addTrack(t)) artistCount++
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Hierarchical Tier 1 (Artist) note: ${e.message}")
-            }
-        }
-
-        // 2. Tier 2: Same Movie / Soundtrack / Album (3-5 tracks)
-        val movieOrAlbum = extractMovieOrAlbumContext(seedTrack)
-        if (!movieOrAlbum.isNullOrBlank()) {
-            try {
-                val searchQuery = "$movieOrAlbum soundtrack songs"
-                val (code, resp) = client.search(searchQuery, type = "song")
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val albumTracks = client.parseSearchResults(resp)
-                    var albumCount = 0
-                    for (t in albumTracks) {
-                        if (albumCount >= 4) break
-                        if (addTrack(t)) albumCount++
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Hierarchical Tier 2 (Movie/Album) note: ${e.message}")
-            }
-        }
-
-        // 3. Tier 3: Same Genre & Acoustic Vibe (15-20 tracks)
-        val cleanId = if (!seedTrack.id.startsWith("local:")) seedTrack.id else ""
-        var genreTracks = emptyList<TrackItem>()
-        if (cleanId.isNotBlank()) {
-            try {
-                val (code, resp) = client.getRadioNext(cleanId)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    genreTracks = client.parseRadioNext(resp)
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Hierarchical Tier 3 (RadioNext) note: ${e.message}")
-            }
-        }
-        if (genreTracks.isEmpty()) {
-            try {
-                val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-                val magicResult = client.getMagicRadio(localHour = hour, seedTrackId = cleanId)
-                if (magicResult != null && magicResult.queue.isNotEmpty()) {
-                    genreTracks = magicResult.queue
-                }
-            } catch (_: Exception) {}
-        }
-        if (genreTracks.isEmpty() && cleanArtist.isNotBlank()) {
-            try {
-                val (code, resp) = client.search("$cleanArtist radio mix", type = "song")
-                if (code in 200..299 && resp.isNotBlank()) {
-                    genreTracks = client.parseSearchResults(resp)
-                }
-            } catch (_: Exception) {}
-        }
-        for (t in genreTracks) {
-            if (result.size >= 28) break
-            addTrack(t)
-        }
-
-        // 4. Tier 4: Algorithmic Expansion / Fresh Discoveries up to 50 tracks
-        if (result.size < 50) {
-            val discoveryAnchor = result.drop(1).firstOrNull { 
-                it.artist.isNotBlank() && !it.artist.equals(cleanArtist, ignoreCase = true) && it.id.isNotBlank() && !it.id.startsWith("local:")
-            } ?: result.lastOrNull()
-
-            if (discoveryAnchor != null && discoveryAnchor.id.isNotBlank() && !discoveryAnchor.id.startsWith("local:")) {
-                try {
-                    val (code, resp) = client.getRadioNext(discoveryAnchor.id)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val anchorRadio = client.parseRadioNext(resp)
-                        for (t in anchorRadio) {
-                            if (result.size >= 50) break
-                            addTrack(t)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-
-        if (result.size < 50 && cleanArtist.isNotBlank()) {
-            try {
-                val (code, resp) = client.search("$cleanArtist mix", type = "song")
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val mixTracks = client.parseSearchResults(resp)
-                    for (t in mixTracks) {
-                        if (result.size >= 50) break
-                        addTrack(t)
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        return result
-    }
-
-    /**
-     * Strategy A: Dynamic YouTube Algorithmic Radio Graph (Guest Mode Only).
-     *
-     * Structures a 50-track hierarchical affinity queue:
-     * 1-2 tracks by same artist -> 3-5 tracks from same movie/album -> 15-20 genre tracks -> discoveries.
-     */
-    fun fetchGuestAlgorithmicRadio(seedTrack: TrackItem, append: Boolean = false) {
-        if (_isYouTubeConnected.value) return // Strictly guest mode only
-        if (seedTrack.id.isBlank() && seedTrack.title.isBlank()) return
-
-        guestRadioJob?.cancel()
-        guestRadioJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Guest Algorithmic Radio: Building hierarchical affinity queue for '${seedTrack.title}'...")
-                val hierarchicalTracks = buildHierarchicalAffinityQueue(seedTrack)
-
-                if (hierarchicalTracks.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        if (!_isYouTubeConnected.value) {
-                            val updatedQueue = if (append) {
-                                val existingIds = _currentQueue.value.map { it.id }.toSet()
-                                _currentQueue.value + hierarchicalTracks.filter { !existingIds.contains(it.id) }
-                            } else {
-                                hierarchicalTracks
-                            }
-                            _currentQueue.value = updatedQueue
-                            serviceConnection.setQueue(updatedQueue)
-                            if (!append) {
-                                val vibeLabel = seedTrack.artist.ifBlank { "Algorithmic" }
-                                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                    getApplication(),
-                                    "Radio: Shifted to $vibeLabel vibe (${updatedQueue.size} tracks)",
-                                    isLong = false
-                                )
-                            }
-                            Log.i(TAG, "Guest Algorithmic Radio: Shifted queue to ${updatedQueue.size} tracks for '${seedTrack.title}'")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Guest Algorithmic Radio error: ${e.message}")
-            }
-        }
-    }
-
-    private var automixJob: Job? = null
-
-    /**
-     * Queries automix algorithm to populate 50 hierarchical affinity matched songs into active player queue.
-     */
-    fun fetchAutomixQueue(seedTrack: TrackItem, append: Boolean = false) {
-        if (seedTrack.id.isBlank() || seedTrack.id.startsWith("local:")) return
-        automixJob?.cancel()
-        automixJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Automix: Building hierarchical affinity queue for '${seedTrack.title}'...")
-                val hierarchicalTracks = buildHierarchicalAffinityQueue(seedTrack)
-
-                if (hierarchicalTracks.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        val updatedQueue = if (append) {
-                            val existingIds = _currentQueue.value.map { it.id }.toSet()
-                            _currentQueue.value + hierarchicalTracks.filter { !existingIds.contains(it.id) }
-                        } else {
-                            hierarchicalTracks
-                        }
-                        _currentQueue.value = updatedQueue
-                        serviceConnection.setQueue(updatedQueue)
-                        Log.i(TAG, "Automix queue hydrated with ${updatedQueue.size} tracks for '${seedTrack.title}'")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to fetch automix queue for ${seedTrack.id}: ${e.message}")
-            }
-        }
-    }
-
-    fun dismissMiniPlayer() {
-        serviceConnection.clearPlayback()
-        _currentTrack.value = TrackItem()
-        _currentQueue.value = emptyList()
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(getApplication())
-            } catch (_: Exception) {}
-        }
-    }
-
-    fun togglePlayPause() {
-        val state = serviceConnection.playbackState.value
-        if (!serviceConnection.isPlayerReady() || state.mediaItemCount == 0 || state.durationMs <= 0L) {
-            playTrack(_currentTrack.value)
-        } else {
-            serviceConnection.togglePlayPause()
-        }
-    }
-
-    fun toggleFavorite() {
-        val willBeFav = !_isFavorite.value
-        _isFavorite.value = willBeFav
-        val current = _currentTrack.value
-        val effectiveId = if (current.id.isNotBlank()) current.id else current.streamUrl
-        val trackToSave = if (current.id.isBlank()) current.copy(id = effectiveId) else current
-        if (effectiveId.isNotBlank() || current.title.isNotBlank()) {
-            if (willBeFav) {
-                PlaybackStateStore.saveFavoriteTrack(getApplication(), trackToSave)
-                val currList = _favoriteTracks.value.toMutableList()
-                if (currList.none { it.id == trackToSave.id || (it.title == trackToSave.title && it.artist == trackToSave.artist) }) {
-                    currList.add(0, trackToSave)
-                    _favoriteTracks.value = currList
-                }
-            } else {
-                PlaybackStateStore.removeFavoriteTrack(getApplication(), effectiveId, current.title)
-                _favoriteTracks.value = _favoriteTracks.value.filterNot { 
-                    it.id == effectiveId || it.streamUrl == effectiveId || 
-                    (it.title.equals(current.title, ignoreCase = true) && it.artist.equals(current.artist, ignoreCase = true))
-                }
-            }
-        }
-        if (willBeFav && _autoDownloadLikedSongs.value) {
-            startTrackDownload(trackToSave)
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                if (trackToSave.id.isNotBlank() || trackToSave.title.isNotBlank()) {
-                    client.toggleFavorite(trackToSave)
-                    client.toggleTrackLike(trackToSave.id, willBeFav)
-                }
-                loadSyncedYouTubeTracks()
-                refreshFavoritesList()
-            } catch (e: Exception) {
-                Log.w(TAG, "Track like toggle error: ${e.message}")
-            }
-        }
-    }
-
-    fun toggleTrackFavorite(track: TrackItem) {
-        val effectiveId = if (track.id.isNotBlank()) track.id else track.streamUrl
-        if (effectiveId.isBlank() && track.title.isBlank()) return
-        val willBeFav = !PlaybackStateStore.isFavoriteTrack(getApplication(), effectiveId, track.title)
-        val trackToSave = if (track.id.isBlank()) track.copy(id = effectiveId) else track
-        if (willBeFav) {
-            PlaybackStateStore.saveFavoriteTrack(getApplication(), trackToSave)
-            val currList = _favoriteTracks.value.toMutableList()
-            if (currList.none { it.id == trackToSave.id || (it.title == trackToSave.title && it.artist == trackToSave.artist) }) {
-                currList.add(0, trackToSave)
-                _favoriteTracks.value = currList
-            }
-        } else {
-            PlaybackStateStore.removeFavoriteTrack(getApplication(), effectiveId, track.title)
-            _favoriteTracks.value = _favoriteTracks.value.filterNot {
-                it.id == effectiveId || it.streamUrl == effectiveId ||
-                (it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true))
-            }
-        }
-        if (track.id == _currentTrack.value.id || track.streamUrl == _currentTrack.value.streamUrl || track.title == _currentTrack.value.title) {
-            _isFavorite.value = willBeFav
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                client.toggleFavorite(trackToSave)
-                client.toggleTrackLike(trackToSave.id, willBeFav)
-                loadSyncedYouTubeTracks()
-                refreshFavoritesList()
-            } catch (e: Exception) {
-                Log.d(TAG, "Track like toggle error: ${e.message}")
-            }
-        }
-    }
-
-    fun refreshFavoritesList() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val localStoredFavs = PlaybackStateStore.getFavoriteTracks(getApplication())
-            val favIds = PlaybackStateStore.getFavoriteTrackIds(getApplication())
-            var backendFavs = try { client.getFavorites() } catch (_: Exception) { emptyList() }
-            if (backendFavs.isEmpty() && (favIds.isNotEmpty() || localStoredFavs.isNotEmpty())) {
-                val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) || favIds.contains(it.title) }
-                val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
-                val allTracks = (localStoredFavs + localFavorites + syncedFavorites).distinctBy { if (it.id.isNotBlank()) it.id else it.title }
-                for (t in allTracks) {
-                    try { client.toggleFavorite(t) } catch (_: Exception) {}
-                }
-                backendFavs = try { client.getFavorites() } catch (_: Exception) { emptyList() }
-            }
-            val localFavorites = _libraryTracks.value.filter { favIds.contains(it.id) || favIds.contains(it.title) }
-            val syncedFavorites = _syncedYouTubeTracks.value.filter { favIds.contains(it.id) }
-            val allTracks = (localStoredFavs + backendFavs + localFavorites + syncedFavorites).distinctBy { 
-                if (it.id.isNotBlank()) it.id else "${it.title}_${it.artist}"
-            }
-            withContext(Dispatchers.Main) {
-                _favoriteTracks.value = allTracks
-            }
-        }
-    }
-
-    fun seekTo(progress: Float) {
-        serviceConnection.seekToFraction(progress)
-    }
-
-    private fun getEffectiveQueue(): List<TrackItem> {
-        val q = _currentQueue.value
-        if (q.isNotEmpty()) return q
-        val sQueue = serviceConnection.playbackState.value.queue
-        if (sQueue.isNotEmpty()) return sQueue
-        if (_searchResults.value.size > 1) return _searchResults.value
-        if (_libraryTracks.value.size > 1) return _libraryTracks.value
-        if (_chartTracks.value.size > 1) return _chartTracks.value
-        return defaultTopTracks
-    }
-
-    fun nextTrack() {
-        val q = getEffectiveQueue()
-        if (q.isNotEmpty()) {
-            val current = _currentTrack.value
-            val currentIndex = q.indexOfFirst {
-                (it.id.isNotBlank() && it.id == current.id) ||
-                (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
-            }
-
-            // Proactive infinite auto-play: When within 3 tracks of the end of the queue, fetch next batch
-            if (currentIndex >= q.size - 3 && q.isNotEmpty()) {
-                if (!_isYouTubeConnected.value) {
-                    fetchGuestAlgorithmicRadio(q.last(), append = true)
-                } else {
-                    fetchAutomixQueue(q.last(), append = true)
-                }
-            }
-
-            val nextIndex = if (currentIndex in 0 until q.size - 1) {
-                currentIndex + 1
-            } else {
-                0 // Loop back to start of queue
-            }
-            playTrack(q[nextIndex])
-            return
-        }
-        serviceConnection.next()
-    }
-
-    fun prevTrack() {
-        val pos = serviceConnection.playbackState.value.currentPositionMs
-        if (pos > 3000L) {
-            // If played > 3s, seek to beginning (Spotify standard)
-            serviceConnection.seekTo(0)
-            return
-        }
-        val q = getEffectiveQueue()
-        if (q.isNotEmpty()) {
-            val current = _currentTrack.value
-            val currentIndex = q.indexOfFirst {
-                (it.id.isNotBlank() && it.id == current.id) ||
-                (it.title.isNotBlank() && it.title.equals(current.title, ignoreCase = true))
-            }
-            val prevIndex = if (currentIndex > 0) {
-                currentIndex - 1
-            } else {
-                q.lastIndex // Wrap to end of queue
-            }
-            playTrack(q[prevIndex])
-            return
-        }
-        serviceConnection.previous()
-    }
-
-    // ==================== YouTube Music Search & Autocomplete ====================
-
-    private var searchJob: kotlinx.coroutines.Job? = null
-    private var suggestionJob: kotlinx.coroutines.Job? = null
-
-    /**
-     * Updates search query, fetches live autocomplete suggestions, and debounces catalog search.
-     */
-    fun onSearchQueryChanged(query: String) {
-        _searchQuery.value = query
-        fetchSearchSuggestions(query)
-        searchJob?.cancel()
-        if (query.isBlank()) {
-            _searchResults.value = emptyList()
-            _isSearching.value = false
-            return
-        }
-
-        searchJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(350) // 350ms debounce for full search
-            executeFullSearch(query)
-        }
-    }
-
-    /**
-     * Explicitly submits a search query (e.g. user taps enter, history, or a suggestion),
-     * records it into search history, and immediately executes catalog search.
-     */
-    fun submitSearch(query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return
-        _searchQuery.value = trimmed
-        addSearchHistory(trimmed)
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch(Dispatchers.IO) {
-            executeFullSearch(trimmed)
-        }
-    }
-
-    private suspend fun executeFullSearch(query: String) {
-        _isSearching.value = true
-        try {
-            var foundTracks = false
-            val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
-            if (code in 200..299 && resp.isNotBlank()) {
-                val parsed = client.parseSearchResults(resp)
-                if (parsed.isNotEmpty()) {
-                    _searchResults.value = parsed
-                    foundTracks = true
-                }
-            }
-
-            // If daemon returned empty, query YouTube Music public search fallback
-            if (!foundTracks) {
-                val fallbackResults = executeDirectYouTubeSearch(query)
-                if (fallbackResults.isNotEmpty()) {
-                    _searchResults.value = fallbackResults
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "YouTube search error: ${e.message}")
-            val fallbackResults = executeDirectYouTubeSearch(query)
-            if (fallbackResults.isNotEmpty()) {
-                _searchResults.value = fallbackResults
-            }
-        } finally {
-            _isSearching.value = false
-        }
-    }
-
-    /**
-     * Real-time autocomplete suggestions from YouTube Music suggest client.
-     */
-    fun fetchSearchSuggestions(query: String) {
-        suggestionJob?.cancel()
-        if (query.isBlank()) {
-            _searchSuggestions.value = emptyList()
-            return
-        }
-        suggestionJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-                val url = java.net.URL("https://suggestqueries-clients6.youtube.com/complete/search?client=youtube-music&hl=en&gl=US&q=$encoded")
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-                if (conn.responseCode in 200..299) {
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    val regex = Regex("""\["([^"]+)",0,""")
-                    val list = regex.findAll(text).map { it.groupValues[1] }.distinct().take(12).toList()
-                    _searchSuggestions.value = list
-                }
-            } catch (_: Exception) {
-                // Ignore transient network failures for suggestions
-            }
-        }
-    }
-
-    private fun executeDirectYouTubeSearch(query: String): List<TrackItem> {
-        return try {
-            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-            // Strictly query YouTube Music suggestions (never general YouTube video queries)
-            val url = java.net.URL("https://suggestqueries-clients6.youtube.com/complete/search?client=youtube-music&hl=en&gl=US&q=$encoded")
-            val conn = url.openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
-            if (conn.responseCode in 200..299) {
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
-                val parsed = mutableListOf<TrackItem>()
-                val regex = Regex("""\["([^"]+)",0,""")
-                regex.findAll(text).take(8).forEach { match ->
-                    val musicTitle = match.groupValues[1]
-                    parsed.add(
-                        TrackItem(
-                            id = "",
-                            title = musicTitle,
-                            artist = "YouTube Music",
-                            coverUrl = "",
-                            streamUrl = ""
-                        )
-                    )
-                }
-                parsed
-            } else {
-                emptyList()
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    // ==================== Search History (Persistence) ====================
-
-    private fun loadSearchHistory() {
-        try {
-            val prefs = getApplication<Application>().getSharedPreferences("unbound_search_history", android.content.Context.MODE_PRIVATE)
-            val raw = prefs.getString("queries", null)
-            if (!raw.isNullOrBlank()) {
-                val list = raw.split("||||").filter { it.isNotBlank() }
-                _searchHistory.value = list
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed loading search history: ${e.message}")
-        }
-    }
-
-    fun addSearchHistory(query: String) {
-        val trimmed = query.trim()
-        if (trimmed.isBlank()) return
-        val current = _searchHistory.value.toMutableList()
-        current.remove(trimmed)
-        current.add(0, trimmed)
-        val capped = current.take(30)
-        _searchHistory.value = capped
-        saveSearchHistory(capped)
-    }
-
-    fun removeSearchHistoryItem(query: String) {
-        val current = _searchHistory.value.toMutableList()
-        current.remove(query)
-        _searchHistory.value = current
-        saveSearchHistory(current)
-    }
-
-    fun clearSearchHistory() {
-        _searchHistory.value = emptyList()
-        saveSearchHistory(emptyList())
-    }
-
-    private fun saveSearchHistory(list: List<String>) {
-        try {
-            val prefs = getApplication<Application>().getSharedPreferences("unbound_search_history", android.content.Context.MODE_PRIVATE)
-            prefs.edit().putString("queries", list.joinToString("||||")).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed saving search history: ${e.message}")
-        }
-    }
-
-    // ==================== Multi-Select Batch Actions ====================
-
-    fun playNextBatch(tracks: List<TrackItem>) {
-        if (tracks.isEmpty()) return
-        val currentQueueList = _currentQueue.value.toMutableList()
-        val current = _currentTrack.value
-        val currentIndex = currentQueueList.indexOfFirst { it.id == current.id }
-        val insertIndex = if (currentIndex >= 0) currentIndex + 1 else 0
-        currentQueueList.addAll(insertIndex, tracks)
-        _currentQueue.value = currentQueueList
-        serviceConnection.setQueue(currentQueueList)
-    }
-
-    fun addToQueueBatch(tracks: List<TrackItem>) {
-        if (tracks.isEmpty()) return
-        val currentQueueList = _currentQueue.value.toMutableList()
-        currentQueueList.addAll(tracks)
-        _currentQueue.value = currentQueueList
-        serviceConnection.setQueue(currentQueueList)
-    }
-
-    fun downloadBatch(tracks: List<TrackItem>) {
-        tracks.forEach { track ->
-            if (track.id.isNotBlank()) {
-                startTrackDownload(track)
-            }
-        }
-    }
-
-
-    /**
-     * AI-powered semantic vibe search via the Go daemon.
-     */
-    fun executeVibeSearch(prompt: String) {
-        _isSearching.value = true
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.queryVibe(prompt, topK = 10)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    // Parse vibe search results and use them to search YouTube Music
-                    val keywords = json.optJSONArray("search_keywords")
-                    val genres = json.optJSONArray("target_genres")
-                    val searchTerm = buildString {
-                        keywords?.let { arr ->
-                            for (i in 0 until minOf(arr.length(), 3)) {
-                                if (isNotBlank()) append(" ")
-                                append(arr.optString(i))
-                            }
-                        }
-                        if (isBlank() && genres != null) {
-                            for (i in 0 until minOf(genres.length(), 2)) {
-                                if (isNotBlank()) append(" ")
-                                append(genres.optString(i))
-                            }
-                        }
-                        if (isBlank()) append(prompt)
-                    }
-                    // Chain into YouTube Music search
-                    val (sCode, sResp) = client.search(searchTerm)
-                    if (sCode in 200..299) {
-                        val parsed = client.parseSearchResults(sResp)
-                        if (parsed.isNotEmpty()) {
-                            _searchResults.value = parsed
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Vibe search error: ${e.message}")
-            } finally {
-                _isSearching.value = false
-            }
-        }
-    }
-
-    // ==================== Shazam & Voice Recognition ====================
-
-    val audioPermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val voiceSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val humSearchRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val storagePermissionRequestEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-
-    fun startVoiceSearch() {
-        voiceSearchRequestEvent.tryEmit(Unit)
-    }
-
-    fun startHumSearch() {
-        _recognizedMessage.value = "Listening for hummed melody, singing, or lyrics..."
-        humSearchRequestEvent.tryEmit(Unit)
-    }
-
-    fun requestAllFilesAccess() {
-        storagePermissionRequestEvent.tryEmit(Unit)
-    }
-
-    fun handleVoiceSearchResult(spokenQuery: String) {
-        val trimmed = spokenQuery.trim()
-        if (trimmed.isBlank()) return
-        submitSearch(trimmed)
-    }
-
-    fun handleHumSearchResult(spokenQuery: String) {
-        val trimmed = spokenQuery.trim()
-        if (trimmed.isBlank()) return
-        _recognizedMessage.value = "Analyzing hummed melody: \"$trimmed\"..."
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.search(trimmed, "song")
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val searchResults = client.parseSearchResults(resp)
-                    val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
-                    // Prefer songs that are not remixes
-                    val songs = searchResults.filter { it.itemType == "song" }
-                    val cleanSong = songs.firstOrNull { !remixIndicator.containsMatchIn(it.title) } ?: songs.firstOrNull()
-                    if (cleanSong != null) {
-                        val matchedTrack = TrackItem(
-                            id = cleanSong.id,
-                            title = cleanSong.title,
-                            artist = cleanSong.artist,
-                            album = cleanSong.album,
-                            durationMs = cleanSong.durationMs,
-                            coverUrl = cleanSong.coverUrl,
-                            source = "hum_search"
-                        )
-                        _lastHummedTrack.value = matchedTrack
-                        _hummingHistory.value = listOf(matchedTrack) + _hummingHistory.value.filter { it.id != matchedTrack.id }
-
-                        val variants = songs.take(3).mapIndexed { idx, s ->
-                            val isOrig = !remixIndicator.containsMatchIn(s.title)
-                            RecognizedTrackVariant(
-                                track = s,
-                                badge = if (idx == 0 && isOrig) "Top Melodic Match (Original)" else if (idx == 0) "Top Melodic Match" else "Melodic Alternative",
-                                isOriginal = isOrig,
-                                isRadarMatch = false,
-                                explanation = "Matched via Hum-to-Search melody deduction"
-                            )
-                        }
-                        _hummedVariants.value = variants
-                        _recognizedMessage.value = "Matched melody: ${matchedTrack.title} - ${matchedTrack.artist}"
-                        withContext(Dispatchers.Main) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "Matched: ${matchedTrack.title} - ${matchedTrack.artist}",
-                                isLong = true
-                            )
-                        }
-                        return@launch
-                    }
-                }
-                _recognizedMessage.value = "No melody match found for \"$trimmed\". Try humming a distinct section."
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "No melody match found for \"$trimmed\"."
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Hum search error: ${e.message}")
-                _recognizedMessage.value = "Could not identify hummed tune. Please try again."
-            }
-        }
-    }
-
-    fun startAmbientShazamRecognition() {
-        if (_shazamMode.value == ShazamMode.HUMMING) {
-            startHumSearch()
-            return
-        }
-        if (_isListeningShazam.value) {
-            stopAndSendShazamRecording()
-            return
-        }
-        val context = getApplication<Application>()
-        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                context,
-                android.Manifest.permission.RECORD_AUDIO
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            executeAmbientShazamCapture()
-        } else {
-            audioPermissionRequestEvent.tryEmit(Unit)
-        }
-    }
-
-    fun stopAndSendShazamRecording() {
-        if (_isListeningShazam.value) {
-            _recognizedMessage.value = "Finalizing & identifying audio..."
-            com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.stopRecording()
-        }
-    }
-
-    fun onAudioPermissionGranted() {
-        executeAmbientShazamCapture()
-    }
-
-    private fun executeAmbientShazamCapture() {
-        if (_isListeningShazam.value) return
-        _isListeningShazam.value = true
-        val isHum = _shazamMode.value == ShazamMode.HUMMING
-        _recordingDurationSeconds.value = 0
-        _recognizedMessage.value = if (isHum) {
-            "Hum or sing a tune... Tap radar to identify early"
-        } else {
-            "Listening to music... Identifying within seconds"
-        }
-
-        val tickerJob = viewModelScope.launch {
-            while (isActive && _isListeningShazam.value) {
-                delay(1000)
-                _recordingDurationSeconds.value++
-            }
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _recognizedMessage.value = "Listening to music... Identifying within seconds"
-                val matched = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.streamPcm(
-                    maxDurationMs = 12000,
-                    checkpointIntervalsMs = listOf(1500, 3000, 5000, 8000, 12000)
-                ) { cumulativePcm, isFinal ->
-                    _recognizedMessage.value = "Analyzing acoustic fingerprint..."
-                    val (code, resp) = client.identifyPcmAudio(cumulativePcm)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val success = parseAndSetShazamResult(resp)
-                        if (success) {
-                            return@streamPcm true // EARLY EXIT! Match achieved!
-                        }
-                    }
-                    if (isFinal) {
-                        val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
-                            "Could not match hummed melody. Melodies require distinct pitch, or tap below to use Google Sound Search."
-                        } else {
-                            "No acoustic match found. Try again closer to the speaker."
-                        }
-                        _recognizedMessage.value = reasonMsg
-                        withContext(Dispatchers.Main) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                reasonMsg
-                            )
-                        }
-                    } else {
-                        _recognizedMessage.value = "Listening to music... (${_recordingDurationSeconds.value}s)"
-                    }
-                    false
-                }
-            } catch (e: Exception) {
-                _recognizedMessage.value = "Could not recognize audio. Try again."
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Could not recognize audio. Try again."
-                    )
-                }
-            } finally {
-                _isListeningShazam.value = false
-                tickerJob.cancel()
-                _recordingDurationSeconds.value = 0
-            }
-        }
-    }
-
-    private suspend fun parseAndSetShazamResult(resp: String): Boolean {
-        return try {
-            val json = JSONObject(resp)
-            val matched = json.optBoolean("matched", false)
-            val trackTitle = json.optString("title", json.optString("track_title", ""))
-            val artist = json.optString("artist", "")
-            if (matched && trackTitle.isNotBlank()) {
-                val trackId = json.optString("id", json.optString("track_id", "shazam_${System.currentTimeMillis()}"))
-                val cover = json.optString("cover_url", json.optString("thumbnail", ""))
-                val matchedTrack = TrackItem(
-                    id = trackId,
-                    title = trackTitle,
-                    artist = artist,
-                    album = json.optString("album", ""),
-                    durationMs = json.optLong("duration_ms", 0L),
-                    coverUrl = cover,
-                    source = "shazam"
-                )
-                _lastRecognizedTrack.value = matchedTrack
-                _shazamHistory.value = listOf(matchedTrack) + _shazamHistory.value.filter { it.title != trackTitle || it.artist != artist }
-
-                // Parse backend-provided disambiguation variants (Radar Match vs Vibe AI Original)
-                val variantsJson = json.optJSONArray("variants")
-                val parsedVariants = mutableListOf<RecognizedTrackVariant>()
-                if (variantsJson != null && variantsJson.length() > 0) {
-                    for (i in 0 until variantsJson.length()) {
-                        val vObj = variantsJson.optJSONObject(i) ?: continue
-                        val vId = vObj.optString("id", trackId)
-                        val vTitle = vObj.optString("title", trackTitle)
-                        val vArtist = vObj.optString("artist", artist)
-                        val vAlbum = vObj.optString("album", "")
-                        val vCover = vObj.optString("cover_url", cover)
-                        val vDuration = vObj.optLong("duration_ms", matchedTrack.durationMs)
-                        val vBadge = vObj.optString("badge", if (i == 0) "Acoustic Radar Match" else "Vibe AI Original Suggestion")
-                        val isOrig = vObj.optBoolean("is_original", i > 0)
-                        val isRadar = vObj.optBoolean("is_radar_match", i == 0)
-                        val expl = vObj.optString("explanation", "")
-
-                        val vTrack = TrackItem(
-                            id = vId,
-                            title = vTitle,
-                            artist = vArtist,
-                            album = vAlbum,
-                            coverUrl = vCover,
-                            durationMs = vDuration,
-                            source = if (isOrig) "youtube" else "shazam"
-                        )
-                        parsedVariants.add(
-                            RecognizedTrackVariant(
-                                track = vTrack,
-                                badge = vBadge,
-                                isOriginal = isOrig,
-                                isRadarMatch = isRadar,
-                                explanation = expl
-                            )
-                        )
-                    }
-                }
-
-                // If backend returned single/no variants, perform client-side Edge AI remix disambiguation
-                if (parsedVariants.size <= 1) {
-                    val parenRegex = Regex("""(?i)\s*[\(\[\{][^\)\]\}]*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|feat\.?|ft\.?|featuring)[^\)\]\}]*[\)\]\}]""")
-                    val dashRegex = Regex("""(?i)\s*-\s*.*(?:remix|mix|edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|version|instrumental).*""")
-                    val featRegex = Regex("""(?i)\s+(?:feat\.?|ft\.?|featuring|vs\.?|x|&)\s+.*""")
-
-                    val cleanTitle = trackTitle.replace(parenRegex, "").replace(dashRegex, "").trim().ifBlank { trackTitle }
-                    val cleanArtist = artist.replace(parenRegex, "").replace(dashRegex, "").replace(featRegex, "").trim().ifBlank { artist }
-
-                    val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
-                    val isRemix = remixIndicator.containsMatchIn(trackTitle) || remixIndicator.containsMatchIn(artist) || !cleanTitle.equals(trackTitle, ignoreCase = true)
-
-                    val radarVariant = RecognizedTrackVariant(
-                        track = matchedTrack,
-                        badge = "Acoustic Radar Match",
-                        isOriginal = !isRemix,
-                        isRadarMatch = true,
-                        explanation = if (!isRemix) "Identified authentic original song from audio stream" else "Identified remix or altered version from audio stream"
-                    )
-                    parsedVariants.clear()
-                    parsedVariants.add(radarVariant)
-
-                    if (isRemix && cleanTitle.isNotBlank()) {
-                        try {
-                            val (sCode, sResp) = client.search("$cleanTitle $cleanArtist", "music")
-                            if (sCode in 200..299 && sResp.isNotBlank()) {
-                                val results = client.parseSearchResults(sResp)
-                                val originalTrack = results.firstOrNull {
-                                    it.itemType == "song" &&
-                                    !remixIndicator.containsMatchIn(it.title) &&
-                                    !it.id.equals(matchedTrack.id, ignoreCase = true)
-                                }
-
-                                if (originalTrack != null) {
-                                    parsedVariants.add(0,
-                                        RecognizedTrackVariant(
-                                            track = originalTrack,
-                                            badge = "Canonical Original Version",
-                                            isOriginal = true,
-                                            isRadarMatch = false,
-                                            explanation = "Edge AI resolved the authentic original recording"
-                                        )
-                                    )
-                                }
-                            }
-                        } catch (se: Exception) {
-                            Log.w(TAG, "Client-side variant disambiguation note: ${se.message}")
-                        }
-                    }
-                }
-
-                _recognizedVariants.value = parsedVariants
-
-                val isEarly = json.optBoolean("early_exit", false)
-                val durationMs = json.optInt("duration_ms", 0)
-                val displayMsg = if (isEarly && durationMs > 0) {
-                    "Early Match (${durationMs}ms): $trackTitle"
-                } else if (parsedVariants.size > 1) {
-                    "Matched: $trackTitle (Vibe AI found ${parsedVariants.size} versions)"
-                } else if (artist.isNotBlank()) {
-                    "Recognized: $trackTitle - $artist"
-                } else {
-                    "Recognized: $trackTitle"
-                }
-                _recognizedMessage.value = displayMsg
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        displayMsg,
-                        isLong = true
-                    )
-                }
-                true
-            } else {
-                false
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing Shazam match: ${e.message}", e)
-            false
-        }
-    }
-
-    // ==================== Multi-Stage Spotify / P2P Fallback Engine ====================
-
-    private val _fallbackStatus = MutableStateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?>(null)
-    val fallbackStatus: StateFlow<com.cubicreates.unboundmusic.data.FallbackStatusDto?> = _fallbackStatus.asStateFlow()
-
-    fun triggerFallbackSearch(title: String, artist: String = "", forceSwarm: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val app = getApplication<Application>()
-
-            // 1. Guard against battery depletion on low charge
-            if (!forceSwarm) {
-                try {
-                    val batteryIntent = app.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-                    val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-                    val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-                    val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-                    val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-                    val batteryPct = if (level >= 0 && scale > 0) (level * 100) / scale else 100
-
-                    if (!isCharging && batteryPct < 15) {
-                        _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
-                            stage = "PAUSED_BATTERY",
-                            message = "P2P swarming paused to conserve battery (${batteryPct}%)"
-                        )
-                        return@launch
-                    }
-                } catch (e: Exception) {
-                    Log.w("MainViewModel", "Battery check warning: ${e.message}")
-                }
-
-                // 2. Guard against high cellular data usage on metered networks
-                try {
-                    val cm = app.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-                    val isMetered = cm?.isActiveNetworkMetered == true
-                    if (isMetered) {
-                        val prefs = app.getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
-                        val allowCellularP2P = prefs.getBoolean("allow_cellular_p2p", false)
-                        if (!allowCellularP2P) {
-                            _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
-                                stage = "PAUSED_METERED",
-                                message = "P2P swarming paused on metered mobile data"
-                            )
-                            return@launch
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("MainViewModel", "Connectivity check warning: ${e.message}")
-                }
-            }
-
-            _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
-                stage = "VERIFYING",
-                message = "Verifying '$title' on Spotify and music registries..."
-            )
-            try {
-                val (code, json) = client.resolveFallbackTrack(title, artist)
-                if (code == 200 && json.isNotBlank()) {
-                    val status = client.parseFallbackStatus(json)
-                    _fallbackStatus.value = status
-                    if (status != null && status.stage == "STREAMING") {
-                        withContext(Dispatchers.Main) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "Fallback stream found via P2P (${status.sourceFormat ?: "Audio"})",
-                                isLong = true
-                            )
-                        }
-                    }
-                } else {
-                    _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
-                        stage = "NOT_FOUND",
-                        message = "Track could not be resolved on fallback networks."
-                    )
-                }
-            } catch (e: Exception) {
-                _fallbackStatus.value = com.cubicreates.unboundmusic.data.FallbackStatusDto(
-                    stage = "ERROR",
-                    message = "Fallback resolution error: ${e.message}"
-                )
-            }
-        }
-    }
-
-    fun setAllowCellularP2P(enabled: Boolean) {
-        val prefs = getApplication<Application>().getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putBoolean("allow_cellular_p2p", enabled).apply()
-    }
-
-    fun isAllowCellularP2P(): Boolean {
-        val prefs = getApplication<Application>().getSharedPreferences("unbound_fallback_prefs", Context.MODE_PRIVATE)
-        return prefs.getBoolean("allow_cellular_p2p", false)
-    }
-
-    fun clearFallbackStatus() {
-        _fallbackStatus.value = null
-    }
-
-    // ==================== Lyrics ====================
-
-    /**
-     * Loads live lyrics for a specific track, ensuring in-flight requests from older tracks
-     * are cleanly cancelled, the UI immediately shows the shimmer placeholder, and stale
-     * lyrics (e.g. from previous tracks) never linger.
-     */
-    fun loadLyricsForTrack(track: TrackItem) {
-        lyricsFetchJob?.cancel()
-        _lyricsLines.value = emptyList()
-        _lyricsSource.value = ""
-        _isInstrumental.value = false
-
-        if (track.title.isBlank() || track.title == "Unknown") return
-
-        lyricsFetchJob = viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val duration = if (track.durationMs > 0) track.durationMs else playbackState.value.durationMs
-                val cleanArtist = if (track.artist.equals("Song", ignoreCase = true) ||
-                                      track.artist.equals("Video", ignoreCase = true) ||
-                                      track.artist.equals("YouTube Artist", ignoreCase = true)) "" else track.artist
-                val (code, resp) = client.getLyrics(
-                    trackId = track.id,
-                    title = track.title,
-                    artist = cleanArtist,
-                    durationMs = duration
-                )
-
-                // Verify user hasn't switched to another track during network flight
-                val current = _currentTrack.value
-                val isStillCurrent = (current.id.isNotBlank() && current.id == track.id) ||
-                        (current.title.isNotBlank() && current.title.equals(track.title, ignoreCase = true))
-                if (!isStillCurrent) {
-                    Log.d(TAG, "Discarding lyrics: track moved from '${track.title}' to '${current.title}'")
-                    return@launch
-                }
-
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val source = json.optString("source", "LRCLIB Synced Lyrics")
-                    val isInst = json.optBoolean("instrumental", false)
-                    _isInstrumental.value = isInst
-
-                    val linesArray = json.optJSONArray("lines")
-                    if (linesArray != null && linesArray.length() > 0) {
-                        val lines = mutableListOf<LyricLine>()
-                        for (i in 0 until linesArray.length()) {
-                            val lineObj = linesArray.getJSONObject(i)
-                            lines.add(
-                                LyricLine(
-                                    text = lineObj.optString("text", ""),
-                                    startMs = lineObj.optLong("start_ms", 0),
-                                    endMs = lineObj.optLong("end_ms", 0),
-                                    romanized = lineObj.optString("romanized", "")
-                                )
-                            )
-                        }
-                        _lyricsLines.value = lines
-                        _lyricsSource.value = source
-                    } else {
-                        val plain = json.optString("plain_lyrics", "")
-                        if (plain.isNotBlank() && !isInst) {
-                            val plainLines = plain.lines().filter { it.isNotBlank() }.map { text ->
-                                LyricLine(text = text, startMs = 0, endMs = 0, romanized = "")
-                            }
-                            _lyricsLines.value = plainLines
-                            _lyricsSource.value = source
-                        } else {
-                            _lyricsLines.value = emptyList()
-                            _lyricsSource.value = if (isInst) source else ""
-                        }
-                    }
-                } else {
-                    _lyricsLines.value = emptyList()
-                    _lyricsSource.value = ""
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Lyrics fetch error for '${track.title}': ${e.message}")
-                _lyricsLines.value = emptyList()
-                _lyricsSource.value = ""
-            }
-        }
-    }
-
-    // ==================== Canvas Visuals ====================
-
-    /**
-     * Fetches Spotify Canvas visual assets (video, hi-res art) from the Go daemon.
-     */
-    private suspend fun fetchCanvas(track: TrackItem) {
-        try {
-            val (code, resp) = client.getCanvas(track.title, track.artist)
-            if (code in 200..299 && resp.isNotBlank()) {
-                val json = JSONObject(resp)
-                val found = json.optBoolean("found", false)
-                if (found) {
-                    val canvasUrl = json.optString("canvas_url").takeIf { it.isNotBlank() && it.startsWith("http") }
-                    val artUrl = (json.optString("thumbnail_url").takeIf { it.isNotBlank() && it.startsWith("http") && !it.contains("/vi//maxresdefault") }
-                        ?: json.optString("song_art_url").takeIf { it.isNotBlank() && it.startsWith("http") })
-                    _canvasVideoUrl.value = canvasUrl
-                    if (track.coverUrl.isBlank() && artUrl != null) {
-                        _canvasArtUrl.value = artUrl
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Canvas fetch error: ${e.message}")
-        }
-    }
-
-    // ==================== Phase 7: SponsorBlock Skit Skipping ====================
-
-    /**
-     * Fetches SponsorBlock music_offtopic skip segments for the current track.
-     */
-    private suspend fun fetchSkipSegments(track: TrackItem) {
-        if (!_sponsorBlockEnabled.value) {
-            _activeSkipSegments.value = emptyList()
-            lastSkippedSegmentId = null
-            return
-        }
-        try {
-            _activeSkipSegments.value = emptyList()
-            lastSkippedSegmentId = null
-            val videoId = track.id.ifBlank {
-                val stream = track.streamUrl
-                if (!stream.startsWith("http") && stream.isNotBlank() && !stream.contains(" ")) {
-                    stream
-                } else ""
-            }
-            if (videoId.isBlank()) return
-            val (code, resp) = client.getSkipSegments(videoId)
-            if (code in 200..299 && resp.isNotBlank()) {
-                val segments = client.parseSkipSegments(resp)
-                _activeSkipSegments.value = segments.sortedBy { it.startMs }
-                Log.d(TAG, "Loaded ${segments.size} skip segments for track: ${track.title}")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Skip segments fetch note: ${e.message}")
-        }
-    }
-
-    // ==================== Return YouTube Dislike (RYD) & Like Ratio ====================
-
-    /**
-     * Fetches Return YouTube Dislike (RYD) community statistics and approval ratio for the current track.
-     */
-    suspend fun fetchRydVotes(track: TrackItem) {
-        try {
-            val videoId = track.id.ifBlank {
-                val stream = track.streamUrl
-                if (!stream.startsWith("http") && stream.isNotBlank() && !stream.contains(" ")) {
-                    stream
-                } else ""
-            }
-            if (videoId.isBlank() || videoId.startsWith("local") || videoId.startsWith("file")) {
-                _rydVotes.value = null
-                return
-            }
-
-            val votes = client.getRydVotes(videoId)
-            // Ensure track didn't change while request was running
-            val current = _currentTrack.value
-            val isStillCurrent = (current.id.isNotBlank() && current.id == track.id) ||
-                    (current.title.isNotBlank() && current.title.equals(track.title, ignoreCase = true))
-            if (isStillCurrent) {
-                _rydVotes.value = votes
-                Log.d(TAG, "Loaded RYD votes for '${track.title}': ${votes?.likes} likes, ${votes?.dislikes} dislikes (${votes?.likePercentage}%)")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "RYD votes fetch note: ${e.message}")
-        }
-    }
-
-    /**
-     * Forces a refresh of the Return YouTube Dislike community stats for current track.
-     */
-    fun refreshRydVotes() {
-        val track = _currentTrack.value
-        viewModelScope.launch(Dispatchers.IO) {
-            fetchRydVotes(track)
-        }
-    }
-
-    // ==================== Home Feed ====================
-
-    private fun loadHomeFeed() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // Load Moods & Moments
-                val (mCode, mResp) = client.getExploreMoods()
-                if (mCode in 200..299 && mResp.isNotBlank()) {
-                    val json = JSONObject(mResp)
-                    val cats = json.optJSONArray("categories")
-                    if (cats != null) {
-                        val parsed = mutableListOf<MoodCategory>()
-                        for (i in 0 until cats.length()) {
-                            val cat = cats.getJSONObject(i)
-                            parsed.add(MoodCategory(
-                                title = cat.optString("title", ""),
-                                description = cat.optString("description", ""),
-                                color = cat.optString("color", "#4CD6FB")
-                            ))
-                        }
-                        _moodCategories.value = parsed
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Home feed load note: ${e.message}")
-            }
-
-            try {
-                // Load Top Charts
-                val (cCode, cResp) = client.getExploreCharts()
-                if (cCode in 200..299 && cResp.isNotBlank()) {
-                    val json = JSONObject(cResp)
-                    val tracks = json.optJSONArray("tracks") ?: json.optJSONArray("chart")
-                    if (tracks != null) {
-                        val parsed = mutableListOf<TrackItem>()
-                        for (i in 0 until minOf(tracks.length(), 20)) {
-                            val t = tracks.getJSONObject(i)
-                            val vId = t.optString("id").ifBlank { t.optString("video_id", "") }
-                            parsed.add(TrackItem(
-                                id = vId,
-                                title = t.optString("title", ""),
-                                artist = t.optString("artist", ""),
-                                coverUrl = t.optString("thumbnail_url", ""),
-                                streamUrl = ""
-                            ))
-                        }
-                        _chartTracks.value = parsed
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Charts load note: ${e.message}")
-            }
-
-            // Load native YouTube-esque algorithmic shelves
-            loadSmartFeed()
-        }
-    }
-
-    /**
-     * Loads dynamic algorithmic recommendation shelves from local listening history and song seeds.
-     */
-    fun loadSmartFeed() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getSmartFeed()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val feed = client.parseSmartFeed(resp)
-                    if (feed != null && feed.hasPersonalization) {
-                        _smartShelves.value = feed.shelves
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Smart feed load note: ${e.message}")
-            }
-        }
-    }
-
-    // ==================== Library ====================
-
-    /**
-     * Dual-Engine Hybrid Audio Scanner:
-     * 1. MediaStore query via Android OS bridge (Kotlin) for instant UI responsiveness.
-     * 2. Native Go daemon crawler (Go) for deep POSIX storage traversal, .nomedia bypass,
-     *    magic byte probing, ID3 tag extraction, and SQLite database indexing.
-     */
-    private val isUniversalScanning = java.util.concurrent.atomic.AtomicBoolean(false)
-
-    fun performUniversalAudioScan() {
-        if (!isUniversalScanning.compareAndSet(false, true)) {
-            Log.d(TAG, "performUniversalAudioScan already in progress, skipping duplicate scan request")
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // 1. Fast Kotlin MediaStore pass for immediate UI responsiveness
-                val mediaStoreTracks = MediaStoreAudioBridge.queryMediaStoreAudio(getApplication())
-
-                // 1b. Direct recursive physical storage scan (finds files missed by MediaStore, .nomedia folders, USB transfers)
-                val knownKeys = mediaStoreTracks.map {
-                    try {
-                        java.io.File(it.filePath).canonicalPath.lowercase(java.util.Locale.ROOT)
-                    } catch (_: Exception) {
-                        it.filePath.lowercase(java.util.Locale.ROOT)
-                    }
-                }.toSet()
-                val directDiscovered = MediaStoreAudioBridge.scanPhysicalStorageDirect(getApplication(), knownKeys)
-                val allDiscoveredTracks = mediaStoreTracks + directDiscovered
-
-                if (allDiscoveredTracks.isNotEmpty()) {
-                    val initialTracks = allDiscoveredTracks.map { it.toTrackItem() }
-                    setLibraryTracks(initialTracks)
-                    refreshFavoritesList()
-
-                    val initialFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                    for (track in allDiscoveredTracks) {
-                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
-                        initialFolders.getOrPut(folderName) { mutableListOf() }.add(track)
-                    }
-                    _libraryFolders.value = initialFolders
-
-                    _whatsappCount.value = allDiscoveredTracks.count {
-                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
-                        it.filePath.contains("WhatsApp", ignoreCase = true)
-                    }
-                    _telegramCount.value = allDiscoveredTracks.count {
-                        it.sourceFolder.contains("Telegram", ignoreCase = true) ||
-                        it.filePath.contains("Telegram", ignoreCase = true)
-                    }
-                    _downloadsCount.value = allDiscoveredTracks.count {
-                        it.sourceFolder.contains("Download", ignoreCase = true) ||
-                        it.sourceFolder.contains("Unbound", ignoreCase = true) ||
-                        it.filePath.contains("Download", ignoreCase = true)
-                    }
-                }
-
-                // 2. Discover device storage roots and dispatch to Go backend crawler (.nomedia bypass)
-                try {
-                    val deviceRoots = MediaStoreAudioBridge.discoverDeviceStorageRoots(getApplication())
-                    client.scanStorage(deviceRoots)
-                    if (allDiscoveredTracks.isNotEmpty()) {
-                        client.ingestMediaStoreTracks(allDiscoveredTracks)
-                    }
-
-                    // 3. Retrieve fully indexed tracks from Go SQLite database
-                    val daemonTracks = client.getLocalTracks("all")
-                    val unboundDownloads = client.getLocalTracks("Unbound Downloads")
-                    if (unboundDownloads.isNotEmpty()) {
-                        val dlIds = unboundDownloads.map { it.id }.toSet()
-                        _downloadedTrackIds.value = _downloadedTrackIds.value + dlIds
-                    }
-
-                    // 4. Merge discovered tracks with daemon tracks, deduplicating by normalized path
-                    val combinedMap = LinkedHashMap<String, LocalTrack>()
-                    for (track in allDiscoveredTracks) {
-                        val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                        combinedMap[key] = track
-                    }
-                    for (track in daemonTracks) {
-                        val key = track.filePath.lowercase(java.util.Locale.ROOT)
-                        val existing = combinedMap[key]
-                        if (existing != null) {
-                            combinedMap[key] = existing.copy(
-                                id = if (existing.id.isNotBlank()) existing.id else track.id,
-                                durationMs = if (existing.durationMs > 0) existing.durationMs else track.durationMs,
-                                coverUrl = if (existing.coverUrl.isNotBlank()) existing.coverUrl else track.coverUrl,
-                                album = if (existing.album.isNotBlank()) existing.album else track.album,
-                                artist = if (existing.artist.isNotBlank() && existing.artist != "Unknown Artist") existing.artist else track.artist,
-                                title = if (existing.title.isNotBlank() && existing.title != "Unknown") existing.title else track.title,
-                                audioCategory = if (existing.audioCategory != AudioCategory.MUSIC || existing.isIdentifiedMusic) existing.audioCategory else track.audioCategory
-                            )
-                        } else {
-                            combinedMap[key] = track
-                        }
-                    }
-
-                    val allLocal = combinedMap.values.toList()
-
-                    // 5. Update folders map
-                    val updatedFolders = mutableMapOf<String, MutableList<LocalTrack>>()
-                    for (track in allLocal) {
-                        val folderName = track.sourceFolder.ifBlank { "Device Audio" }
-                        updatedFolders.getOrPut(folderName) { mutableListOf() }.add(track)
-                    }
-                    _libraryFolders.value = updatedFolders
-
-                    // 6. Update category counts
-                    val waTracks = allLocal.filter {
-                        it.sourceFolder.contains("WhatsApp", ignoreCase = true) ||
-                        it.filePath.contains("WhatsApp", ignoreCase = true)
-                    }
-                    val tgTracks = allLocal.filter {
-                        it.sourceFolder.contains("Telegram", ignoreCase = true) ||
-                        it.filePath.contains("Telegram", ignoreCase = true)
-                    }
-                    val dlTracks = allLocal.filter {
-                        it.sourceFolder.contains("Download", ignoreCase = true) ||
-                        it.sourceFolder.contains("Unbound", ignoreCase = true) ||
-                        it.filePath.contains("Download", ignoreCase = true)
-                    }
-
-                    _whatsappCount.value = waTracks.size
-                    _telegramCount.value = tgTracks.size
-                    _downloadsCount.value = dlTracks.size
-
-                    val allTrackItems = allLocal.map { it.toTrackItem() }
-                    if (allTrackItems.isNotEmpty()) {
-                        setLibraryTracks(allTrackItems)
-                        refreshFavoritesList()
-                    }
-                } catch (de: Exception) {
-                    Log.w(TAG, "Daemon crawler storage pass note: ${de.message}")
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Universal audio scan note: ${e.message}")
-            } finally {
-                isUniversalScanning.set(false)
-                try {
-                    daemonManager.trimMemory()
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    fun rescanLocalStorage() {
-        performUniversalAudioScan()
-    }
-
-    /**
-     * Silent differential storage scan modeled after VLC Media Player.
-     * Runs in the background on app open/resume to detect newly added audio files
-     * from downloads, WhatsApp, Telegram, or file transfers without interrupting UI.
-     */
-    fun triggerVlcDifferentialStorageScan(silent: Boolean = true) {
-        if (!PlaybackStateStore.isVlcAutoScanEnabled(getApplication())) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                performUniversalAudioScan()
-            } catch (e: Throwable) {
-                Log.w(TAG, "VLC differential auto-scan note: ${e.message}")
-            }
-        }
-    }
-
-    fun refreshLibrary() {
-        rescanLocalStorage()
-        loadDownloadedMusicFiles()
-        updateStorageMetrics()
-    }
-
-    // ==================== Acoustic & On-Device AI Fingerprinting ====================
-
-    private val _isIdentifyingTrack = MutableStateFlow<String?>(null)
-    val isIdentifyingTrack: StateFlow<String?> = _isIdentifyingTrack.asStateFlow()
-
-    private fun resolveLocalFilePath(track: TrackItem): String {
-        val stream = track.streamUrl
-        if (stream.startsWith("file://")) {
-            val clean = stream.removePrefix("file://")
-            return try {
-                java.net.URLDecoder.decode(clean, "UTF-8")
-            } catch (_: Exception) {
-                clean
-            }
-        }
-        if (stream.startsWith("content://")) {
-            val resolved = MediaStoreAudioBridge.resolveContentUriToPath(getApplication(), stream)
-            if (!resolved.isNullOrBlank()) return resolved
-        }
-        if (stream.startsWith("/")) {
-            return stream
-        }
-        // Fallback: search in library folders for matching track ID
-        for (folderTracks in _libraryFolders.value.values) {
-            val match = folderTracks.firstOrNull { it.id == track.id }
-            if (match != null && match.filePath.isNotBlank()) {
-                val fp = match.filePath
-                return if (fp.startsWith("file://")) fp.removePrefix("file://") else fp
-            }
-        }
-        return stream.ifBlank { track.id }
-    }
-
-    fun identifyTrack(track: TrackItem) {
-        if (_isIdentifyingTrack.value != null) return
-        _isIdentifyingTrack.value = track.id
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val targetPath = resolveLocalFilePath(track)
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Identifying '${track.title}'...",
-                        isLong = false
-                    )
-                }
-
-                val result = client.identifyTrackDetailed(targetPath)
-                val identified = result.track
-                if (identified != null && identified.title.isNotBlank()) {
-                    val updatedTrack = track.copy(
-                        title = identified.title,
-                        artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
-                        album = if (identified.album.isNotBlank()) identified.album else track.album,
-                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl,
-                        audioCategory = AudioCategory.MUSIC,
-                        isIdentifiedMusic = true
-                    )
-                    withContext(Dispatchers.Main) {
-                        setLibraryTracks(_libraryTracks.value.map { if (it.id == track.id) updatedTrack else it })
-                        _favoriteTracks.value = _favoriteTracks.value.map { if (it.id == track.id) updatedTrack else it }
-                        if (_currentTrack.value.id == track.id) {
-                            _currentTrack.value = updatedTrack
-                        }
-                        val methodBadge = when {
-                            identified.method.contains("llm", ignoreCase = true) || identified.method.contains("ai", ignoreCase = true) -> "On-Device AI"
-                            identified.method.contains("acoustid", ignoreCase = true) -> "AcoustID"
-                            identified.method.contains("voice", ignoreCase = true) -> "Media Parser"
-                            else -> "Smart Heuristic"
-                        }
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Graduated to Music via $methodBadge (${(identified.confidence * 100).toInt()}%): '${updatedTrack.artist} - ${updatedTrack.title}'",
-                            isLong = true
-                        )
-                    }
-                } else {
-                    val errDetail = result.errorMessage ?: "HTTP ${result.statusCode}: No match found"
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Identification diagnostic: Could not identify track ($errDetail)",
-                            isLong = true
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to identify track ${track.title}: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Identification failed: ${e.message}",
-                        isLong = true
-                    )
-                }
-            } finally {
-                _isIdentifyingTrack.value = null
-            }
-        }
-    }
-
-    fun batchIdentifyUnknownTracks() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val candidates = _libraryTracks.value.filter {
-                it.audioCategory == AudioCategory.MIXED_AUDIO ||
-                it.title.startsWith("AUD-", ignoreCase = true) ||
-                it.title.startsWith("PTT-", ignoreCase = true) ||
-                it.title.startsWith("voice_", ignoreCase = true) ||
-                it.title.startsWith("WA", ignoreCase = true) ||
-                it.artist.equals("Unknown Artist", ignoreCase = true) ||
-                it.artist.isBlank() ||
-                it.title.contains("y2mate", ignoreCase = true)
-            }
-            if (candidates.isEmpty()) {
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "All audio tracks are already identified!", isLong = false)
-                }
-                return@launch
-            }
-            withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Identifying ${candidates.size} untagged tracks...", isLong = false)
-            }
-            var identifiedCount = 0
-            var errorCount = 0
-            var lastError = ""
-            for (track in candidates) {
-                val targetPath = resolveLocalFilePath(track)
-                val result = client.identifyTrackDetailed(targetPath)
-                val identified = result.track
-                if (identified != null && identified.title.isNotBlank()) {
-                    val updated = track.copy(
-                        title = identified.title,
-                        artist = if (identified.artist.isNotBlank()) identified.artist else track.artist,
-                        album = if (identified.album.isNotBlank()) identified.album else track.album,
-                        coverUrl = if (identified.coverUrl.isNotBlank()) identified.coverUrl else track.coverUrl,
-                        audioCategory = AudioCategory.MUSIC,
-                        isIdentifiedMusic = true
-                    )
-                    identifiedCount++
-                    withContext(Dispatchers.Main) {
-                        setLibraryTracks(_libraryTracks.value.map { if (it.id == track.id) updated else it })
-                    }
-                } else {
-                    errorCount++
-                    lastError = result.errorMessage ?: "HTTP ${result.statusCode}"
-                }
-                kotlinx.coroutines.delay(250)
-            }
-            withContext(Dispatchers.Main) {
-                val msg = if (identifiedCount > 0) {
-                    "Identified $identifiedCount/${candidates.size} audio files!${if (errorCount > 0) " ($errorCount failed: $lastError)" else ""}"
-                } else {
-                    "Diagnostic: 0/${candidates.size} identified. Reason: $lastError"
-                }
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), msg, isLong = true)
-            }
-        }
-    }
-
-    // ==================== Phase 5: Offline Downloader Orchestration ====================
-
-    private val recentlyCancelledIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-
-    /** Initiates a physical background chunked download for an audio track in MP3 format. */
-    fun startTrackDownload(track: TrackItem) {
-        if (track.title.isBlank() && track.id.isBlank()) return
-
-        val taskId = if (track.id.isNotBlank()) track.id else "custom_${System.currentTimeMillis()}"
-        recentlyCancelledIds.remove(taskId)
-        recentlyCancelledIds.remove(track.id)
-        if (track.title.isNotBlank()) recentlyCancelledIds.remove(track.title.lowercase())
-
-        // 1. Optimistic UI update: immediately show DOWNLOADING on the DownloadButton
-        val optimisticTask = DownloadTaskDto(
-            videoId = taskId,
-            title = track.title,
-            artist = track.artist,
-            album = track.album,
-            artworkUrl = track.coverUrl,
-            targetFormat = "mp3",
-            status = "DOWNLOADING",
-            progress = 0.0
-        )
-        _downloadTasks.value = _downloadTasks.value + (taskId to optimisticTask)
-
-        // 2. User feedback: In-app Toast + Android System Notification
-        com.cubicreates.unboundmusic.util.UnboundToast.show(
-            getApplication(),
-            "Downloading '${track.title}' to Unbound/Downloads (MP3)...",
-            isLong = false
-        )
-        downloadNotificationHelper.notifyDownloadStarted(taskId, track.title, track.artist)
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.startDownload(
-                    videoId = track.id,
-                    title = track.title,
-                    artist = track.artist,
-                    album = track.album,
-                    artworkUrl = track.coverUrl,
-                    streamUrl = track.streamUrl
-                )
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val task = client.parseDownloadTask(resp)
-                    if (task != null) {
-                        _downloadTasks.value = _downloadTasks.value + (task.videoId to task)
-                        startDownloadPollingLoop()
-                        // Phase 6: Pre-fetch and cache lyrics offline in SQLite without altering active playback UI
-                        launch {
-                            try {
-                                client.getLyrics(
-                                    trackId = task.videoId,
-                                    title = track.title,
-                                    artist = track.artist,
-                                    durationMs = track.durationMs
-                                )
-                            } catch (_: Exception) {}
-                        }
-                    }
-                } else {
-                    Log.e(TAG, "startTrackDownload failed HTTP $code: $resp")
-                    downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, "Download rejected ($code)")
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Download failed for '${track.title}' ($code)"
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "startTrackDownload failed: ${e.message}")
-                downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, e.message ?: "Network error")
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Download failed: ${e.message}"
-                    )
-                }
-            }
-        }
-    }
-
-    /** Cancels an ongoing download and clears partial artifacts immediately. */
-    fun cancelTrackDownload(videoId: String, title: String = "") {
-        downloadNotificationHelper.cancelNotification()
-        
-        if (videoId.isNotBlank()) recentlyCancelledIds.add(videoId)
-        val effectiveTitle = title.ifBlank { _currentTrack.value.title }
-        if (effectiveTitle.isNotBlank()) recentlyCancelledIds.add(effectiveTitle.lowercase())
-
-        // Optimistically remove from _downloadTasks immediately so UI resets to NOT_DOWNLOADED instantly
-        val current = _downloadTasks.value.toMutableMap()
-        val matchKey = current.keys.firstOrNull { key ->
-            key == videoId ||
-            current[key]?.videoId == videoId ||
-            (effectiveTitle.isNotBlank() && current[key]?.title.equals(effectiveTitle, ignoreCase = true)) ||
-            (videoId.isNotBlank() && current[key]?.title.equals(videoId, ignoreCase = true))
-        }
-        if (matchKey != null) {
-            val task = current.remove(matchKey)
-            _downloadTasks.value = current
-            if (task != null && task.videoId.isNotBlank()) {
-                recentlyCancelledIds.add(task.videoId)
-                downloadNotificationHelper.cancelNotification(task.videoId)
-            }
-        } else if (effectiveTitle.isNotBlank()) {
-            val toRemove = current.filterValues { it.title.equals(effectiveTitle, ignoreCase = true) }.keys
-            for (k in toRemove) {
-                current.remove(k)
-            }
-            _downloadTasks.value = current
-        }
-
-        com.cubicreates.unboundmusic.util.UnboundToast.show(
-            getApplication(),
-            "Download cancelled",
-            isLong = false
-        )
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                client.cancelDownload(videoId, effectiveTitle)
-            } catch (e: Exception) {
-                Log.e(TAG, "cancelTrackDownload failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Removes an offline track from disk and local database. */
-    fun deleteTrackDownload(videoId: String, title: String = "") {
-        downloadNotificationHelper.cancelNotification(videoId)
-        val current = _downloadTasks.value.toMutableMap()
-        val effectiveTitle = title.ifBlank { _currentTrack.value.title }
-        val matchKey = current.keys.firstOrNull { key ->
-            key == videoId ||
-            current[key]?.videoId == videoId ||
-            (effectiveTitle.isNotBlank() && current[key]?.title.equals(effectiveTitle, ignoreCase = true)) ||
-            (videoId.isNotBlank() && current[key]?.title.equals(videoId, ignoreCase = true))
-        }
-        if (matchKey != null) {
-            current.remove(matchKey)
-            _downloadTasks.value = current
-        }
-        _downloadedTrackIds.value = _downloadedTrackIds.value - videoId
-        
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                client.deleteDownload(videoId, true, effectiveTitle)
-                refreshLibrary()
-            } catch (e: Exception) {
-                Log.e(TAG, "deleteTrackDownload failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Polls active downloads from Go daemon until all tasks are completed, failed, or cancelled. */
-    fun startDownloadPollingLoop() {
-        if (isPollingDownloads) return
-        isPollingDownloads = true
-
-        viewModelScope.launch(Dispatchers.IO) {
-            var prevBytes = 0L
-            var prevTime = System.currentTimeMillis()
-
-            try {
-                while (isActive) {
-                    val (code, resp) = client.getActiveDownloads()
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val activeTasks = client.parseActiveDownloads(resp)
-                        // Filter out cancelled tasks to avoid UI flicker
-                        val validTasks = activeTasks.filter { task ->
-                            task.status != "CANCELLED" &&
-                            !recentlyCancelledIds.contains(task.videoId) &&
-                            !recentlyCancelledIds.contains(task.title.lowercase())
-                        }
-                        val taskMap = validTasks.associateBy { it.videoId }
-                        _downloadTasks.value = taskMap
-
-                        // Calculate live download speed across all downloading tasks
-                        val currentBytes = validTasks.filter { it.status == "DOWNLOADING" || it.status == "TAGGING" }
-                            .sumOf { it.downloadedBytes }
-                        val now = System.currentTimeMillis()
-                        val elapsedSec = (now - prevTime) / 1000.0
-                        if (elapsedSec >= 0.8 && prevBytes > 0) {
-                            val delta = (currentBytes - prevBytes).coerceAtLeast(0)
-                            _downloadSpeedBps.value = (delta / elapsedSec).toLong()
-                        }
-                        prevBytes = currentBytes
-                        prevTime = now
-
-                        // Update Android notifications for active/failed tasks
-                        val downloadingTask = validTasks.firstOrNull { it.status == "DOWNLOADING" || it.status == "TAGGING" }
-                        if (downloadingTask != null) {
-                            downloadNotificationHelper.notifyDownloadProgress(
-                                downloadingTask.videoId,
-                                downloadingTask.title,
-                                downloadingTask.artist,
-                                downloadingTask.progress.toInt()
-                            )
-                        }
-
-                        val failedTask = validTasks.firstOrNull { it.status == "FAILED" }
-                        if (failedTask != null) {
-                            downloadNotificationHelper.notifyDownloadFailed(
-                                failedTask.videoId,
-                                failedTask.title,
-                                failedTask.artist,
-                                failedTask.error
-                            )
-                        }
-
-                        val completedTasks = activeTasks.filter { it.status == "COMPLETED" }
-                        val completedIds = completedTasks.map { it.videoId }.toSet()
-                        if (completedIds.isNotEmpty()) {
-                            val prevCompleted = _downloadedTrackIds.value
-                            val newlyCompleted = completedTasks.filter { it.videoId !in prevCompleted }
-                            _downloadedTrackIds.value = prevCompleted + completedIds
-                            if (newlyCompleted.isNotEmpty()) {
-                                refreshLibrary()
-                                loadDownloadedMusicFiles()
-                                for (task in newlyCompleted) {
-                                    downloadNotificationHelper.notifyDownloadCompleted(
-                                        task.videoId,
-                                        task.title,
-                                        task.artist
-                                    )
-                                    withContext(Dispatchers.Main) {
-                                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                            getApplication(),
-                                            "Downloaded '${task.title}' as MP3 to Unbound/Downloads!",
-                                            isLong = false
-                                        )
-                                    }
-                                    if (task.localPath.isNotBlank()) {
-                                        try {
-                                            android.media.MediaScannerConnection.scanFile(
-                                                getApplication<Application>().applicationContext,
-                                                arrayOf(task.localPath),
-                                                null
-                                            ) { path, uri ->
-                                                Log.i(TAG, "MediaScannerConnection indexed $path -> $uri")
-                                            }
-                                        } catch (scanErr: Exception) {
-                                            Log.w(TAG, "MediaScanner scanFile failed: ${scanErr.message}")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        val hasActive = activeTasks.any {
-                            it.status == "QUEUED" || it.status == "DOWNLOADING" || it.status == "TAGGING"
-                        }
-                        if (!hasActive) {
-                            _downloadSpeedBps.value = 0L
-                            break
-                        }
-                    } else {
-                        _downloadSpeedBps.value = 0L
-                        break
-                    }
-                    delay(1000)
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Download polling loop finished: ${e.message}")
-            } finally {
-                isPollingDownloads = false
-                _downloadSpeedBps.value = 0L
-            }
-        }
-    }
-
-    /** Pauses an active download. */
-    fun pauseDownload(videoId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val current = _downloadTasks.value.toMutableMap()
-                current[videoId]?.let {
-                    current[videoId] = it.copy(status = "PAUSED")
-                    _downloadTasks.value = current
-                }
-                client.pauseDownload(videoId)
-            } catch (e: Exception) {
-                Log.e(TAG, "pauseDownload failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Resumes a paused download. */
-    fun resumeDownload(videoId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val current = _downloadTasks.value.toMutableMap()
-                current[videoId]?.let {
-                    current[videoId] = it.copy(status = "DOWNLOADING")
-                    _downloadTasks.value = current
-                }
-                client.resumeDownload(videoId)
-                startDownloadPollingLoop()
-            } catch (e: Exception) {
-                Log.e(TAG, "resumeDownload failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Retries a failed or paused download. */
-    fun retryDownload(task: DownloadTaskDto) {
-        startTrackDownload(
-            TrackItem(
-                id = task.videoId,
-                title = task.title,
-                artist = task.artist,
-                album = task.album,
-                coverUrl = task.artworkUrl
-            )
-        )
-    }
-
-    /** Loads physical downloaded music files and updates storage metrics. */
-    fun loadDownloadedMusicFiles() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getDownloadedFiles()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val tracks = client.parseDownloadedFiles(resp)
-                    _downloadedMusicTracks.value = tracks
-                    var totalBytes = 0L
-                    for (t in tracks) {
-                        if (t.streamUrl.startsWith("file://")) {
-                            val f = java.io.File(t.streamUrl.removePrefix("file://"))
-                            if (f.exists()) {
-                                totalBytes += f.length()
-                            }
-                        }
-                    }
-                    _downloadsSizeMB.value = (totalBytes / (1024.0 * 1024.0))
-                } else {
-                    val local = client.getLocalTracks("Unbound Downloads")
-                    _downloadedMusicTracks.value = local.map { it.toTrackItem() }
-                    _downloadsSizeMB.value = local.sumOf { it.fileSize } / (1024.0 * 1024.0)
-                }
-                updateStorageMetrics()
-            } catch (e: Exception) {
-                Log.w(TAG, "loadDownloadedMusicFiles failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Recalculates storage usage and free space on device. */
-    fun updateStorageMetrics() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val context = getApplication<Application>()
-                var cacheBytes = 0L
-                context.cacheDir?.let { cacheBytes += calculateDirectorySize(it) }
-                context.externalCacheDir?.let { cacheBytes += calculateDirectorySize(it) }
-                _cacheSizeMB.value = (cacheBytes / (1024.0 * 1024.0))
-
-                val stat = android.os.StatFs(context.filesDir.absolutePath)
-                val freeBytes = stat.availableBlocksLong * stat.blockSizeLong
-                _freeStorageGB.value = (freeBytes / (1024.0 * 1024.0 * 1024.0))
-            } catch (_: Exception) {}
-        }
-    }
-
-    private fun calculateDirectorySize(dir: java.io.File): Long {
-        if (!dir.exists()) return 0L
-        if (dir.isFile) return dir.length()
-        var size = 0L
-        dir.listFiles()?.forEach { child ->
-            size += if (child.isDirectory) calculateDirectorySize(child) else child.length()
-        }
-        return size
-    }
-
-    /** Clears temporary image and stream caches without deleting user downloaded audio files. */
-    fun clearCacheAndStorage(onResult: (String) -> Unit = {}) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val context = getApplication<Application>()
-                var freedAppCache = 0L
-                context.cacheDir?.let {
-                    freedAppCache += calculateDirectorySize(it)
-                    it.deleteRecursively()
-                    it.mkdirs()
-                }
-                context.externalCacheDir?.let {
-                    freedAppCache += calculateDirectorySize(it)
-                    it.deleteRecursively()
-                    it.mkdirs()
-                }
-                val (code, resp) = client.purgeStorageCache()
-                val backendFreed = if (code in 200..299) {
-                    client.parseCachePurgeResult(resp)?.freedBytes ?: 0L
-                } else 0L
-
-                val totalFreedMB = ((freedAppCache + backendFreed) / (1024.0 * 1024.0)).coerceAtLeast(0.0)
-                updateStorageMetrics()
-                withContext(Dispatchers.Main) {
-                    val msg = String.format("Freed %.1f MB cache! Offline downloads preserved.", totalFreedMB)
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
-                    onResult(msg)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    val errMsg = "Cache clean error: ${e.message}"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
-                    onResult(errMsg)
-                }
-            }
-        }
-    }
-
-    /** Triggers system MediaScanner to index Unbound/Downloads/ into public Android audio stores. */
-    fun exportDownloadsToPublicStorage(onResult: (String) -> Unit = {}) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val context = getApplication<Application>()
-                val tracks = _downloadedMusicTracks.value
-                val pathsToScan = mutableListOf<String>()
-
-                for (t in tracks) {
-                    if (t.streamUrl.startsWith("file://")) {
-                        val path = t.streamUrl.removePrefix("file://")
-                        val f = java.io.File(path)
-                        if (f.exists()) {
-                            pathsToScan.add(f.absolutePath)
-                        }
-                    }
-                }
-
-                if (pathsToScan.isNotEmpty()) {
-                    android.media.MediaScannerConnection.scanFile(
-                        context,
-                        pathsToScan.toTypedArray(),
-                        null
-                    ) { path, uri ->
-                        Log.i(TAG, "Exported & Indexed to MediaStore: $path -> $uri")
-                    }
-                    withContext(Dispatchers.Main) {
-                        val msg = "Exported ${pathsToScan.size} tracks to device media library!"
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
-                        onResult(msg)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        val msg = "No downloaded tracks to export."
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
-                        onResult(msg)
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    val errMsg = "Export error: ${e.message}"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
-                    onResult(errMsg)
-                }
-            }
-        }
-    }
-
-    // ==================== YouTube Account & Synced Library ====================
-
-    /** Checks YouTube connection status from daemon and loads synced tracks if connected. */
-    fun checkAccountStatus() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getAccountStatus()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val status = client.parseAccountStatus(resp)
-                    if (status != null) {
-                        _isYouTubeConnected.value = status.connected
-                        _accountName.value = status.accountName
-                        _userAvatarUrl.value = status.avatarUrl.takeIf { it.isNotBlank() }
-                        if (status.connected) {
-                            val store = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
-                            store.accountName = status.accountName
-                            if (status.avatarUrl.isNotBlank()) {
-                                store.avatarUrl = status.avatarUrl
-                            }
-                            loadSyncedYouTubeTracks()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Account status check note: ${e.message}")
-            }
-        }
-    }
-
-    /** Synchronizes YouTube account credentials and pulls liked music into the local library. */
-    fun syncYouTubeAccount(cookie: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSyncingAccount.value = true
-            try {
-                val (code, resp) = client.syncAccount(cookie)
-                if (code in 200..299) {
-                    _isYouTubeConnected.value = true
-                    val store = com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication())
-                    store.saveSession(cookie)
-                    checkAccountStatus()
-                    loadSyncedYouTubeTracks()
-                    loadSmartFeed()
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "YouTube synced successfully!", isLong = false)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Sync Error [HTTP $code]: $resp", isLong = true)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Account sync failed: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Sync Exception: ${e.message}", isLong = true)
-                }
-            } finally {
-                _isSyncingAccount.value = false
-            }
-        }
-    }
-
-    /** Re-triggers sync of liked music, account metadata, and personalized home feed with daemon. */
-    fun resyncYouTubeAccount() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSyncingAccount.value = true
-            try {
-                val (code, _) = client.syncAccount("")
-                if (code in 200..299) {
-                    checkAccountStatus()
-                    loadSyncedYouTubeTracks()
-                    loadSmartFeed()
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Library refreshed!", isLong = false)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Refresh error [HTTP $code]", isLong = false)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Resync failed: ${e.message}")
-            } finally {
-                _isSyncingAccount.value = false
-            }
-        }
-    }
-
-    /** Initiates YouTube Device Code flow, opens browser, and starts background polling. */
-    fun startYouTubeDeviceAuth(onLaunchBrowser: (String) -> Unit) {
-        deviceAuthJob?.cancel()
-        deviceAuthJob = viewModelScope.launch(Dispatchers.IO) {
-            _isStartingDeviceAuth.value = true
-            _deviceAuthError.value = null
-            try {
-                val (code, resp) = client.startDeviceAuth()
-                if (code in 200..299) {
-                    val data = client.parseDeviceCodeData(resp)
-                    if (data != null && data.userCode.isNotBlank()) {
-                        _deviceAuthData.value = data
-                        _isStartingDeviceAuth.value = false
-
-                        val activateUrl = "${data.verificationUrl}?user_code=${data.userCode}"
-                        withContext(Dispatchers.Main) {
-                            onLaunchBrowser(activateUrl)
-                        }
-
-                        pollDeviceAuthToken(data.deviceCode, data.interval)
-                        return@launch
-                    }
-                }
-                val errMsg = if (resp.isNotBlank()) "Device Auth Error [HTTP $code]: $resp" else "Device Auth Error [HTTP $code]"
-                _deviceAuthError.value = errMsg
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = true)
-                }
-            } catch (e: Exception) {
-                val exMsg = "Device Auth Exception: ${e.message ?: "Unknown error"}"
-                _deviceAuthError.value = exMsg
-                withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), exMsg, isLong = true)
-                }
-            } finally {
-                _isStartingDeviceAuth.value = false
-            }
-        }
-    }
-
-    private suspend fun pollDeviceAuthToken(deviceCode: String, intervalSeconds: Int) {
-        _isPollingDeviceAuth.value = true
-        val pollDelay = (if (intervalSeconds > 0) intervalSeconds else 5) * 1000L
-        val maxAttempts = 60 // 5 minutes max
-
-        for (i in 0 until maxAttempts) {
-            if (!currentCoroutineContext().isActive) break
-            delay(pollDelay)
-            try {
-                val (code, resp) = client.pollDeviceAuth(deviceCode)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val root = JSONObject(resp)
-                    val status = root.optString("status", "")
-                    if (status == "success") {
-                        _isYouTubeConnected.value = true
-                        _deviceAuthData.value = null
-                        _isPollingDeviceAuth.value = false
-                        checkAccountStatus()
-                        loadSyncedYouTubeTracks()
-                        withContext(Dispatchers.Main) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "YouTube account connected successfully!",
-                                isLong = false
-                            )
-                        }
-                        return
-                    } else if (status == "pending") {
-                        continue
-                    }
-                } else if (code in 400..599 && !resp.contains("authorization_pending") && !resp.contains("slow_down")) {
-                    val pollErr = "Device Poll Error [HTTP $code]: $resp"
-                    _deviceAuthError.value = pollErr
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), pollErr, isLong = true)
-                    }
-                    break
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Device poll iteration note: ${e.message}")
-            }
-        }
-        _isPollingDeviceAuth.value = false
-    }
-
-    /** Cancels any active device code authorization polling. */
-    fun cancelDeviceAuth() {
-        deviceAuthJob?.cancel()
-        deviceAuthJob = null
-        _deviceAuthData.value = null
-        _isStartingDeviceAuth.value = false
-        _isPollingDeviceAuth.value = false
-        _deviceAuthError.value = null
-    }
-
-    /** Disconnects YouTube account and purges credentials and synced library data. */
-    fun disconnectYouTubeAccount() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, _) = client.disconnectAccount()
-                if (code in 200..299) {
-                    _isYouTubeConnected.value = false
-                    _accountName.value = "Local User"
-                    _userAvatarUrl.value = null
-                    _syncedYouTubeTracks.value = emptyList()
-                    _youtubeCount.value = 0
-                    com.cubicreates.unboundmusic.data.SessionStore.getInstance(getApplication()).clear()
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Account disconnect failed: ${e.message}")
-            }
-        }
-    }
-
-    /** Loads cached synced Liked Music tracks from the Go engine daemon. */
-    fun loadSyncedYouTubeTracks() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSyncingAccount.value = true
-            try {
-                val (code, resp) = client.getLikedTracks()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val tracks = client.parseLikedTracks(resp)
-                    val mixes = client.parseUserMixes(resp)
-                    _syncedYouTubeTracks.value = tracks
-                    _userMixes.value = mixes
-                    _youtubeCount.value = tracks.size
-                    withContext(Dispatchers.Main) {
-                        if (tracks.isNotEmpty()) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Synced ${tracks.size} tracks from YouTube!", isLong = false)
-                        } else {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "0 liked tracks found on YouTube account.", isLong = false)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Load synced tracks note: ${e.message}")
-            } finally {
-                _isSyncingAccount.value = false
-            }
-        }
-    }
-
-    private val _isLoadingMoreTracks = MutableStateFlow(false)
-    val isLoadingMoreTracks: StateFlow<Boolean> = _isLoadingMoreTracks.asStateFlow()
-
-    /** Continuously loads next wave of music tracks for infinite scroll. */
-    fun loadMorePersonalizedTracks() {
-        if (_isLoadingMoreTracks.value) return
-        viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingMoreTracks.value = true
-            try {
-                val seed = _syncedYouTubeTracks.value.shuffled().firstOrNull()?.id
-                val (code, resp) = client.getAccountFeedInfinite(seed)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val newTracks = client.parseLikedTracks(resp)
-                    if (newTracks.isNotEmpty()) {
-                        val existingIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
-                        val uniqueNew = newTracks.filter { it.id !in existingIds }
-                        if (uniqueNew.isNotEmpty()) {
-                            _syncedYouTubeTracks.value = _syncedYouTubeTracks.value + uniqueNew
-                            _youtubeCount.value = _syncedYouTubeTracks.value.size
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Load more infinite tracks: ${e.message}")
-            } finally {
-                _isLoadingMoreTracks.value = false
-            }
-        }
-    }
-
-    /** Optimistically toggles like state and dispatches mutation to daemon. */
-    fun toggleTrackLike(track: TrackItem) {
-        toggleTrackFavorite(track)
-    }
-
-    /** Executes 4-stage intelligent search cascade. */
-    fun executeCascadeSearch(query: String) {
-        if (query.isBlank()) {
-            _cascadeSearchResponse.value = null
-            _searchResults.value = emptyList()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSearching.value = true
-            try {
-                val (code, resp) = client.searchCascade(query)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val cascade = client.parseCascadeSearch(resp)
-                    _cascadeSearchResponse.value = cascade
-                    if (cascade != null) {
-                        _searchResults.value = cascade.tracks
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Cascade search error: ${e.message}")
-            } finally {
-                _isSearching.value = false
-            }
-        }
-    }
-
-    // ==================== Analytics ====================
-
-    /**
-     * Logs a playback event to the Go daemon analytics engine.
-     */
-    fun logPlaybackEvent(track: TrackItem, listenedSec: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                client.logPlaybackEvent(
-                    trackId = track.id.ifBlank { track.title },
-                    title = track.title,
-                    artist = track.artist,
-                    album = track.album,
-                    listenedSec = listenedSec
-                )
-                // Refresh smart shelves with updated listening affinity
-                loadSmartFeed()
-            } catch (e: Exception) {
-                Log.d(TAG, "Analytics log note: ${e.message}")
-            }
-        }
-    }
-
-    // ==================== Position Ticker ====================
-
-    /**
-     * Ticks every 800ms during playback to update progress and check SponsorBlock skips with minimal CPU overhead.
-     */
-    private fun startPositionTicker() {
-        viewModelScope.launch {
-            while (isActive) {
-                if (playbackState.value.isPlaying) {
-                    serviceConnection.updatePosition()
-                    checkSponsorBlockSkip()
-                    val now = System.currentTimeMillis()
-                    if (now - lastSavedStateTick >= 6000L) {
-                        lastSavedStateTick = now
-                        saveCurrentPlaybackState()
-                    }
-                }
-                delay(800)
-            }
-        }
-    }
-
-    private fun checkSponsorBlockSkip() {
-        if (!_sponsorBlockEnabled.value) return
-        val segments = _activeSkipSegments.value
-        if (segments.isEmpty()) return
-        val curPos = playbackState.value.currentPositionMs
-        val duration = playbackState.value.durationMs
-
-        for (segment in segments) {
-            if (curPos >= segment.startMs && curPos < (segment.endMs - 150L) && segment.uuid != lastSkippedSegmentId) {
-                lastSkippedSegmentId = segment.uuid
-                val fromMs = curPos
-                val toMs = segment.endMs.coerceAtMost(duration)
-                seekToPositionMs(toMs)
-
-                val startStr = formatTimestamp(segment.startMs)
-                val endStr = formatTimestamp(segment.endMs)
-                _skippedSkitNotice.value = SkitSkipNotice(
-                    segment = segment,
-                    fromMs = fromMs,
-                    toMs = toMs,
-                    message = "Skipped Non-Music Skit ($startStr - $endStr)"
-                )
-
-                skitNoticeDismissJob?.cancel()
-                skitNoticeDismissJob = viewModelScope.launch {
-                    delay(4500)
-                    _skippedSkitNotice.value = null
-                }
-                break
-            }
-        }
-    }
-
-    private fun formatTimestamp(ms: Long): String {
-        val totalSec = ms / 1000
-        val m = totalSec / 60
-        val s = totalSec % 60
-        return String.format("%d:%02d", m, s)
-    }
-
-    fun undoSkitSkip() {
-        val notice = _skippedSkitNotice.value ?: return
-        seekToPositionMs(notice.fromMs)
-        _skippedSkitNotice.value = null
-        skitNoticeDismissJob?.cancel()
-    }
-
-    fun dismissSkitNotice() {
-        _skippedSkitNotice.value = null
-        skitNoticeDismissJob?.cancel()
-    }
-
-    // ==================== Phase 7: Bedtime Sleep Engine ====================
-
-    /**
-     * Starts the bedtime sleep timer with logarithmic 30-second volume fadeout or end-of-track stop.
-     */
-    fun startSleepTimer(minutes: Int, endOfSong: Boolean = false) {
-        cancelSleepTimer()
-
-        if (endOfSong) {
-            _sleepTimerState.value = SleepTimerState(
-                isActive = true,
-                remainingMs = 0L,
-                initialDurationMs = 0L,
-                endOfTrack = true
-            )
-            sleepTimerJob = viewModelScope.launch {
-                var initialTrackId = playbackState.value.currentTrack?.id
-                while (isActive) {
-                    delay(500)
-                    val state = playbackState.value
-                    val curTrackId = state.currentTrack?.id
-                    if (initialTrackId == null && curTrackId != null) {
-                        initialTrackId = curTrackId
-                    }
-                    val nearEnd = state.durationMs > 5_000L && state.currentPositionMs >= (state.durationMs - 1500L)
-                    val trackChanged = initialTrackId != null && curTrackId != null && curTrackId != initialTrackId
-
-                    if (nearEnd || trackChanged) {
-                        for (i in 10 downTo 0) {
-                            UnboundPlaybackService.activeSleepFadeGain = (i / 10f) * (i / 10f)
-                            delay(100)
-                        }
-                        if (playbackState.value.isPlaying) {
-                            serviceConnection.togglePlayPause()
-                        }
-                        cancelSleepTimer()
-                        break
-                    }
-                }
-            }
-            return
-        }
-
-        val totalMs = minutes * 60 * 1000L
-        val fadeDurationMs = minOf(30_000L, totalMs)
-        _sleepTimerState.value = SleepTimerState(
-            isActive = true,
-            remainingMs = totalMs,
-            initialDurationMs = totalMs,
-            endOfTrack = false
-        )
-
-        sleepTimerJob = viewModelScope.launch {
-            val startTime = System.currentTimeMillis()
-            val endTime = startTime + totalMs
-
-            while (isActive) {
-                val now = System.currentTimeMillis()
-                val remaining = (endTime - now).coerceAtLeast(0L)
-                _sleepTimerState.value = _sleepTimerState.value.copy(remainingMs = remaining)
-
-                // Smooth exponential 30-second volume fadeout
-                if (remaining <= fadeDurationMs) {
-                    val fadeRatio = (remaining.toFloat() / fadeDurationMs.toFloat()).coerceIn(0f, 1f)
-                    UnboundPlaybackService.activeSleepFadeGain = fadeRatio * fadeRatio
-                } else {
-                    UnboundPlaybackService.activeSleepFadeGain = 1.0f
-                }
-
-                if (remaining <= 0L) {
-                    if (playbackState.value.isPlaying) {
-                        serviceConnection.togglePlayPause()
-                    }
-                    cancelSleepTimer()
-                    break
-                }
-                delay(500)
-            }
-        }
-    }
-
-    /**
-     * Cancels active sleep timer and resets audio fade attenuation gain to 1.0f.
-     */
-    fun cancelSleepTimer() {
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
-        UnboundPlaybackService.activeSleepFadeGain = 1.0f
-        _sleepTimerState.value = SleepTimerState(isActive = false)
-    }
-
-    /**
-     * Reloads custom playlists, favorites, and playback settings after a backup restore.
-     */
-    fun reloadAfterRestore() {
-        loadCustomPlaylists()
-        _streamingQuality.value = PlaybackStateStore.getStreamingQuality(getApplication())
-        _downloadQuality.value = PlaybackStateStore.getDownloadQuality(getApplication())
-        _autoDownloadLikedSongs.value = PlaybackStateStore.isAutoDownloadLiked(getApplication())
-        _skipSilenceEnabled.value = PlaybackStateStore.isSkipSilence(getApplication())
-        _normalizeVolumeEnabled.value = PlaybackStateStore.isNormalizeVolume(getApplication())
-        _sponsorBlockEnabled.value = PlaybackStateStore.isSponsorBlockEnabled(getApplication())
-        _isFavorite.value = PlaybackStateStore.isFavoriteTrack(getApplication(), _currentTrack.value.id, _currentTrack.value.title)
-    }
-
-
-    // ==================== Equalizer & AutoEq ====================
-
-    fun setEqualizerCurve(curve: EqualizerCurve) {
-        _equalizerCurve.value = curve
-        serviceConnection.setEqualizerCurve(curve)
-    }
-
-    fun searchAutoEqPresets(query: String) {
-        if (query.isBlank()) {
-            _autoEqResults.value = emptyList()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            _isSearchingAutoEq.value = true
-            try {
-                val (code, resp) = client.autoEqSearch(query)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val results = json.optJSONArray("results")
-                    val items = mutableListOf<AutoEqHeadphoneItem>()
-                    if (results != null) {
-                        for (i in 0 until results.length()) {
-                            val r = results.getJSONObject(i)
-                            items.add(
-                                AutoEqHeadphoneItem(
-                                    id = r.optString("id", r.optString("name")),
-                                    name = r.optString("name", "Unknown Model"),
-                                    source = r.optString("source", "Harman Target")
-                                )
-                            )
-                        }
-                    }
-                    _autoEqResults.value = items
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "AutoEq search error: ${e.message}")
-            } finally {
-                _isSearchingAutoEq.value = false
-            }
-        }
-    }
-
-    fun applyAutoEqPreset(item: AutoEqHeadphoneItem) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.autoEqPreset(item.id)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val preamp = json.optDouble("preamp_db", 0.0).toFloat()
-                    val bandsArr = json.optJSONArray("bands_db")
-                    val bandsList = mutableListOf<Float>()
-                    if (bandsArr != null) {
-                        for (i in 0 until bandsArr.length()) {
-                            bandsList.add(bandsArr.getDouble(i).toFloat())
-                        }
-                    }
-                    if (bandsList.size == 10) {
-                        val curve = EqualizerCurve(bandsList, preamp)
-                        setEqualizerCurve(curve)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Apply AutoEq error: ${e.message}")
-            }
-        }
-    }
-
-    // ==================== Phase 3: DSP & Settings Studio Actions ====================
-
-    fun setTheme(preset: AppThemePreset) {
-        _selectedTheme.value = preset
-        viewModelScope.launch(Dispatchers.IO) {
-            client.setAppSetting("theme_preset", preset.id)
-        }
-    }
-
-    fun setBassBoost(strength: Int) {
-        _bassBoostStrength.value = strength
-        serviceConnection.setBassBoost(strength)
-        viewModelScope.launch(Dispatchers.IO) {
-            client.setAppSetting("eq_bass_boost", strength.toString())
-        }
-    }
-
-    fun setVirtualizer(strength: Int) {
-        _virtualizerStrength.value = strength
-        serviceConnection.setVirtualizer(strength)
-        viewModelScope.launch(Dispatchers.IO) {
-            client.setAppSetting("eq_virtualizer", strength.toString())
-        }
-    }
-
-    fun setLoudness(gainMb: Int) {
-        _loudnessGainMb.value = gainMb
-        serviceConnection.setLoudness(gainMb)
-        viewModelScope.launch(Dispatchers.IO) {
-            client.setAppSetting("eq_loudness", gainMb.toString())
-        }
-    }
-
-    fun setReverbPreset(preset: Short) {
-        _reverbPreset.value = preset
-        serviceConnection.setReverbPreset(preset)
-    }
-
-    fun setAutoDownloadLikedSongs(enabled: Boolean) {
-        _autoDownloadLikedSongs.value = enabled
-        PlaybackStateStore.setAutoDownloadLiked(getApplication(), enabled)
-    }
-
-    fun setSkipSilenceEnabled(enabled: Boolean) {
-        _skipSilenceEnabled.value = enabled
-        PlaybackStateStore.setSkipSilence(getApplication(), enabled)
-        serviceConnection.setSkipSilence(enabled)
-    }
-
-    fun setNormalizeVolumeEnabled(enabled: Boolean) {
-        _normalizeVolumeEnabled.value = enabled
-        PlaybackStateStore.setNormalizeVolume(getApplication(), enabled)
-        val targetGain = if (enabled) 1000 else 0
-        serviceConnection.setLoudness(targetGain)
-    }
-
-    fun setSponsorBlockEnabled(enabled: Boolean) {
-        _sponsorBlockEnabled.value = enabled
-        PlaybackStateStore.setSponsorBlockEnabled(getApplication(), enabled)
-        if (!enabled) {
-            _activeSkipSegments.value = emptyList()
-            _skippedSkitNotice.value = null
-        } else {
-            val current = _currentTrack.value
-            if (current.id.isNotBlank()) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    fetchSkipSegments(current)
-                }
-            }
-        }
-    }
-
-
-    fun selectHomeMood(mood: String) {
-        if (_selectedHomeMood.value == mood) return
-        _selectedHomeMood.value = mood
-        if (mood.equals("All", ignoreCase = true)) {
-            _moodTracks.value = emptyList()
-            _isMoodLoading.value = false
-            return
-        }
-
-        val cached = moodCache[mood.lowercase()]
-        if (cached != null && cached.isNotEmpty()) {
-            _moodTracks.value = cached
-            _isMoodLoading.value = false
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            _isMoodLoading.value = true
-            try {
-                val browseId = when (mood.lowercase()) {
-                    "relax" -> "FEmusic_moods_and_genres_category_chill"
-                    "sleep" -> "FEmusic_moods_and_genres_category_sleep"
-                    "energize" -> "FEmusic_moods_and_genres_category_energy"
-                    "sad" -> "FEmusic_moods_and_genres_category_sad"
-                    "romance" -> "FEmusic_moods_and_genres_category_rnb"
-                    "feel good" -> "FEmusic_moods_and_genres_category_pop"
-                    "workout" -> "FEmusic_moods_and_genres_category_workout"
-                    "party" -> "FEmusic_moods_and_genres_category_dance"
-                    "commute" -> "FEmusic_moods_and_genres_category_commute"
-                    "focus" -> "FEmusic_moods_and_genres_category_focus"
-                    else -> "FEmusic_moods_and_genres_category_${mood.lowercase()}"
-                }
-
-                var tracks = client.getMoodRadio(browseId)
-                if (tracks.isEmpty()) {
-                    val (code, json) = client.search("$mood mix", "music")
-                    if (code in 200..299 && json.isNotBlank()) {
-                        val searchTracks = client.parseSearchResults(json)
-                        if (searchTracks.isNotEmpty()) {
-                            tracks = searchTracks
-                        }
-                    }
-                }
-
-                if (tracks.isNotEmpty()) {
-                    moodCache[mood.lowercase()] = tracks
-                    if (_selectedHomeMood.value == mood) {
-                        _moodTracks.value = tracks
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed loading mood tracks for $mood: ${e.message}")
-            } finally {
-                if (_selectedHomeMood.value == mood) {
-                    _isMoodLoading.value = false
-                }
-            }
-        }
-    }
-
-    fun saveCustomEqPreset(name: String, curve: EqualizerCurve, bassBoost: Int, virtualizer: Int, loudness: Int) {
-        val preset = UserEqPresetDto(
-            id = "preset_" + System.currentTimeMillis(),
-            name = name,
-            bandGains = curve.bandsDb,
-            bassBoost = bassBoost,
-            virtualizer = virtualizer,
-            loudness = loudness
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            client.saveCustomEqPreset(preset)
-            loadCustomEqPresets()
-        }
-    }
-
-    fun loadCustomEqPresets() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getCustomEqPresets()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val list = client.parseEqPresets(resp)
-                    _customEqPresets.value = list
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Failed loading custom presets: ${e.message}")
-            }
-        }
-    }
-
-    fun loadAppSettings() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getAppSettings()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val settings = client.parseSettings(resp)
-                    settings["theme_preset"]?.let { themeId ->
-                        _selectedTheme.value = AppThemePreset.fromId(themeId)
-                    }
-                    settings["eq_bass_boost"]?.toIntOrNull()?.let { bb ->
-                        _bassBoostStrength.value = bb
-                        serviceConnection.setBassBoost(bb)
-                    }
-                    settings["eq_virtualizer"]?.toIntOrNull()?.let { v ->
-                        _virtualizerStrength.value = v
-                        serviceConnection.setVirtualizer(v)
-                    }
-                    settings["eq_loudness"]?.toIntOrNull()?.let { l ->
-                        _loudnessGainMb.value = l
-                        serviceConnection.setLoudness(l)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Failed loading app settings: ${e.message}")
-            }
-        }
-    }
-
-    fun purgeCache() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // Purge .backend models, logs and cache
-                val unboundRoot = com.cubicreates.unboundmusic.service.UnboundStorageManager.getCanonicalUnboundRoot(getApplication())
-                val backendDir = File(unboundRoot, ".backend")
-                if (backendDir.exists()) {
-                    val modelsDir = File(backendDir, "models")
-                    if (modelsDir.exists()) modelsDir.deleteRecursively()
-                }
-
-                val (code, resp) = client.purgeStorageCache()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val result = client.parseCachePurgeResult(resp)
-                    if (result != null) {
-                        val mb = result.freedBytes / (1024 * 1024f)
-                        _cachePurgeStatus.value = String.format("Purged %.1f MB across %d categories", mb, result.purgedCategories.size)
-                    } else {
-                        _cachePurgeStatus.value = "Storage cache purged successfully"
-                    }
-                } else {
-                    _cachePurgeStatus.value = "Storage & AI models cache purged"
-                }
-            } catch (e: Exception) {
-                _cachePurgeStatus.value = "Purge error: ${e.message}"
-            }
-        }
-    }
-
-    /**
-     * Gracefully stops the Go engine daemon, wipes all unpacked native binaries,
-     * LLM model weights, and internal caches, leaving downloaded songs safe in device storage,
-     * and triggers the system uninstaller prompt.
-     */
-    fun purgeUnboundStorageForUninstall(triggerAppUninstall: Boolean = true) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _cachePurgeStatus.value = "Stopping Go background engine..."
-                daemonManager.stopDaemon()
-
-                _cachePurgeStatus.value = "Purging LLM models, native engine & internal caches..."
-                val bytesFreed = com.cubicreates.unboundmusic.service.UnboundStorageManager.purgeBackendAndEngine(getApplication())
-                val mbFreed = bytesFreed / (1024 * 1024)
-
-                _cachePurgeStatus.value = "Cleaned engine & models (${mbFreed}MB freed). Music preserved."
-
-                if (triggerAppUninstall) {
-                    withContext(Dispatchers.Main) {
-                        try {
-                            val context = getApplication<Application>()
-                            val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            context.startActivity(uninstallIntent)
-                        } catch (ue: Exception) {
-                            Log.w(TAG, "Trigger uninstall note: ${ue.message}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                _cachePurgeStatus.value = "Uninstall cleanup error: ${e.message}"
-            }
-        }
-    }
-
-    // ==================== Phase 4: Genre & Mood Boards Actions ====================
-
-    fun loadMoodsAndGenres(countryCode: String? = null, langCode: String? = null) {
-        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-        val actualLang = if (!langCode.isNullOrBlank()) langCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getMoodsAndGenres(actualCountry, actualLang)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val sections = client.parseMoodsAndGenres(resp)
-                    if (sections.isNotEmpty()) {
-                        _genreSections.value = sections
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Failed to load moods and genres: ${e.message}")
-            }
-        }
-    }
-
-    fun loadGenreDetail(params: String, title: String, countryCode: String? = null, langCode: String? = null) {
-        val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
-        val actualLang = if (!langCode.isNullOrBlank()) langCode else com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
-        _selectedGenreTitle.value = title
-        _isLoadingGenreDetail.value = true
-        _activeGenreShelves.value = emptyList()
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getGenreDetail(params, title, actualCountry, actualLang)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val shelves = client.parseGenreDetail(resp)
-                    _activeGenreShelves.value = shelves
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Failed to load genre detail: ${e.message}")
-            } finally {
-                _isLoadingGenreDetail.value = false
-            }
-        }
-    }
-
-    fun playPlaylistItem(item: PlaylistItemDto) {
-        val track = TrackItem(
-            id = item.id.ifBlank { "track_" + System.currentTimeMillis() },
-            title = item.title,
-            artist = item.subtitle.ifBlank { _selectedGenreTitle.value },
-            coverUrl = item.thumbnailUrl,
-            streamUrl = "",
-            source = "Genre Explore"
-        )
-        playTrack(track)
-    }
-
-    // ==================== Artist Profile ====================
-
-    fun loadArtistProfile(artistName: String) {
-        if (artistName.isBlank()) return
-        _artistProfile.value = null
-        viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingArtist.value = true
-            try {
-                var loadedProfile: ArtistProfileData? = null
-                val (code, resp) = client.getArtistProfile(artistName)
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    val tracksArr = json.optJSONArray("top_tracks")
-                    val parsedTracks = mutableListOf<TrackItem>()
-                    if (tracksArr != null) {
-                        for (i in 0 until tracksArr.length()) {
-                            val t = tracksArr.getJSONObject(i)
-                            val vId = t.optString("id").ifBlank { t.optString("video_id", "") }
-                            parsedTracks.add(
-                                TrackItem(
-                                    id = vId,
-                                    title = t.optString("title"),
-                                    artist = t.optString("artist", artistName),
-                                    coverUrl = t.optString("thumbnail_url"),
-                                    streamUrl = ""
-                                )
-                            )
-                        }
-                    }
-                    val albumsArr = json.optJSONArray("albums")
-                    val parsedAlbums = mutableListOf<com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem>()
-                    if (albumsArr != null) {
-                        for (i in 0 until albumsArr.length()) {
-                            val a = albumsArr.getJSONObject(i)
-                            val aId = a.optString("id").ifBlank { a.optString("browse_id", "") }
-                            parsedAlbums.add(
-                                com.cubicreates.unboundmusic.ui.artist.ArtistAlbumItem(
-                                    id = aId,
-                                    title = a.optString("title"),
-                                    year = a.optString("year"),
-                                    coverUrl = a.optString("cover_url", a.optString("thumbnail_url", ""))
-                                )
-                            )
-                        }
-                    }
-                    val similarArr = json.optJSONArray("similar_artists")
-                    val parsedSimilar = mutableListOf<com.cubicreates.unboundmusic.ui.artist.SimilarArtistItem>()
-                    if (similarArr != null) {
-                        for (i in 0 until similarArr.length()) {
-                            val s = similarArr.getJSONObject(i)
-                            parsedSimilar.add(
-                                com.cubicreates.unboundmusic.ui.artist.SimilarArtistItem(
-                                    name = s.optString("name"),
-                                    imageUrl = s.optString("image_url", s.optString("thumbnail_url", ""))
-                                )
-                            )
-                        }
-                    }
-                    if (parsedTracks.isNotEmpty()) {
-                        loadedProfile = ArtistProfileData(
-                            name = json.optString("name", artistName),
-                            heroImageUrl = json.optString("hero_image_url"),
-                            monthlyListeners = json.optString("monthly_listeners", "${(10..40).random()}.${(1..9).random()}M monthly listeners"),
-                            bio = json.optString("bio", "Verified Artist on YouTube Music & Unbound."),
-                            topTracks = parsedTracks,
-                            albums = parsedAlbums,
-                            similarArtists = parsedSimilar
-                        )
-                    }
-                }
-
-                // Zero-fail fallback: If getArtistProfile returns empty or fails, resolve via search
-                if (loadedProfile == null) {
-                    val (sCode, sResp) = client.search("$artistName top songs", type = "song")
-                    val fallbackTracks = if (sCode in 200..299 && sResp.isNotBlank()) {
-                        client.parseSearchResults(sResp).filter {
-                            !it.itemType.equals("artist", true) && !it.browseId.startsWith("UC") && it.id.length == 11
-                        }
-                    } else emptyList()
-
-                    val heroCover = fallbackTracks.firstOrNull()?.coverUrl ?: ""
-                    loadedProfile = ArtistProfileData(
-                        name = artistName,
-                        heroImageUrl = heroCover,
-                        monthlyListeners = "${(12..35).random()}.${(1..9).random()}M monthly listeners",
-                        bio = "Top tracks and discography for $artistName.",
-                        topTracks = fallbackTracks.take(15),
-                        albums = emptyList(),
-                        similarArtists = emptyList()
-                    )
-                }
-
-                _artistProfile.value = loadedProfile
-            } catch (e: Exception) {
-                Log.d(TAG, "Artist load error: ${e.message}")
-            } finally {
-                _isLoadingArtist.value = false
-            }
-        }
-    }
-
-    // ==================== Album & Playlist Detail ====================
-
-    fun openAlbumPlaylist(id: String, initialTitle: String = "", initialCover: String = "") {
-        if (id.isBlank()) return
-        _albumPlaylistData.value = AlbumPlaylistData(
-            title = initialTitle.ifBlank { "Loading..." },
-            subtitle = "",
-            coverUrl = initialCover,
-            tracks = emptyList(),
-            totalDuration = ""
-        )
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                var (code, resp) = client.getPlaylist(id)
-                if (code !in 200..299 || resp.isBlank()) {
-                    val (aCode, aResp) = client.getAlbum(id)
-                    if (aCode in 200..299 && aResp.isNotBlank()) {
-                        code = aCode
-                        resp = aResp
-                    }
-                }
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val parsed = client.parseAlbumPlaylist(resp)
-                    if (parsed != null && parsed.tracks.isNotEmpty()) {
-                        _albumPlaylistData.value = parsed.toAlbumPlaylistData()
-                        return@launch
-                    }
-                }
-
-                // Zero-fail fallback: If playlist returned 0 tracks, query catalog for tracks matching the title
-                if (initialTitle.isNotBlank() && initialTitle != "Loading...") {
-                    val (sCode, sResp) = client.search(initialTitle, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        val tracks = client.parseSearchResults(sResp)
-                        if (tracks.isNotEmpty()) {
-                            val totalMs = tracks.sumOf { it.durationMs }
-                            val totalMins = if (totalMs > 0) totalMs / 60000 else (tracks.size * 3L)
-                            withContext(Dispatchers.Main) {
-                                _albumPlaylistData.value = AlbumPlaylistData(
-                                    title = initialTitle,
-                                    subtitle = "Curated Mix",
-                                    coverUrl = initialCover,
-                                    tracks = tracks,
-                                    totalDuration = "${tracks.size} tracks • $totalMins mins"
-                                )
-                            }
-                            return@launch
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load album/playlist details: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * Opens a curated mood or vibe collection with continuous fallback hydration,
-     * ensuring 30-50+ tracks are immediately loaded into AlbumPlaylistScreen.
-     */
-    fun openCuratedCollection(key: String, overrideCover: String? = null) {
-        val collection = CuratedCollections.find(key)
-        val title = collection?.title ?: key
-        val subtitle = collection?.subtitle ?: "Curated Vibe Collection"
-        val cover = overrideCover?.takeIf { it.isNotBlank() } ?: collection?.coverUrl ?: ""
-        val fallbackQuery = collection?.fallbackQuery ?: "$key music hits"
-
-        _albumPlaylistData.value = AlbumPlaylistData(
-            title = title,
-            subtitle = subtitle,
-            coverUrl = cover,
-            tracks = emptyList(),
-            totalDuration = "Curating tracks..."
-        )
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                var tracks: List<TrackItem> = emptyList()
-
-                // Tier 1: Fetch by official curated YouTube Music playlist ID
-                if (collection != null && collection.id.isNotBlank()) {
-                    val (code, resp) = client.getPlaylist(collection.id)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val parsed = client.parseAlbumPlaylist(resp)
-                        if (parsed != null && parsed.tracks.isNotEmpty()) {
-                            tracks = parsed.tracks
-                        }
-                    }
-                }
-
-                // Tier 2: Zero-Fail Fallback Engine - search by curated vibe query
-                if (tracks.isEmpty()) {
-                    val (sCode, sResp) = client.search(fallbackQuery, type = "song")
-                    if (sCode in 200..299 && sResp.isNotBlank()) {
-                        tracks = client.parseSearchResults(sResp)
-                    }
-                    if (tracks.isEmpty()) {
-                        val (allCode, allResp) = client.search(fallbackQuery, type = "all")
-                        if (allCode in 200..299 && allResp.isNotBlank()) {
-                            tracks = client.parseSearchResults(allResp)
-                        }
-                    }
-                }
-
-                val totalMs = tracks.sumOf { it.durationMs }
-                val totalMins = if (totalMs > 0) totalMs / 60000 else (tracks.size * 3L)
-                val durationStr = if (tracks.isNotEmpty()) "${tracks.size} tracks • $totalMins mins" else "0 tracks"
-
-                withContext(Dispatchers.Main) {
-                    _albumPlaylistData.value = AlbumPlaylistData(
-                        title = title,
-                        subtitle = subtitle,
-                        coverUrl = cover,
-                        tracks = tracks,
-                        totalDuration = durationStr
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to load curated collection '$key': ${e.message}")
-            }
-        }
-    }
-
-    fun closeAlbumPlaylist() {
-        _albumPlaylistData.value = null
-    }
-
-    /**
-     * Plays a Curated Mix or Radio station immediately with continuous playback and queue.
-     * Does NOT open the detail screen; instead, streams the first song and queues subsequent tracks.
-     */
-    fun playCuratedMix(mix: MixDto) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                if (mix.id.isNotBlank()) {
-                    val (code, resp) = client.getPlaylist(mix.id)
-                    if (code in 200..299 && resp.isNotBlank()) {
-                        val parsed = client.parseAlbumPlaylist(resp)
-                        if (parsed != null && parsed.tracks.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                playTrackWithQueue(parsed.tracks.first(), parsed.tracks)
-                            }
-                            return@launch
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Curated mix playlist fetch error, falling back: ${e.message}")
-            }
-
-            // Fallback: If mix browseId did not resolve directly, use shuffled personalized library or create an instant seed track
-            withContext(Dispatchers.Main) {
-                val fallbackQueue = if (_syncedYouTubeTracks.value.isNotEmpty()) {
-                    _syncedYouTubeTracks.value.shuffled()
-                } else if (_musicTracks.value.isNotEmpty()) {
-                    _musicTracks.value.shuffled()
-                } else if (_libraryTracks.value.isNotEmpty()) {
-                    _libraryTracks.value.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }.shuffled().ifEmpty { _libraryTracks.value.shuffled() }
-                } else {
-                    defaultTopTracks.shuffled()
-                }
-                val seedTrack = TrackItem(
-                    id = mix.id.ifBlank { "mix_" + System.currentTimeMillis() },
-                    title = mix.title,
-                    artist = mix.subtitle.ifBlank { "YouTube Music" },
-                    coverUrl = mix.coverUrl,
-                    streamUrl = "",
-                    source = "Curated Mix"
-                )
-                val fullQueue = listOf(seedTrack) + fallbackQueue
-                playTrackWithQueue(seedTrack, fullQueue)
-            }
-        }
-    }
-
-    // ==================== Recap ====================
-
-    fun loadRecap() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val (code, resp) = client.getRecap()
-                if (code in 200..299 && resp.isNotBlank()) {
-                    val json = JSONObject(resp)
-                    _recapData.value = RecapData(
-                        totalMinutes = json.optInt("total_minutes", 1420),
-                        topDecade = json.optString("top_decade", "2020s"),
-                        diversityScore = json.optString("diversity_score", "8.7 / 10")
-                    )
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Recap load error: ${e.message}")
-            }
-        }
-    }
-
-    fun shufflePlayMusicTracks() {
-        val candidates = if (_musicTracks.value.isNotEmpty()) {
-            _musicTracks.value
-        } else if (_syncedYouTubeTracks.value.isNotEmpty()) {
-            _syncedYouTubeTracks.value
-        } else {
-            _libraryTracks.value.filter { it.audioCategory == AudioCategory.MUSIC || it.isIdentifiedMusic }
-        }
-        if (candidates.isNotEmpty()) {
-            val shuffled = candidates.shuffled()
-            playTrackWithQueue(shuffled.first(), shuffled)
-        }
-    }
-
-    // ==================== Playback Modes & Queue ====================
-
-    fun cyclePlaybackMode() {
-        serviceConnection.cyclePlaybackMode()
-    }
-
-    fun toggleShuffle() {
-        val current = serviceConnection.playbackState.value.playbackMode
-        val next = if (current == com.cubicreates.unboundmusic.service.PlaybackMode.SHUFFLE) {
-            com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL
-        } else {
-            com.cubicreates.unboundmusic.service.PlaybackMode.SHUFFLE
-        }
-        serviceConnection.setPlaybackMode(next)
-    }
-
-    fun cycleRepeatMode() {
-        val current = serviceConnection.playbackState.value.playbackMode
-        val next = when (current) {
-            com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL
-            com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ONE
-            com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ONE -> com.cubicreates.unboundmusic.service.PlaybackMode.NORMAL
-            else -> com.cubicreates.unboundmusic.service.PlaybackMode.LOOP_ALL
-        }
-        serviceConnection.setPlaybackMode(next)
-    }
-
-    fun seekToPositionMs(positionMs: Long) {
-        serviceConnection.seekTo(positionMs)
-    }
-
-    fun playQueueTrack(index: Int) {
-        val q = getEffectiveQueue()
-        if (index in q.indices) {
-            playTrack(q[index])
-        }
-    }
-
-    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
-        val currentQueueList = _currentQueue.value.toMutableList()
-        if (fromIndex in currentQueueList.indices && toIndex in currentQueueList.indices) {
-            val item = currentQueueList.removeAt(fromIndex)
-            currentQueueList.add(toIndex, item)
-            _currentQueue.value = currentQueueList
-            serviceConnection.setQueue(currentQueueList)
-        }
-        serviceConnection.moveQueueItem(fromIndex, toIndex)
-    }
-
-    fun removeQueueItem(index: Int) {
-        val currentQueueList = _currentQueue.value.toMutableList()
-        if (index in currentQueueList.indices) {
-            currentQueueList.removeAt(index)
-            _currentQueue.value = currentQueueList
-            serviceConnection.setQueue(currentQueueList)
-        }
-        serviceConnection.removeQueueItem(index)
-    }
-
-    fun playNext(track: TrackItem) {
-        serviceConnection.insertNext(track)
-    }
-
-    fun addToQueue(track: TrackItem) {
-        serviceConnection.addToQueue(track)
-    }
-
-    // ==================== Custom Local Playlists Management ====================
-
-    fun loadCustomPlaylists() {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                var playlists = try { client.getPlaylists() } catch (_: Throwable) { emptyList() }
-                if (playlists.isEmpty()) {
-                    val legacy = try { LocalPlaylistStore.getPlaylists(getApplication()) } catch (_: Throwable) { emptyList() }
-                    if (legacy.isNotEmpty()) {
-                        Log.i(TAG, "Migrating ${legacy.size} legacy playlists to Go SQLite backend...")
-                        for (p in legacy) {
-                            try {
-                                client.createPlaylist(p.title, p.description, p.coverUrl, p.tracks, p.id)
-                            } catch (_: Throwable) {}
-                        }
-                        playlists = try { client.getPlaylists() } catch (_: Throwable) { emptyList() }
-                    }
-                }
-                if (playlists.isEmpty()) {
-                    playlists = try { LocalPlaylistStore.getPlaylists(getApplication()) } catch (_: Throwable) { emptyList() }
-                }
-                withContext(Dispatchers.Main) {
-                    _customPlaylists.value = playlists
-                    val currentActive = _activeCustomPlaylist.value
-                    if (currentActive != null) {
-                        _activeCustomPlaylist.value = playlists.firstOrNull { it.id == currentActive.id }
-                    }
-                }
-            } catch (e: Throwable) {
-                Log.w(TAG, "loadCustomPlaylists note: ${e.message}")
-            }
-        }
-    }
-
-    fun createCustomPlaylist(
-        title: String,
-        description: String = "",
-        coverUrl: String = "",
-        initialTracks: List<TrackItem> = emptyList()
-    ): CustomPlaylist {
-        val created = LocalPlaylistStore.createPlaylist(getApplication(), title, description, coverUrl, initialTracks)
-        viewModelScope.launch(Dispatchers.IO) {
-            client.createPlaylist(title, description, coverUrl, initialTracks, created.id)
-            loadCustomPlaylists()
-        }
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Created playlist '${created.title}'", isLong = false)
-        return created
-    }
-
-    fun updateCustomPlaylist(playlistId: String, title: String, description: String = "", coverUrl: String = "") {
-        viewModelScope.launch(Dispatchers.IO) {
-            LocalPlaylistStore.updatePlaylistDetails(getApplication(), playlistId, title, description, coverUrl)
-            val updated = client.updatePlaylistDetails(playlistId, title, description, coverUrl)
-            loadCustomPlaylists()
-            withContext(Dispatchers.Main) {
-                if (updated != null) {
-                    _activeCustomPlaylist.value = updated
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playlist updated", isLong = false)
-                }
-            }
-        }
-    }
-
-    fun deleteCustomPlaylist(playlistId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            LocalPlaylistStore.deletePlaylist(getApplication(), playlistId)
-            val success = client.deletePlaylist(playlistId)
-            loadCustomPlaylists()
-            withContext(Dispatchers.Main) {
-                if (success) {
-                    if (_activeCustomPlaylist.value?.id == playlistId) {
-                        _activeCustomPlaylist.value = null
-                    }
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playlist deleted", isLong = false)
-                }
-            }
-        }
-    }
-
-    fun addTrackToCustomPlaylist(playlistId: String, track: TrackItem) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val (added, _) = LocalPlaylistStore.addTrackToPlaylist(getApplication(), playlistId, track)
-            val updated = client.addTrackToPlaylist(playlistId, track)
-            loadCustomPlaylists()
-            withContext(Dispatchers.Main) {
-                if (updated != null) {
-                    if (_activeCustomPlaylist.value?.id == playlistId) {
-                        _activeCustomPlaylist.value = updated
-                    }
-                    val msg = if (added) "Added '${track.title}' to '${updated.title}'" else "'${track.title}' is already in '${updated.title}'"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), msg, isLong = false)
-                }
-                _trackToAddToPlaylist.value = null
-            }
-        }
-    }
-
-    fun removeTrackFromCustomPlaylist(playlistId: String, trackIndex: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            LocalPlaylistStore.removeTrackFromPlaylist(getApplication(), playlistId, trackIndex)
-            val updated = client.removeTrackFromPlaylist(playlistId, trackIndex)
-            loadCustomPlaylists()
-            withContext(Dispatchers.Main) {
-                if (updated != null) {
-                    if (_activeCustomPlaylist.value?.id == playlistId) {
-                        _activeCustomPlaylist.value = updated
-                    }
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Removed track from playlist", isLong = false)
-                }
-            }
-        }
-    }
-
-    fun removeTrackFromCustomPlaylist(playlistId: String, trackId: String) {
-        val playlist = _customPlaylists.value.find { it.id == playlistId } ?: return
-        val index = playlist.tracks.indexOfFirst { it.id == trackId }
-        if (index >= 0) {
-            removeTrackFromCustomPlaylist(playlistId, index)
-        }
-    }
-
-    fun moveTrackInCustomPlaylist(playlistId: String, fromIndex: Int, toIndex: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            LocalPlaylistStore.reorderTracks(getApplication(), playlistId, fromIndex, toIndex)
-            val updated = client.reorderPlaylist(playlistId, fromIndex, toIndex)
-            loadCustomPlaylists()
-            withContext(Dispatchers.Main) {
-                if (updated != null && _activeCustomPlaylist.value?.id == playlistId) {
-                    _activeCustomPlaylist.value = updated
-                }
-            }
-        }
-    }
-
-    fun openCustomPlaylist(playlist: CustomPlaylist) {
-        _activeCustomPlaylist.value = playlist
-    }
-
-    fun closeCustomPlaylist() {
-        _activeCustomPlaylist.value = null
-    }
-
-    fun showAddToPlaylist(track: TrackItem) {
-        _trackToAddToPlaylist.value = track
-    }
-
-    fun hideAddToPlaylist() {
-        _trackToAddToPlaylist.value = null
-    }
-
     override fun onCleared() {
         super.onCleared()
         serviceConnection.disconnect()
     }
 }
 
+/**
+ * Prompt state for existing Unbound folder detection on clean boot.
+ */
+data class UnboundFolderPromptState(
+    val folderPaths: List<String>
+)
 
 /**
  * Represents a single line of synchronized lyrics with millisecond timestamps and optional phonetic Romanization.

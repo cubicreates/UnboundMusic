@@ -33,7 +33,7 @@ import com.cubicreates.unboundmusic.service.ServiceConnection
 import com.cubicreates.unboundmusic.ui.MainApp
 import com.cubicreates.unboundmusic.ui.splash.SplashScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundMusicTheme
-import com.cubicreates.unboundmusic.viewmodel.MainViewModel
+import com.cubicreates.unboundmusic.viewmodel.*
 
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers

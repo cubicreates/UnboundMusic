@@ -59,7 +59,7 @@ import com.cubicreates.unboundmusic.ui.playlist.CustomPlaylistScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
 import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.tools.RingtoneCutterScreen
-import com.cubicreates.unboundmusic.viewmodel.MainViewModel
+import com.cubicreates.unboundmusic.viewmodel.*
 
 /**
  * State holder tracking modal presentation across the app shell.

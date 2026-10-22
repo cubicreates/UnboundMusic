@@ -132,7 +132,7 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 val matched = AmbientAudioRecorder.streamPcm(
                     maxDurationMs = 12000,
-                    checkpointIntervalsMs = listOf(1500, 3000, 5000, 8000, 12000)
+                    checkpointIntervalsMs = listOf(3500, 6000, 9000, 12000)
                 ) { cumulativePcm, isFinal ->
                     _recognizedMessage.value = "Analyzing acoustic fingerprint..."
                     val (code, resp) = client.identifyPcmAudio(cumulativePcm)
@@ -144,7 +144,7 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     if (isFinal) {
                         val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
-                            "Could not match hummed melody. Melodies require distinct pitch, or tap below to use Google Sound Search."
+                            "Could not match hummed melody. Tap Google Sound Search below to identify melody by pitch, or tap 'Sing Lyrics'."
                         } else {
                             "No acoustic match found. Try again closer to the speaker."
                         }

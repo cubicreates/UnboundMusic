@@ -45,7 +45,7 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		httpClient: &http.Client{
-			Timeout: 8 * time.Second,
+			Timeout: 12 * time.Second,
 		},
 	}
 }
@@ -57,14 +57,6 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 	}
 
 	start := time.Now()
-	uuid1 := generateUUID()
-	uuid2 := generateUUID()
-
-	endpoint := fmt.Sprintf(
-		"https://amp.shazam.com/discovery/v5/en-US/US/iphone/-/tag/%s/%s?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&hubv5minorversion=v5.1&hidelb=true&video=v3",
-		uuid1, uuid2,
-	)
-
 	nowMs := time.Now().UnixMilli()
 
 	// Shazam API request payload supporting both single signature object and array
@@ -89,20 +81,36 @@ func (c *Client) RecognizeSignature(ctx context.Context, sig *SignaturePayload) 
 		return nil, fmt.Errorf("failed encoding recognition request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed creating HTTP request: %w", err)
-	}
+	// Retry up to 2 attempts on transient connection reset or timeout
+	var resp *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		uuid1 := generateUUID()
+		uuid2 := generateUUID()
+		endpoint := fmt.Sprintf(
+			"https://amp.shazam.com/discovery/v5/en-US/US/iphone/-/tag/%s/%s?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&hubv5minorversion=v5.1&hidelb=true&video=v3",
+			uuid1, uuid2,
+		)
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Shazam-Platform", "IPHONE")
-	req.Header.Set("X-Shazam-AppVersion", "14.1.0")
-	req.Header.Set("User-Agent", "Shazam/14.1.0 (iPhone; iOS 14.7.1; Scale/3.00)")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en-US")
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed creating HTTP request: %w", err)
+		}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Shazam-Platform", "IPHONE")
+		req.Header.Set("X-Shazam-AppVersion", "14.1.0")
+		req.Header.Set("User-Agent", "Shazam/14.1.0 (iPhone; iOS 14.7.1; Scale/3.00)")
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Accept-Language", "en-US")
+
+		resp, err = c.httpClient.Do(req)
+		if err == nil {
+			break
+		}
+		if attempt == 0 && ctx.Err() == nil {
+			time.Sleep(300 * time.Millisecond)
+			continue
+		}
 		return nil, fmt.Errorf("shazam discovery request failed: %w", err)
 	}
 	defer resp.Body.Close()

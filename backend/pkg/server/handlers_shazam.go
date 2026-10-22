@@ -324,15 +324,21 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[SHAZAM] Recognition success: matched=%v, title=%s, artist=%s", res.Matched, res.Title, res.Artist)
-
-	variants := s.resolveAcousticVariants(r.Context(), res.Title, res.Artist, res.Album, res.CoverArtURL, res.TrackID)
+	var variants []map[string]any
+	confidence := 0.0
+	if res.Matched {
+		confidence = 0.96
+		variants = s.resolveAcousticVariants(r.Context(), res.Title, res.Artist, res.Album, res.CoverArtURL, res.TrackID)
+		log.Printf("[SHAZAM] Recognition success: matched=true, title=%s, artist=%s", res.Title, res.Artist)
+	} else {
+		log.Printf("[SHAZAM] No match found on Shazam discovery gateway")
+	}
 
 	resp := map[string]any{
 		"matched":         res.Matched,
 		"early_exit":      res.Matched && cmap.DurationMs < 6000,
 		"duration_ms":     cmap.DurationMs,
-		"confidence":      0.96,
+		"confidence":      confidence,
 		"track_id":        res.TrackID,
 		"id":              res.TrackID,
 		"title":           res.Title,

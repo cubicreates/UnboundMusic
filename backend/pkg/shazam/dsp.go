@@ -78,9 +78,22 @@ func (sg *SignatureGenerator) FeedSamples(samples []float32) {
 	for i := 0; i < len(samples); i += 128 {
 		end := i + 128
 		if end > len(samples) {
+			// Zero-pad trailing partial batch so no audio samples are discarded
+			var batch [128]float32
+			copy(batch[:], samples[i:])
+			sg.processBatch128(batch[:])
 			break
 		}
 		sg.processBatch128(samples[i:end])
+	}
+}
+
+// Flush feeds trailing zero batches to advance the 46-49 frame recognition lookahead pipeline.
+func (sg *SignatureGenerator) Flush() {
+	var zeros [128]float32
+	// 50 frames (50 * 128 = 6400 samples) flushes the 46-frame lookahead completely
+	for i := 0; i < 50; i++ {
+		sg.processBatch128(zeros[:])
 	}
 }
 
@@ -283,6 +296,7 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 
 	// Auto-scale normalized float samples in [-1.0, 1.0] to full 16-bit PCM integer range [-32768, 32767]
 	maxVal := float32(0)
+	var sumSquares float64
 	for _, s := range samples {
 		abs := s
 		if abs < 0 {
@@ -291,30 +305,58 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 		if abs > maxVal {
 			maxVal = abs
 		}
+		sumSquares += float64(s) * float64(s)
 	}
 	if maxVal <= 1.0 && maxVal > 0 {
 		scaled := make([]float32, len(samples))
+		sumSquares = 0.0
 		for i, s := range samples {
-			scaled[i] = s * 32767.0
+			v := s * 32767.0
+			scaled[i] = v
+			sumSquares += float64(v) * float64(v)
 		}
 		samples = scaled
 		maxVal *= 32767.0
 	}
 
 	// AGC (Automatic Gain Control) for ambient microphone recordings:
-	// If audio is quiet (peak < 16,000), boost toward Shazam's optimal operating level (~20,000).
-	// Because Shazam's sub-bin frequency calculation is mathematically invariant to scalar gain,
-	// this lifts all 4 frequency bands cleanly above the 1/64 threshold.
-	if maxVal > 0 && maxVal < 16000 {
-		gain := float32(20000.0) / maxVal
+	// Ambient phone mic audio typically has low RMS (~100-800) and occasional finger/case touch transients.
+	// We calculate true RMS energy. If RMS is below Shazam's target operating energy (~3,000),
+	// we compute a clean gain boost and apply a smooth limiter to prevent clipping.
+	sampleCount := float64(len(samples))
+	rms := float32(math.Sqrt(sumSquares / sampleCount))
+
+	if rms > 5.0 && (rms < 2800.0 || maxVal < 16000.0) {
+		gain := float32(1.0)
+		if rms > 0 {
+			gain = float32(3500.0) / rms
+		}
+		if maxVal > 0 {
+			peakGain := float32(24000.0) / maxVal
+			if peakGain < gain {
+				gain = (gain + peakGain) / 2.0
+			}
+		}
 		if gain > 25.0 {
-			gain = 25.0 // cap gain at ~28dB to avoid lifting white noise
+			gain = 25.0 // cap gain at ~28dB to avoid lifting electronic noise floor
 		}
-		scaled := make([]float32, len(samples))
-		for i, s := range samples {
-			scaled[i] = s * gain
+		if gain < 1.0 {
+			gain = 1.0
 		}
-		samples = scaled
+
+		if gain > 1.0 {
+			scaled := make([]float32, len(samples))
+			for i, s := range samples {
+				v := s * gain
+				if v > 32767.0 {
+					v = 32767.0
+				} else if v < -32768.0 {
+					v = -32768.0
+				}
+				scaled[i] = v
+			}
+			samples = scaled
+		}
 	}
 
 	durationMs := int64((float64(len(samples)) / float64(sampleRate)) * 1000)
@@ -322,13 +364,30 @@ func ExtractConstellationMap(samples []float32, sampleRate int) (*ConstellationM
 	// Primary pass: standard Shazam threshold (1/64)
 	gen := NewSignatureGenerator(sampleRate, 1.0/64.0)
 	gen.FeedSamples(samples)
+	gen.Flush()
 
-	// Fallback pass: if quiet room audio produced very few peaks (< 5), re-run with 1/256 threshold
-	if len(gen.Peaks) < 5 {
+	// Filter out any peaks that fall beyond the true audio duration
+	validPeaks := make([]FrequencyPeak, 0, len(gen.Peaks))
+	for _, p := range gen.Peaks {
+		if p.TimeMs <= durationMs {
+			validPeaks = append(validPeaks, p)
+		}
+	}
+	gen.Peaks = validPeaks
+
+	// Fallback pass: if quiet room audio produced very few peaks (< 8), re-run with 1/256 threshold
+	if len(gen.Peaks) < 8 {
 		genFallback := NewSignatureGenerator(sampleRate, 1.0/256.0)
 		genFallback.FeedSamples(samples)
-		if len(genFallback.Peaks) > len(gen.Peaks) {
-			gen = genFallback
+		genFallback.Flush()
+		var fbPeaks []FrequencyPeak
+		for _, p := range genFallback.Peaks {
+			if p.TimeMs <= durationMs {
+				fbPeaks = append(fbPeaks, p)
+			}
+		}
+		if len(fbPeaks) > len(gen.Peaks) {
+			gen.Peaks = fbPeaks
 		}
 	}
 

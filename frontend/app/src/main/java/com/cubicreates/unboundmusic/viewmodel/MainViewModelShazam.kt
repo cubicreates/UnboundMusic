@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
+import android.net.Uri
 import android.os.BatteryManager
 import android.util.Log
 import androidx.lifecycle.viewModelScope
@@ -58,12 +59,18 @@ fun MainViewModel.setShazamMode(mode: ShazamMode) {
 
 fun MainViewModel.launchGoogleSoundSearch(context: Context): Boolean {
     val intents = listOf(
-        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
-        Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
+        Intent(Intent.ACTION_VIEW, Uri.parse("googleapp://soundsearch")),
+        Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC").apply {
+            setPackage("com.google.android.googlequicksearchbox")
+        },
+        Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+            setPackage("com.google.android.googlequicksearchbox")
+        },
         Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH),
         Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
+            putExtra("android.speech.extra.RECOGNITION_CONTEXT", "music")
         },
         Intent(Intent.ACTION_WEB_SEARCH).apply {
             putExtra(android.app.SearchManager.QUERY, "what is this song")
@@ -73,9 +80,19 @@ fun MainViewModel.launchGoogleSoundSearch(context: Context): Boolean {
         try {
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(intent)
+            com.cubicreates.unboundmusic.util.UnboundToast.show(
+                context,
+                "Opening Google Sound Search for hummed melody...",
+                isLong = false
+            )
             return true
         } catch (_: Exception) {}
     }
+    com.cubicreates.unboundmusic.util.UnboundToast.show(
+        context,
+        "Google Sound Search not available on this device",
+        isLong = false
+    )
     return false
 }
 
@@ -101,51 +118,58 @@ fun MainViewModel.handleVoiceSearchResult(spokenQuery: String) {
 fun MainViewModel.handleHumSearchResult(spokenQuery: String) {
     val trimmed = spokenQuery.trim()
     if (trimmed.isBlank()) return
-    _recognizedMessage.value = "Analyzing hummed melody: \"$trimmed\"..."
+    _recognizedMessage.value = "Analyzing hummed melody / lyrics: \"$trimmed\"..."
     viewModelScope.launch(Dispatchers.IO) {
         try {
+            var searchResults = emptyList<TrackItem>()
             val (code, resp) = client.search(trimmed, "song")
             if (code in 200..299 && resp.isNotBlank()) {
-                val searchResults = client.parseSearchResults(resp)
-                val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
-                val songs = searchResults.filter { it.itemType == "song" }
-                val cleanSong = songs.firstOrNull { !remixIndicator.containsMatchIn(it.title) } ?: songs.firstOrNull()
-                if (cleanSong != null) {
-                    val matchedTrack = TrackItem(
-                        id = cleanSong.id,
-                        title = cleanSong.title,
-                        artist = cleanSong.artist,
-                        album = cleanSong.album,
-                        durationMs = cleanSong.durationMs,
-                        coverUrl = cleanSong.coverUrl,
-                        source = "hum_search"
-                    )
-                    _lastHummedTrack.value = matchedTrack
-                    _hummingHistory.value = listOf(matchedTrack) + _hummingHistory.value.filter { it.id != matchedTrack.id }
-
-                    val variants = songs.take(3).mapIndexed { idx, s ->
-                        val isOrig = !remixIndicator.containsMatchIn(s.title)
-                        RecognizedTrackVariant(
-                            track = s,
-                            badge = if (idx == 0 && isOrig) "Top Melodic Match (Original)" else if (idx == 0) "Top Melodic Match" else "Melodic Alternative",
-                            isOriginal = isOrig,
-                            isRadarMatch = false,
-                            explanation = "Matched via Hum-to-Search melody deduction"
-                        )
-                    }
-                    _hummedVariants.value = variants
-                    _recognizedMessage.value = "Matched melody: ${matchedTrack.title} - ${matchedTrack.artist}"
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Matched: ${matchedTrack.title} - ${matchedTrack.artist}",
-                            isLong = true
-                        )
-                    }
-                    return@launch
+                searchResults = client.parseSearchResults(resp)
+            }
+            if (searchResults.isEmpty()) {
+                val (code2, resp2) = client.search("$trimmed song", "song")
+                if (code2 in 200..299 && resp2.isNotBlank()) {
+                    searchResults = client.parseSearchResults(resp2)
                 }
             }
-            _recognizedMessage.value = "No melody match found for \"$trimmed\". Try humming a distinct section."
+            val remixIndicator = Regex("""(?i)\b(remix|mix|club mix|radio edit|acoustic|cover|slowed|reverb|sped up|speed up|bootleg|flip|vip|mashup|live|tribute|orchestral|version|instrumental|karaoke|lofi)\b""")
+            val songs = searchResults.filter { it.itemType == "song" }
+            val cleanSong = songs.firstOrNull { !remixIndicator.containsMatchIn(it.title) } ?: songs.firstOrNull()
+            if (cleanSong != null) {
+                val matchedTrack = TrackItem(
+                    id = cleanSong.id,
+                    title = cleanSong.title,
+                    artist = cleanSong.artist,
+                    album = cleanSong.album,
+                    durationMs = cleanSong.durationMs,
+                    coverUrl = cleanSong.coverUrl,
+                    source = "hum_search"
+                )
+                _lastHummedTrack.value = matchedTrack
+                _hummingHistory.value = listOf(matchedTrack) + _hummingHistory.value.filter { it.id != matchedTrack.id }
+
+                val variants = songs.take(3).mapIndexed { idx, s ->
+                    val isOrig = !remixIndicator.containsMatchIn(s.title)
+                    RecognizedTrackVariant(
+                        track = s,
+                        badge = if (idx == 0 && isOrig) "Top Melodic Match (Original)" else if (idx == 0) "Top Melodic Match" else "Melodic Alternative",
+                        isOriginal = isOrig,
+                        isRadarMatch = false,
+                        explanation = "Matched via Hum-to-Search melody deduction"
+                    )
+                }
+                _hummedVariants.value = variants
+                _recognizedMessage.value = "Matched melody: ${matchedTrack.title} - ${matchedTrack.artist}"
+                withContext(Dispatchers.Main) {
+                    com.cubicreates.unboundmusic.util.UnboundToast.show(
+                        getApplication(),
+                        "Matched: ${matchedTrack.title} - ${matchedTrack.artist}",
+                        isLong = true
+                    )
+                }
+                return@launch
+            }
+            _recognizedMessage.value = "No melody match found for \"$trimmed\". Try humming a distinct section or sing lyrics."
             withContext(Dispatchers.Main) {
                 com.cubicreates.unboundmusic.util.UnboundToast.show(
                     getApplication(),
@@ -160,10 +184,6 @@ fun MainViewModel.handleHumSearchResult(spokenQuery: String) {
 }
 
 fun MainViewModel.startAmbientShazamRecognition() {
-    if (_shazamMode.value == ShazamMode.HUMMING) {
-        startHumSearch()
-        return
-    }
     if (_isListeningShazam.value) {
         stopAndSendShazamRecording()
         return
@@ -211,10 +231,14 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            _recognizedMessage.value = "Listening to music... Identifying within seconds"
+            _recognizedMessage.value = if (isHum) {
+                "Humming radar active... Analyzing melody"
+            } else {
+                "Listening to music... Identifying within seconds"
+            }
             val matched = com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.streamPcm(
                 maxDurationMs = 12000,
-                checkpointIntervalsMs = listOf(1500, 3000, 5000, 8000, 12000)
+                checkpointIntervalsMs = listOf(3500, 6000, 9000, 12000)
             ) { cumulativePcm, isFinal ->
                 _recognizedMessage.value = "Analyzing acoustic fingerprint..."
                 val (code, resp) = client.identifyPcmAudio(cumulativePcm)
@@ -226,7 +250,7 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
                 }
                 if (isFinal) {
                     val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
-                        "Could not match hummed melody. Melodies require distinct pitch, or tap below to use Google Sound Search."
+                        "Could not match hummed melody. Tap Google Sound Search below to identify melody by pitch, or tap 'Sing Lyrics'."
                     } else {
                         "No acoustic match found. Try again closer to the speaker."
                     }
@@ -238,7 +262,11 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
                         )
                     }
                 } else {
-                    _recognizedMessage.value = "Listening to music... (${_recordingDurationSeconds.value}s)"
+                    _recognizedMessage.value = if (_shazamMode.value == ShazamMode.HUMMING) {
+                        "Listening to melody... (${_recordingDurationSeconds.value}s)"
+                    } else {
+                        "Listening to music... (${_recordingDurationSeconds.value}s)"
+                    }
                 }
                 false
             }

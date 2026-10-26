@@ -332,8 +332,8 @@ fun SignedInShazamScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isListening) Icons.Default.Check else if (isHumming) Icons.Default.MusicNote else Icons.Default.GraphicEq,
-                        contentDescription = if (isListening) "Finish and Identify Now" else if (isHumming) "Hum to Search" else "Identify Song",
+                        imageVector = if (isListening) Icons.Default.Check else if (isHumming) Icons.Default.AutoAwesome else Icons.Default.GraphicEq,
+                        contentDescription = if (isListening) "Finish and Identify Now" else if (isHumming) "Hum to Search (Google)" else "Identify Song",
                         tint = if (isListening) Color.White else radarThemeColor,
                         modifier = Modifier.size(48.dp)
                     )
@@ -444,7 +444,7 @@ fun SignedInShazamScreen(
                     isListening -> statusMessage ?: if (isHumming) "Recording melody... Tap radar or button to identify" else "Recording acoustics... Tap radar or button to identify"
                     !statusMessage.isNullOrBlank() -> statusMessage
                     activeLastTrack != null -> "Match Found & Synced!"
-                    isHumming -> "Tap the radar & hum a tune"
+                    isHumming -> "Tap the radar to hum with Google Sound Search"
                     else -> "Tap the radar to identify"
                 },
                 color = if (isListening) radarThemeColor else OnSurface,

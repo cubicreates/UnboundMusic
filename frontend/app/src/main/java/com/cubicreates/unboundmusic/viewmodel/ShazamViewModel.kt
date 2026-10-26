@@ -88,12 +88,42 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
         _recognizedMessage.value = ""
     }
 
-    fun startAmbientShazamRecognition(onTrackRecognized: ((title: String, artist: String) -> Unit)? = null) {
+    fun launchGoogleSoundSearch(context: android.content.Context): Boolean {
+        val intents = listOf(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("googleapp://soundsearch")),
+            android.content.Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC").apply {
+                setPackage("com.google.android.googlequicksearchbox")
+            },
+            android.content.Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH").apply {
+                setPackage("com.google.android.googlequicksearchbox")
+            },
+            android.content.Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_SEARCH),
+            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
+            }
+        )
+        for (intent in intents) {
+            try {
+                intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                context.startActivity(intent)
+                return true
+            } catch (_: Exception) {}
+        }
+        return false
+    }
+
+    fun startAmbientShazamRecognition(contextOverride: android.content.Context? = null, onTrackRecognized: ((title: String, artist: String) -> Unit)? = null) {
+        if (_shazamMode.value == ShazamMode.HUMMING) {
+            val context = contextOverride ?: getApplication<Application>()
+            launchGoogleSoundSearch(context)
+            return
+        }
         if (_isListeningShazam.value) {
             AmbientAudioRecorder.stopRecording()
             return
         }
-        val context = getApplication<Application>()
+        val context = contextOverride ?: getApplication<Application>()
         if (ContextCompat.checkSelfPermission(
                 context,
                 android.Manifest.permission.RECORD_AUDIO

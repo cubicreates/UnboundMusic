@@ -51,7 +51,7 @@ fun MainViewModel.clearHummingHistory() {
 fun MainViewModel.setShazamMode(mode: ShazamMode) {
     _shazamMode.value = mode
     _recognizedMessage.value = if (mode == ShazamMode.HUMMING) {
-        "Tap radar to hum a tune... Tap again to stop & send"
+        "Tap the radar to hum a tune with Google Sound Search"
     } else {
         "Tap the radar to identify playing music"
     }
@@ -183,7 +183,12 @@ fun MainViewModel.handleHumSearchResult(spokenQuery: String) {
     }
 }
 
-fun MainViewModel.startAmbientShazamRecognition() {
+fun MainViewModel.startAmbientShazamRecognition(contextOverride: Context? = null) {
+    if (_shazamMode.value == ShazamMode.HUMMING) {
+        val targetContext = contextOverride ?: getApplication<Application>()
+        launchGoogleSoundSearch(targetContext)
+        return
+    }
     if (_isListeningShazam.value) {
         stopAndSendShazamRecording()
         return

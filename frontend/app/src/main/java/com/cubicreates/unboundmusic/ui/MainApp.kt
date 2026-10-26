@@ -396,7 +396,7 @@ fun MainApp(
                                 recordingDurationSeconds = recordingDurationSeconds,
                                 onModeChange = { viewModel.setShazamMode(it) },
                                 onLaunchGoogleSoundSearch = { viewModel.launchGoogleSoundSearch(context) },
-                                onStartListening = { viewModel.startAmbientShazamRecognition() },
+                                onStartListening = { viewModel.startAmbientShazamRecognition(context) },
                                 onStopListening = { viewModel.stopAndSendShazamRecording() },
                                 onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
                                 onDismissHummed = { viewModel.clearLastHummedTrack() },

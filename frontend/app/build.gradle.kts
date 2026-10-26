@@ -16,6 +16,9 @@ android {
         versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {
@@ -50,10 +53,7 @@ android {
     }
     splits {
         abi {
-            isEnable = true
-            isUniversalApk = true
-            reset()
-            include("arm64-v8a", "x86_64")
+            isEnable = false
         }
     }
     packaging {
@@ -121,8 +121,10 @@ tasks.register<Copy>("copyApkToTestFolder") {
     doLast {
         val sourceApk = apkDir.get().file("app-debug.apk").asFile
         if (sourceApk.exists()) {
-            sourceApk.copyTo(destDir.resolve("app-debug.apk"), overwrite = true)
+            sourceApk.copyTo(destDir.resolve("unbound-music-debug.apk"), overwrite = true)
         }
+        // Remove legacy split APKs if present to avoid confusion
+        destDir.listFiles { _, name -> name.startsWith("app-") && name.endsWith(".apk") }?.forEach { it.delete() }
     }
 }
 

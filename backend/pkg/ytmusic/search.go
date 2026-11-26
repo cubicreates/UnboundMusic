@@ -97,61 +97,8 @@ func (c *Client) SearchWithCategory(ctx context.Context, query, category string)
 
 	cat := strings.ToLower(strings.TrimSpace(category))
 	switch cat {
-	case "music":
-		// 1. Query with strict Song filter
-		tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
-		if (err != nil || len(tracks) == 0) && c.HasCredentials() {
-			// Resilience: If authenticated search fails or returns 0 (e.g. invalid/expired token),
-			// retry as clean guest.
-			guestClient := *c
-			guestClient.cookieStr = ""
-			guestClient.accessToken = ""
-			tracks, err = guestClient.searchWithFilter(ctx, trimmed, FilterSong)
-		}
-		if err != nil || len(tracks) == 0 {
-			// Fallback: regular search but strictly filtered
-			tracks, _ = c.searchWithFilter(ctx, trimmed, "")
-		}
-		if len(tracks) == 0 {
-			// Fallback to upstream mirrors (Piped / Invidious)
-			mirrorTracks, _ := upstream.GetDefaultMirrorManager().SearchTracksFromMirror(ctx, trimmed)
-			if len(mirrorTracks) > 0 {
-				tracks = mirrorTracks
-			}
-		}
-		// Strict music filter: remove non-music videos, vlogs, reviews, long video essays, podcasts, ads
-		var filtered []models.Track
-		nonMusicKeywords := []string{
-			"video essay", "reaction", "review", "vlog", "gameplay",
-			"walkthrough", "trailer", "unboxing", "full episode", "podcast",
-			"news", "press conference", "audiobook",
-		}
-		for _, t := range tracks {
-			lowerTitle := strings.ToLower(t.Title)
-			lowerArtist := strings.ToLower(t.Artist)
-
-			isNonMusic := false
-			for _, kw := range nonMusicKeywords {
-				if strings.Contains(lowerTitle, kw) || strings.Contains(lowerArtist, kw) {
-					isNonMusic = true
-					break
-				}
-			}
-			if isNonMusic {
-				continue
-			}
-
-			// Filter out videos longer than 20 minutes (1,200,000 ms)
-			if t.DurationMs > 1200000 {
-				continue
-			}
-
-			filtered = append(filtered, t)
-		}
-		if len(filtered) > 0 {
-			return filtered, nil
-		}
-		return tracks, nil
+	case "music", "song", "songs", "album", "albums", "artist", "artists", "playlist", "playlists":
+		return c.SearchMusic(ctx, trimmed, cat)
 
 	case "podcast", "podcasts":
 		tracks, err := c.searchWithFilter(ctx, trimmed, FilterPodcast)
@@ -162,37 +109,160 @@ func (c *Client) SearchWithCategory(ctx context.Context, query, category string)
 		podcastQuery := fmt.Sprintf("%s podcast", trimmed)
 		return c.searchWithFilter(ctx, podcastQuery, "")
 
-	case "album", "albums":
-		tracks, err := c.searchWithFilter(ctx, trimmed, FilterAlbum)
-		if err == nil && len(tracks) > 0 {
-			return tracks, nil
-		}
-		return c.Search(ctx, query)
-
-	case "artist", "artists":
-		tracks, err := c.searchWithFilter(ctx, trimmed, FilterArtist)
-		if err == nil && len(tracks) > 0 {
-			return tracks, nil
-		}
-		return c.Search(ctx, query)
-
-	case "playlist", "playlists":
-		tracks, err := c.searchWithFilter(ctx, trimmed, FilterCommunityPlaylist)
-		if err == nil && len(tracks) > 0 {
-			return tracks, nil
-		}
-		return c.Search(ctx, query)
-
-	case "song", "songs":
-		tracks, err := c.searchWithFilter(ctx, trimmed, FilterSong)
-		if err == nil && len(tracks) > 0 {
-			return tracks, nil
-		}
-		return c.Search(ctx, query)
-
 	default:
 		return c.Search(ctx, query)
 	}
+}
+
+// SearchMusic executes a strictly music-only search (excluding podcasts, audiobooks, and long video essays)
+// using an optional music subtype filter ("all", "songs", "artists", "albums", "playlists").
+func (c *Client) SearchMusic(ctx context.Context, query, filter string) ([]models.Track, error) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+
+	f := strings.ToLower(strings.TrimSpace(filter))
+	var filterToken string
+	switch f {
+	case "song", "songs":
+		filterToken = FilterSong
+	case "artist", "artists":
+		filterToken = FilterArtist
+	case "album", "albums":
+		filterToken = FilterAlbum
+	case "playlist", "playlists":
+		filterToken = FilterCommunityPlaylist
+	default:
+		f = "all"
+		filterToken = ""
+	}
+
+	var tracks []models.Track
+	var err error
+	if filterToken != "" {
+		tracks, err = c.searchWithFilter(ctx, trimmed, filterToken)
+	} else {
+		tracks, err = c.Search(ctx, trimmed)
+	}
+
+	if (err != nil || len(tracks) == 0) && c.HasCredentials() {
+		guestClient := *c
+		guestClient.cookieStr = ""
+		guestClient.accessToken = ""
+		if filterToken != "" {
+			tracks, err = guestClient.searchWithFilter(ctx, trimmed, filterToken)
+		} else {
+			tracks, err = guestClient.Search(ctx, trimmed)
+		}
+	}
+
+	if (err != nil || len(tracks) == 0) && filterToken != "" {
+		tracks, err = c.searchWithFilter(ctx, trimmed, "")
+	}
+
+	if len(tracks) == 0 {
+		mirrorTracks, mirrorErr := upstream.GetDefaultMirrorManager().SearchTracksFromMirror(ctx, trimmed)
+		if mirrorErr == nil && len(mirrorTracks) > 0 {
+			tracks = mirrorTracks
+		} else if err != nil {
+			return nil, err
+		}
+	}
+
+	filtered := filterStrictMusicTracks(tracks, f)
+	if len(filtered) > 0 {
+		return filtered, nil
+	}
+	return tracks, nil
+}
+
+// filterStrictMusicTracks removes podcast episodes, shows, audiobooks, and non-music videos
+// from Music Search results, and prioritizes matching subtypes when a specific filter is requested.
+func filterStrictMusicTracks(tracks []models.Track, subtype string) []models.Track {
+	nonMusicKeywords := []string{
+		"video essay", "reaction", "review", "vlog", "gameplay",
+		"walkthrough", "trailer", "unboxing", "full episode", "podcast",
+		"news", "press conference", "audiobook",
+	}
+
+	var musicOnly []models.Track
+	for _, t := range tracks {
+		if strings.EqualFold(t.ItemType, "podcast") ||
+			strings.HasPrefix(t.ID, "MPSP") ||
+			strings.HasPrefix(t.BrowseID, "MPSP") {
+			continue
+		}
+
+		lowerTitle := strings.ToLower(t.Title)
+		lowerArtist := strings.ToLower(t.Artist)
+		isNonMusic := false
+		for _, kw := range nonMusicKeywords {
+			if strings.Contains(lowerTitle, kw) || strings.Contains(lowerArtist, kw) {
+				isNonMusic = true
+				break
+			}
+		}
+		if isNonMusic {
+			continue
+		}
+
+		isAlbum := strings.EqualFold(t.ItemType, "album") || strings.HasPrefix(t.BrowseID, "MPREb_") || strings.HasPrefix(t.ID, "MPREb_")
+		isArtist := strings.EqualFold(t.ItemType, "artist") || strings.HasPrefix(t.BrowseID, "UC") || strings.HasPrefix(t.ID, "UC")
+		isPlaylist := strings.EqualFold(t.ItemType, "playlist") || strings.HasPrefix(t.BrowseID, "VL") || strings.HasPrefix(t.BrowseID, "PL")
+
+		// Reject >20 minute tracks for song/all results (podcasts/audiobooks)
+		if !isAlbum && !isPlaylist && !isArtist && t.DurationMs > 1200000 {
+			continue
+		}
+
+		musicOnly = append(musicOnly, t)
+	}
+
+	switch subtype {
+	case "song", "songs":
+		var songs []models.Track
+		for _, t := range musicOnly {
+			if t.ItemType == "" || strings.EqualFold(t.ItemType, "song") {
+				songs = append(songs, t)
+			}
+		}
+		if len(songs) > 0 {
+			return songs
+		}
+	case "artist", "artists":
+		var artists []models.Track
+		for _, t := range musicOnly {
+			if strings.EqualFold(t.ItemType, "artist") || strings.HasPrefix(t.BrowseID, "UC") || strings.HasPrefix(t.ID, "UC") {
+				artists = append(artists, t)
+			}
+		}
+		if len(artists) > 0 {
+			return artists
+		}
+	case "album", "albums":
+		var albums []models.Track
+		for _, t := range musicOnly {
+			if strings.EqualFold(t.ItemType, "album") || strings.HasPrefix(t.BrowseID, "MPREb_") || strings.HasPrefix(t.ID, "MPREb_") {
+				albums = append(albums, t)
+			}
+		}
+		if len(albums) > 0 {
+			return albums
+		}
+	case "playlist", "playlists":
+		var playlists []models.Track
+		for _, t := range musicOnly {
+			if strings.EqualFold(t.ItemType, "playlist") || strings.HasPrefix(t.BrowseID, "VL") || strings.HasPrefix(t.BrowseID, "PL") {
+				playlists = append(playlists, t)
+			}
+		}
+		if len(playlists) > 0 {
+			return playlists
+		}
+	}
+
+	return musicOnly
 }
 
 // searchWithFilter queries the InnerTube search endpoint with optional protobuf filter tokens.

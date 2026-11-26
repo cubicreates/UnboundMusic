@@ -67,13 +67,24 @@ fun MainViewModel.submitSearch(query: String) {
     }
 }
 
+fun MainViewModel.clearMusicSearch() {
+    searchJob?.cancel()
+    _searchQuery.value = ""
+    _searchResults.value = emptyList()
+    _isSearching.value = false
+}
+
 internal suspend fun MainViewModel.executeFullSearch(query: String) {
     _isSearching.value = true
     try {
         var foundTracks = false
-        val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
+        val (code, resp) = client.searchMusic(query, filter = _searchCategory.value.apiParam)
         if (code in 200..299 && resp.isNotBlank()) {
-            val parsed = client.parseSearchResults(resp)
+            val parsed = client.parseSearchResults(resp).filterNot {
+                it.itemType.equals("podcast", ignoreCase = true) ||
+                    it.id.startsWith("MPSP") ||
+                    it.browseId.startsWith("MPSP")
+            }
             if (parsed.isNotEmpty()) {
                 _searchResults.value = parsed
                 foundTracks = true
@@ -322,6 +333,142 @@ fun MainViewModel.submitHomeVibeQuery(query: String, autoPlay: Boolean = false) 
 
 fun MainViewModel.clearHomeVibeQuery() {
     _homeVibeState.value = VibeSearchUiState.Idle
+}
+
+/**
+ * Fetches normal catalog songs (+ direct YouTube fallback + lyrics candidates) for unified Home search.
+ */
+internal suspend fun MainViewModel.fetchHomeCatalogAndLyricsTracks(query: String): List<TrackItem> {
+    val merged = mutableListOf<TrackItem>()
+    val seen = mutableSetOf<String>()
+
+    fun appendSongs(list: List<TrackItem>) {
+        list.forEach { track ->
+            val isPodcast = track.itemType.equals("podcast", ignoreCase = true) ||
+                track.source.equals("podcast", ignoreCase = true) ||
+                track.id.startsWith("MPSP") ||
+                track.browseId.startsWith("MPSP")
+            val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+            val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+            val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) ||
+                track.browseId.startsWith("VL") ||
+                track.browseId.startsWith("PL")
+            if (!isPodcast && !isAlbum && !isArtist && !isPlaylist &&
+                !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
+            ) {
+                val key = track.id.ifBlank { track.title }
+                if (key.isNotBlank() && seen.add(key)) {
+                    merged.add(track)
+                }
+            }
+        }
+    }
+
+    try {
+        val (code, resp) = client.searchMusic(query, filter = "songs")
+        if (code in 200..299 && resp.isNotBlank()) {
+            appendSongs(client.parseSearchResults(resp))
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "Home catalog search note: ${e.message}")
+    }
+
+    if (merged.isEmpty()) {
+        try {
+            appendSongs(executeDirectYouTubeSearch(query))
+        } catch (e: Exception) {
+            Log.w(TAG, "Home direct YouTube fallback note: ${e.message}")
+        }
+    }
+
+    if (merged.size < 4) {
+        try {
+            val lyricResp = client.recognizeByLyrics(query, mode = "lyrics", limit = 10)
+            appendSongs(lyricResp.candidates.map { it.toTrackItem() })
+        } catch (e: Exception) {
+            Log.w(TAG, "Home lyrics match note: ${e.message}")
+        }
+    }
+
+    return merged
+}
+
+/**
+ * Single unified Home search entrypoint:
+ * - Automatically detects if the on-device AI model is installed.
+ * - If installed: shows dev toast "AI detected — using AI search" and runs Vibe AI search (with normal fallback).
+ * - If not installed: runs normal catalog + lyrics search seamlessly.
+ */
+fun MainViewModel.submitUnifiedHomeSearch(query: String) {
+    val trimmed = query.trim()
+    if (trimmed.isBlank()) return
+
+    _musicRecognitionState.value = RecognitionUiState.Idle
+    val aiInstalled = com.cubicreates.unboundmusic.service.StorageInitializer.isAiModelInstalled(getApplication())
+
+    if (aiInstalled) {
+        _homeSearchState.value = HomeSearchUiState.Idle
+        _homeVibeState.value = VibeSearchUiState.Loading
+        com.cubicreates.unboundmusic.util.UnboundToast.show(
+            getApplication(),
+            "AI detected — using AI search",
+            isLong = false
+        )
+        val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
+        val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val res = client.searchVibe(trimmed, region = country, language = lang)
+                val songsOnly = res.radioTracks.filter { track ->
+                    val isAlbum = track.itemType.equals("album", ignoreCase = true) || track.browseId.startsWith("MPREb_")
+                    val isArtist = track.itemType.equals("artist", ignoreCase = true) || track.browseId.startsWith("UC")
+                    val isPlaylist = track.itemType.equals("playlist", ignoreCase = true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL")
+                    !isAlbum && !isArtist && !isPlaylist && !track.id.startsWith("UC") && !track.id.startsWith("MPREb_")
+                }
+                if (songsOnly.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _homeVibeState.value = VibeSearchUiState.Success(res.vibeResult, songsOnly)
+                    }
+                    return@launch
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "AI search fallback to normal search: ${e.message}")
+            }
+            val fallback = fetchHomeCatalogAndLyricsTracks(trimmed)
+            withContext(Dispatchers.Main) {
+                _homeVibeState.value = VibeSearchUiState.Idle
+                _homeSearchState.value = if (fallback.isNotEmpty()) {
+                    HomeSearchUiState.Success(trimmed, fallback)
+                } else {
+                    HomeSearchUiState.Empty(trimmed, "No matches found for \"$trimmed\"")
+                }
+            }
+        }
+    } else {
+        _homeVibeState.value = VibeSearchUiState.Idle
+        _homeSearchState.value = HomeSearchUiState.Loading(trimmed)
+        viewModelScope.launch(Dispatchers.IO) {
+            val results = fetchHomeCatalogAndLyricsTracks(trimmed)
+            withContext(Dispatchers.Main) {
+                _homeSearchState.value = if (results.isNotEmpty()) {
+                    HomeSearchUiState.Success(trimmed, results)
+                } else {
+                    HomeSearchUiState.Empty(trimmed, "No matches found for \"$trimmed\"")
+                }
+            }
+        }
+    }
+}
+
+fun MainViewModel.clearUnifiedHomeResults() {
+    _homeSearchState.value = HomeSearchUiState.Idle
+    _homeVibeState.value = VibeSearchUiState.Idle
+    _musicRecognitionState.value = RecognitionUiState.Idle
+    _recognizedMessage.value = null
+    if (_isListeningShazam.value) {
+        com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.stopRecording()
+        _isListeningShazam.value = false
+    }
 }
 
 /**

@@ -38,6 +38,46 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleMusicSearch handles strictly Music-only catalog search with optional subtype filter (all, songs, artists, albums, playlists).
+// Route: GET /api/v1/search/music?q=...&filter=...
+func (s *Server) handleMusicSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+
+	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("filter")))
+	if filter == "" {
+		filter = "all"
+	}
+
+	tracks, err := s.ytClient.SearchMusic(r.Context(), query, filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	SafeGo("music_search_track_cacher", func() {
+		for _, t := range tracks {
+			_ = s.repo.SaveTrack(context.Background(), &t)
+		}
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"query":  query,
+		"domain": "music",
+		"filter": filter,
+		"count":  len(tracks),
+		"tracks": tracks,
+	})
+}
+
 // handleVibeSearch parses a natural language vibe prompt and resolves matching radio tracks.
 // Route: POST /api/v1/search/vibe
 func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
@@ -166,5 +206,89 @@ func (s *Server) handleVibeSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"vibe_result":  vibeResult,
 		"radio_tracks": radioTracks,
+	})
+}
+
+// handleUnifiedSearch offloads Music (catalog/vibe/lyrics fallback) and Podcast search
+// behind one backend endpoint for the unified Search screen.
+// Route: GET /api/v1/search/unified?domain=music|podcasts&q=...&filter=...&gl=...&ai=...
+func (s *Server) handleUnifiedSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+
+	domain := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("domain")))
+	filter := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("filter")))
+	if filter == "" {
+		filter = "all"
+	}
+
+	if domain == "podcasts" || domain == "podcast" {
+		episodes, shows, err := s.podcastEng.SearchPodcastsWithFilter(r.Context(), query, filter)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"domain":   "podcasts",
+			"query":    query,
+			"filter":   filter,
+			"episodes": episodes,
+			"shows":    shows,
+			"count":    len(episodes),
+		})
+		return
+	}
+
+	// Music domain: strictly filter out podcasts & enrich sparse results on backend
+	isPodcastTrack := func(t models.Track) bool {
+		return strings.EqualFold(t.ItemType, "podcast") ||
+			strings.HasPrefix(t.ID, "MPSP") ||
+			strings.HasPrefix(t.BrowseID, "MPSP")
+	}
+
+	var results []models.Track
+	if s.ytClient != nil {
+		if fetched, err := s.ytClient.SearchMusic(r.Context(), query, filter); err == nil {
+			for _, t := range fetched {
+				if !isPodcastTrack(t) {
+					results = append(results, t)
+				}
+			}
+		}
+		if len(results) == 0 {
+			if fallback, err := s.ytClient.SearchWithCategory(r.Context(), query, "music"); err == nil {
+				for _, t := range fallback {
+					if !isPodcastTrack(t) {
+						results = append(results, t)
+					}
+				}
+			}
+		}
+	}
+
+	if results == nil {
+		results = []models.Track{}
+	}
+
+	SafeGo("unified_search_track_cacher", func() {
+		for _, t := range results {
+			_ = s.repo.SaveTrack(context.Background(), &t)
+		}
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"domain": "music",
+		"query":  query,
+		"filter": filter,
+		"count":  len(results),
+		"tracks": results,
 	})
 }

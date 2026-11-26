@@ -378,3 +378,125 @@ suspend fun BackendClient.getRecap(): Pair<Int, String> = withContext(Dispatcher
     get("/api/v1/analytics/recap")
 }
 
+/**
+ * Multi-candidate lyrics/singing song recognition via POST /api/v1/recognize/lyrics.
+ * Falls back to music catalog search if the endpoint is unavailable.
+ */
+suspend fun BackendClient.recognizeByLyrics(
+    query: String,
+    mode: String = "lyrics",
+    limit: Int = 8
+): RecognitionResponseDto = withContext(Dispatchers.IO) {
+    val trimmed = query.trim()
+    if (trimmed.isBlank()) {
+        return@withContext RecognitionResponseDto(query = trimmed, mode = mode, matched = false)
+    }
+
+    val payload = JSONObject().apply {
+        put("query", trimmed)
+        put("mode", mode)
+        put("limit", limit)
+    }.toString()
+
+    val (code, body) = post("/api/v1/recognize/lyrics", payload)
+    if (code in 200..299 && body.isNotBlank()) {
+        return@withContext parseRecognitionResponse(body, fallbackQuery = trimmed, fallbackMode = mode)
+    }
+
+    // Fallback to music-only search if daemon endpoint returned non-2xx
+    val (sCode, sBody) = search(trimmed, type = "music")
+    if (sCode in 200..299 && sBody.isNotBlank()) {
+        val tracks = parseSearchResults(sBody).filter {
+            it.itemType != "album" && it.itemType != "artist" && it.itemType != "playlist"
+        }.take(limit)
+        val cands = tracks.mapIndexed { idx, t ->
+            RecognitionCandidateDto(
+                id = t.id,
+                title = t.title,
+                artist = t.artist,
+                album = t.album,
+                durationMs = t.durationMs,
+                coverUrl = t.coverUrl,
+                thumbnailUrl = t.coverUrl,
+                confidence = (0.82 - idx * 0.04).coerceAtLeast(0.50),
+                relevanceLabel = if (idx == 0) "Top Catalog Match" else "Catalog Candidate",
+                matchSource = "ytmusic",
+                isOriginal = true,
+                explanation = "Matched via YouTube Music catalog"
+            )
+        }
+        return@withContext RecognitionResponseDto(
+            query = trimmed,
+            mode = mode,
+            matched = cands.isNotEmpty(),
+            count = cands.size,
+            candidates = cands
+        )
+    }
+
+    RecognitionResponseDto(
+        query = trimmed,
+        mode = mode,
+        matched = false,
+        message = "Could not recognize lyrics ($code)"
+    )
+}
+
+/**
+ * Parses either /api/v1/recognize/lyrics or /api/v1/shazam/identify JSON payloads into [RecognitionResponseDto].
+ */
+fun BackendClient.parseRecognitionResponse(
+    jsonStr: String,
+    fallbackQuery: String = "",
+    fallbackMode: String = "lyrics"
+): RecognitionResponseDto {
+    if (jsonStr.isBlank()) {
+        return RecognitionResponseDto(query = fallbackQuery, mode = fallbackMode, matched = false)
+    }
+    return try {
+        val root = JSONObject(jsonStr)
+        val arr = root.optJSONArray("candidates") ?: root.optJSONArray("variants")
+        val list = mutableListOf<RecognitionCandidateDto>()
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("id", obj.optString("track_id", ""))
+                val title = obj.optString("title", "")
+                if (title.isBlank()) continue
+                val cover = obj.optString("cover_url", obj.optString("thumbnail_url", obj.optString("thumbnail", "")))
+                list.add(
+                    RecognitionCandidateDto(
+                        id = id,
+                        title = title,
+                        artist = obj.optString("artist", ""),
+                        album = obj.optString("album", ""),
+                        durationMs = obj.optLong("duration_ms", 0L),
+                        coverUrl = cover,
+                        thumbnailUrl = obj.optString("thumbnail_url", cover),
+                        year = obj.optString("year", ""),
+                        confidence = obj.optDouble("confidence", (0.90 - i * 0.05).coerceAtLeast(0.55)),
+                        relevanceLabel = obj.optString("relevance_label", obj.optString("badge", "Candidate Match")),
+                        matchedLyric = obj.optString("matched_lyric", ""),
+                        matchSource = obj.optString("match_source", obj.optString("source", fallbackMode)),
+                        isOriginal = obj.optBoolean("is_original", true),
+                        isRadarMatch = obj.optBoolean("is_radar_match", false),
+                        explanation = obj.optString("explanation", "")
+                    )
+                )
+            }
+        }
+        RecognitionResponseDto(
+            query = root.optString("query", fallbackQuery),
+            mode = root.optString("mode", fallbackMode),
+            matched = root.optBoolean("matched", list.isNotEmpty()),
+            count = root.optInt("count", list.size),
+            candidates = list,
+            latencyMs = root.optLong("latency_ms", 0L),
+            message = root.optString("message", "")
+        )
+    } catch (_: Exception) {
+        RecognitionResponseDto(query = fallbackQuery, mode = fallbackMode, matched = false)
+    }
+}
+
+

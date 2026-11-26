@@ -12,9 +12,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/database"
@@ -27,8 +29,9 @@ const (
 )
 
 var (
-	reDim  = regexp.MustCompile(`=w\d+-h\d+([a-zA-Z0-9_-]*)`)
-	reSize = regexp.MustCompile(`=s\d+([a-zA-Z0-9_-]*)`)
+	reDim      = regexp.MustCompile(`=w\d+-h\d+([a-zA-Z0-9_-]*)`)
+	reSize     = regexp.MustCompile(`=s\d+([a-zA-Z0-9_-]*)`)
+	reAppleDim = regexp.MustCompile(`/\d+x\d+bb`)
 )
 
 // UpscaleThumbnail transforms low-res thumbnail dimensions into 544x544 high-resolution art.
@@ -42,7 +45,54 @@ func UpscaleThumbnail(rawURL string) string {
 	if reSize.MatchString(rawURL) {
 		return reSize.ReplaceAllString(rawURL, "=s544")
 	}
+	if reAppleDim.MatchString(rawURL) {
+		return reAppleDim.ReplaceAllString(rawURL, "/544x544bb")
+	}
 	return rawURL
+}
+
+// IsSingleSongTrack filters out DJ mixes, nonstop mashups, jukeboxes, and multi-song mix containers
+// so chart carousels contain individual singles only.
+func IsSingleSongTrack(title string) bool {
+	lower := strings.ToLower(strings.TrimSpace(title))
+	if lower == "" {
+		return false
+	}
+	blockedPhrases := []string{
+		"mix –",
+		"mix -",
+		"dj mix",
+		"megamix",
+		"nonstop",
+		"non-stop",
+		"mashup",
+		"jukebox",
+		"continuous mix",
+		"hour mix",
+		"full album",
+		"playlist",
+		"medley",
+	}
+	for _, phrase := range blockedPhrases {
+		if strings.Contains(lower, phrase) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPlayableSingleItem(it models.TrackItem) bool {
+	if it.ID == "" || strings.TrimSpace(it.Title) == "" {
+		return false
+	}
+	upperID := strings.ToUpper(it.ID)
+	if strings.HasPrefix(upperID, "VL") ||
+		strings.HasPrefix(upperID, "PL") ||
+		strings.HasPrefix(upperID, "MPRE") ||
+		strings.HasPrefix(upperID, "UC") {
+		return false
+	}
+	return IsSingleSongTrack(it.Title)
 }
 
 // ExploreEngine coordinates public explore feeds, regional charts, and SQLite caching.
@@ -159,6 +209,292 @@ func (e *ExploreEngine) FetchRegionalCharts(ctx context.Context, countryCode, la
 	}
 
 	return tracks, nil
+}
+
+// FetchGlobalSingles returns worldwide top trending singles across international markets (US, GB, CA, DE, BR, KR, JP),
+// never biased to local Indian charts, and strictly filtered to singles (no mixes/playlists).
+func (e *ExploreEngine) FetchGlobalSingles(ctx context.Context) ([]models.TrackItem, error) {
+	const cacheKey = "charts:GLOBAL:singles:v2"
+	if e.repo != nil {
+		if cached, err := e.repo.GetFeedCache(ctx, cacheKey); err == nil && cached != "" {
+			var tracks []models.TrackItem
+			if json.Unmarshal([]byte(cached), &tracks) == nil && len(tracks) > 0 {
+				return tracks, nil
+			}
+		}
+	}
+
+	markets := []string{"us", "gb", "ca", "de", "br", "kr", "jp"}
+	perMarket := make([][]models.TrackItem, len(markets))
+	var wg sync.WaitGroup
+	for idx, cc := range markets {
+		wg.Add(1)
+		go func(i int, market string) {
+			defer wg.Done()
+			items := e.fetchAppleMostPlayedSingles(ctx, market, 15)
+			if len(items) == 0 {
+				items = e.fetchITunesTopSongs(ctx, market, 15)
+			}
+			perMarket[i] = items
+		}(idx, cc)
+	}
+	wg.Wait()
+
+	var merged []models.TrackItem
+	seen := make(map[string]bool)
+	for rank := 0; rank < 15; rank++ {
+		for m := range markets {
+			if rank < len(perMarket[m]) {
+				cand := perMarket[m][rank]
+				if !isPlayableSingleItem(cand) {
+					continue
+				}
+				key := normalizeTrackKey(cand.Title, cand.Artist)
+				if !seen[key] {
+					seen[key] = true
+					merged = append(merged, cand)
+				}
+			}
+		}
+	}
+
+	// Fallback: InnerTube Global Top 100 playlist (US context)
+	if len(merged) == 0 {
+		if fallback, err := e.FetchBrowse(ctx, "VLPL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4_", "US", "en"); err == nil {
+			for _, it := range fallback {
+				if isPlayableSingleItem(it) {
+					key := normalizeTrackKey(it.Title, it.Artist)
+					if !seen[key] {
+						seen[key] = true
+						merged = append(merged, it)
+					}
+				}
+			}
+		}
+	}
+
+	if e.repo != nil && len(merged) > 0 {
+		if dataBytes, err := json.Marshal(merged); err == nil {
+			_ = e.repo.SetFeedCache(ctx, cacheKey, string(dataBytes), FeedCacheTTLSeconds)
+		}
+	}
+
+	return merged, nil
+}
+
+// FetchRegionalSingles returns top trending singles specifically for the given ISO country code.
+func (e *ExploreEngine) FetchRegionalSingles(ctx context.Context, countryCode, langCode string) ([]models.TrackItem, error) {
+	if strings.TrimSpace(countryCode) == "" {
+		countryCode = "US"
+	}
+	if strings.TrimSpace(langCode) == "" {
+		langCode = "en"
+	}
+	upperCC := strings.ToUpper(strings.TrimSpace(countryCode))
+	lowerCC := strings.ToLower(upperCC)
+	cacheKey := fmt.Sprintf("charts:REGIONAL:%s:singles:v2", upperCC)
+
+	if e.repo != nil {
+		if cached, err := e.repo.GetFeedCache(ctx, cacheKey); err == nil && cached != "" {
+			var tracks []models.TrackItem
+			if json.Unmarshal([]byte(cached), &tracks) == nil && len(tracks) > 0 {
+				return tracks, nil
+			}
+		}
+	}
+
+	var appleItems, itunesItems []models.TrackItem
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		appleItems = e.fetchAppleMostPlayedSingles(ctx, lowerCC, 30)
+	}()
+	go func() {
+		defer wg.Done()
+		itunesItems = e.fetchITunesTopSongs(ctx, lowerCC, 30)
+	}()
+	wg.Wait()
+
+	var merged []models.TrackItem
+	seen := make(map[string]bool)
+	appendUnique := func(list []models.TrackItem) {
+		for _, it := range list {
+			if !isPlayableSingleItem(it) {
+				continue
+			}
+			key := normalizeTrackKey(it.Title, it.Artist)
+			if !seen[key] {
+				seen[key] = true
+				merged = append(merged, it)
+			}
+		}
+	}
+	appendUnique(appleItems)
+	appendUnique(itunesItems)
+
+	// Supplement with InnerTube regional charts if RSS is sparse or unavailable
+	if len(merged) < 12 {
+		if ytRegional, err := e.FetchRegionalCharts(ctx, upperCC, langCode); err == nil {
+			appendUnique(ytRegional)
+		}
+	}
+
+	if e.repo != nil && len(merged) > 0 {
+		if dataBytes, err := json.Marshal(merged); err == nil {
+			_ = e.repo.SetFeedCache(ctx, cacheKey, string(dataBytes), FeedCacheTTLSeconds)
+		}
+	}
+
+	return merged, nil
+}
+
+func (e *ExploreEngine) fetchAppleMostPlayedSingles(ctx context.Context, countryLower string, limit int) []models.TrackItem {
+	url := fmt.Sprintf("https://rss.applemarketingtools.com/api/v2/%s/music/most-played/%d/songs.json", countryLower, limit)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "UnboundMusic/2.0")
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil
+	}
+
+	var parsed struct {
+		Feed struct {
+			Results []struct {
+				ID            string `json:"id"`
+				Name          string `json:"name"`
+				ArtistName    string `json:"artistName"`
+				ArtworkURL100 string `json:"artworkUrl100"`
+				Kind          string `json:"kind"`
+				Genres        []struct {
+					Name string `json:"name"`
+				} `json:"genres"`
+			} `json:"results"`
+		} `json:"feed"`
+	}
+	if json.Unmarshal(body, &parsed) != nil {
+		return nil
+	}
+
+	out := make([]models.TrackItem, 0, len(parsed.Feed.Results))
+	for _, r := range parsed.Feed.Results {
+		if r.Name == "" || (r.Kind != "" && !strings.EqualFold(r.Kind, "songs")) {
+			continue
+		}
+		albumLabel := ""
+		if len(r.Genres) > 0 {
+			albumLabel = r.Genres[0].Name
+		}
+		item := models.TrackItem{
+			ID:        fmt.Sprintf("apple_%s_%s", countryLower, r.ID),
+			Title:     strings.TrimSpace(r.Name),
+			Artist:    strings.TrimSpace(r.ArtistName),
+			Album:     albumLabel,
+			Thumbnail: UpscaleThumbnail(r.ArtworkURL100),
+			Source:    "chart",
+		}
+		if isPlayableSingleItem(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func (e *ExploreEngine) fetchITunesTopSongs(ctx context.Context, countryLower string, limit int) []models.TrackItem {
+	url := fmt.Sprintf("https://itunes.apple.com/%s/rss/topsongs/limit=%d/json", countryLower, limit)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "UnboundMusic/2.0")
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil
+	}
+
+	var parsed struct {
+		Feed struct {
+			Entry []struct {
+				ID struct {
+					Attributes struct {
+						ImID string `json:"im:id"`
+					} `json:"attributes"`
+				} `json:"id"`
+				Name struct {
+					Label string `json:"label"`
+				} `json:"im:name"`
+				Artist struct {
+					Label string `json:"label"`
+				} `json:"im:artist"`
+				Image []struct {
+					Label string `json:"label"`
+				} `json:"im:image"`
+				Category struct {
+					Attributes struct {
+						Label string `json:"label"`
+					} `json:"attributes"`
+				} `json:"category"`
+			} `json:"entry"`
+		} `json:"feed"`
+	}
+	if json.Unmarshal(body, &parsed) != nil {
+		return nil
+	}
+
+	out := make([]models.TrackItem, 0, len(parsed.Feed.Entry))
+	for _, entry := range parsed.Feed.Entry {
+		title := strings.TrimSpace(entry.Name.Label)
+		if title == "" {
+			continue
+		}
+		thumb := ""
+		if len(entry.Image) > 0 {
+			thumb = UpscaleThumbnail(entry.Image[len(entry.Image)-1].Label)
+		}
+		trackID := strings.TrimSpace(entry.ID.Attributes.ImID)
+		if trackID == "" {
+			trackID = fmt.Sprintf("%d", len(out)+1)
+		}
+		item := models.TrackItem{
+			ID:        fmt.Sprintf("itunes_%s_%s", countryLower, trackID),
+			Title:     title,
+			Artist:    strings.TrimSpace(entry.Artist.Label),
+			Album:     strings.TrimSpace(entry.Category.Attributes.Label),
+			Thumbnail: thumb,
+			Source:    "chart",
+		}
+		if isPlayableSingleItem(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func normalizeTrackKey(title, artist string) string {
+	return strings.ToLower(strings.TrimSpace(title)) + "|" + strings.ToLower(strings.TrimSpace(artist))
 }
 
 // FetchNewReleases retrieves new album releases and tracks, checking SQLite feed_cache first.

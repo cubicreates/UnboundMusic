@@ -261,6 +261,34 @@ func TestExploreCacheTTL(t *testing.T) {
 	}
 }
 
+// TestIsSingleSongTrack verifies mixes, mashups, and playlists are filtered out from singles charts.
+func TestIsSingleSongTrack(t *testing.T) {
+	validSingles := []string{
+		"Blinding Lights",
+		"As It Was",
+		"Kesariya (From \"Brahmastra\")",
+		"APT. - ROSE & Bruno Mars",
+	}
+	for _, s := range validSingles {
+		if !IsSingleSongTrack(s) {
+			t.Errorf("expected %q to be treated as a single", s)
+		}
+	}
+
+	blockedMixes := []string{
+		"Mix – Blinding Lights",
+		"Bollywood Nonstop Party Mashup",
+		"Late Night DJ Mix Vol. 3",
+		"Arijit Singh Jukebox Full Album",
+		"Top Pop Megamix 2026",
+	}
+	for _, m := range blockedMixes {
+		if IsSingleSongTrack(m) {
+			t.Errorf("expected %q to be filtered out as a mix/mashup", m)
+		}
+	}
+}
+
 // testRoundTripper redirects requests to mockServer URL.
 type testRoundTripper struct {
 	targetURL string

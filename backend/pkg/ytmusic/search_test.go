@@ -3,6 +3,8 @@ package ytmusic
 import (
 	"context"
 	"testing"
+
+	"github.com/cubicreates/unbound-engine/pkg/models"
 )
 
 func TestSearchCascadeStructure(t *testing.T) {
@@ -120,5 +122,33 @@ func TestParseSearchResponse_AlbumsAndPlaylists(t *testing.T) {
 	}
 	if album.Title != "After Hours" || album.Artist != "The Weeknd" || album.Year != "2020" {
 		t.Errorf("unexpected album metadata: %+v", album)
+	}
+}
+
+func TestFilterStrictMusicTracksExcludesPodcasts(t *testing.T) {
+	input := []models.Track{
+		{ID: "song1", Title: "Midnight City", Artist: "M83", ItemType: "song", DurationMs: 243000},
+		{ID: "MPSP_show1", Title: "Tech Talk", Artist: "Host", ItemType: "podcast", DurationMs: 1800000},
+		{ID: "pod2", Title: "Full Episode #42 - AI", Artist: "Podcast Network", ItemType: "song", DurationMs: 3600000},
+		{ID: "book1", Title: "Deep Work Audiobook", Artist: "Author", ItemType: "song", DurationMs: 2500000},
+		{ID: "MPREb_alb1", Title: "Hurry Up, We're Dreaming", Artist: "M83", ItemType: "album", BrowseID: "MPREb_alb1"},
+	}
+
+	allMusic := filterStrictMusicTracks(input, "all")
+	if len(allMusic) != 2 {
+		t.Fatalf("expected 2 music items (song + album), got %d: %+v", len(allMusic), allMusic)
+	}
+	if allMusic[0].ID != "song1" || allMusic[1].ID != "MPREb_alb1" {
+		t.Errorf("unexpected filtered music items: %+v", allMusic)
+	}
+
+	songsOnly := filterStrictMusicTracks(input, "songs")
+	if len(songsOnly) != 1 || songsOnly[0].ID != "song1" {
+		t.Errorf("expected only song1 for subtype 'songs', got %+v", songsOnly)
+	}
+
+	albumsOnly := filterStrictMusicTracks(input, "albums")
+	if len(albumsOnly) != 1 || albumsOnly[0].ID != "MPREb_alb1" {
+		t.Errorf("expected only MPREb_alb1 for subtype 'albums', got %+v", albumsOnly)
 	}
 }

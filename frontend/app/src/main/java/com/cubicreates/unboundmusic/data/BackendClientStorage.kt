@@ -135,9 +135,9 @@ suspend fun BackendClient.getLocalTracks(source: String = "all"): List<LocalTrac
     list
 }
 
-/** Fetches indexed local folder summaries from Go daemon. */
+/** Fetches backend-grouped local audio folder summaries from Go daemon (/api/v1/storage/library). */
 suspend fun BackendClient.getLocalFolders(): List<LocalFolderDto> = withContext(Dispatchers.IO) {
-    val (code, json) = get("/api/v1/storage/folders")
+    val (code, json) = get("/api/v1/storage/library")
     if (code != 200 || json.isBlank()) return@withContext emptyList()
     val list = mutableListOf<LocalFolderDto>()
     try {

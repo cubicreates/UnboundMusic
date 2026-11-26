@@ -2,40 +2,46 @@ package com.cubicreates.unboundmusic.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Unbound Neon & OLED Palette from Design System
-val UnboundBackground = Color(0xFF131313)
+// Studio Brutalist Electric Cyan & Obsidian Palette
+val UnboundBackground = Color(0xFF0C0E10)
 val OledBlack = Color(0xFF000000)
 
-val UnboundPrimary = Color(0xFF4CD6FB)
-val UnboundPrimaryContainer = Color(0xFF00B4D8)
-val OnPrimary = Color(0xFF003642)
-val OnPrimaryContainer = Color(0xFF00414F)
+val UnboundPrimary = Color(0xFF00E5FF)
+val UnboundPrimaryContainer = Color(0xFF004F58)
+val OnPrimary = Color(0xFF00363D)
+val OnPrimaryContainer = Color(0xFFC3F5FF)
 
-val UnboundSecondary = Color(0xFF94CCFF)
+val UnboundSecondary = Color(0xFF7DFFA2)
 val UnboundSecondaryContainer = Color(0xFF0378B7)
-val OnSecondary = Color(0xFF003352)
+val OnSecondary = Color(0xFF003918)
 val OnSecondaryContainer = Color(0xFFF5F8FF)
 
 val UnboundTertiary = Color(0xFF83D3E1)
 val UnboundTertiaryContainer = Color(0xFF60B1BF)
 val OnTertiary = Color(0xFF00363D)
 
-val UnboundSurface = Color(0xFF131313)
-val UnboundSurfaceDim = Color(0xFF131313)
+// Warm, organic musical accents for human warmth & living motion
+val UnboundWarmRose = Color(0xFFFF5C8A)
+val UnboundViolet = Color(0xFF8B6CFF)
+val UnboundAmber = Color(0xFFFFB86C)
+
+val UnboundSurface = Color(0xFF0C0E10)
+val UnboundSurfaceDim = Color(0xFF0C0E10)
 val UnboundSurfaceBright = Color(0xFF393939)
-val UnboundSurfaceContainerLowest = Color(0xFF0E0E0E)
-val UnboundSurfaceContainerLow = Color(0xFF1B1B1B)
-val UnboundSurfaceContainer = Color(0xFF1F1F1F)
-val UnboundSurfaceContainerHigh = Color(0xFF2A2A2A)
-val UnboundSurfaceContainerHighest = Color(0xFF353535)
+val UnboundSurfaceContainerLowest = Color(0xFF07080A)
+val UnboundSurfaceContainerLow = Color(0xFF121518)
+val UnboundSurfaceContainer = Color(0xFF171B1F)
+val UnboundSurfaceContainerHigh = Color(0xFF1F2429)
+val UnboundSurfaceContainerHighest = Color(0xFF282F36)
 
-val OnSurface = Color(0xFFE2E2E2)
-val OnSurfaceVariant = Color(0xFFBCC9CE)
-val UnboundOutline = Color(0xFF869398)
-val UnboundOutlineVariant = Color(0xFF3D494D)
+val OnSurface = Color(0xFFE2E2E5)
+val OnSurfaceVariant = Color(0xFF8DA0A6)
+val UnboundOutline = Color(0xFF323D44)
+val UnboundOutlineVariant = Color(0xFF1C252B)
 
-val BorderGlass = Color(0x1FFFFFFF) // rgba(255, 255, 255, 0.12)
-val SurfaceGlass = Color(0x14FFFFFF) // rgba(255, 255, 255, 0.08)
-val SurfaceGlassHighest = Color(0x99353535) // rgba(53, 53, 53, 0.60)
-val TopBarGlass = Color(0xCC131313) // rgba(19, 19, 19, 0.80)
-val BottomNavGlass = Color(0xB3131313) // rgba(19, 19, 19, 0.70)
+val BorderSubtle = Color(0x0FFFFFFF)
+val BorderGlass = Color(0x14FFFFFF)
+val SurfaceGlass = Color(0x14FFFFFF)
+val SurfaceGlassHighest = Color(0x99282F36)
+val TopBarGlass = Color(0xD90C0E10)
+val BottomNavGlass = Color(0xF207080A)

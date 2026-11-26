@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.PlaylistItemDto
 import com.cubicreates.unboundmusic.data.PlaylistShelfDto
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -155,48 +156,14 @@ fun GenreDetailScreen(
                     )
                 }
             } else if (shelves.isEmpty()) {
-                // Empty or Offline State Card
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 40.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(SurfaceGlassHighest)
-                        .border(1.dp, BorderGlass, RoundedCornerShape(16.dp))
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "OFFLINE_RESILIENCE",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = UnboundPrimary,
-                            letterSpacing = 1.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Curated playlists for $genreTitle will appear here once connected.",
-                            fontSize = 13.sp,
-                            color = OnSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(UnboundPrimary)
-                                .clickable(onClick = onRetry)
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = "Retry Connection",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OnPrimary
-                            )
-                        }
-                    }
+                Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+                    UnboundEmptyStateCard(
+                        title = "Nothing loaded for $genreTitle",
+                        subtitle = "Curated playlists for $genreTitle will appear here once connected.",
+                        icon = Icons.Default.MusicNote,
+                        actionLabel = "Retry",
+                        onAction = onRetry
+                    )
                 }
             } else {
                 // Render Shelves
@@ -229,15 +196,24 @@ fun PlaylistShelfSection(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            items(shelf.items, key = { it.id + it.title }) { item ->
-                PlaylistItemCard(
-                    item = item,
-                    onClick = { onPlaylistClick(item) }
+        if (shelf.items.isEmpty()) {
+            Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                UnboundEmptyStateCard(
+                    title = "No playlists in this section",
+                    compact = true
                 )
+            }
+        } else {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(shelf.items, key = { it.id + it.title }) { item ->
+                    PlaylistItemCard(
+                        item = item,
+                        onClick = { onPlaylistClick(item) }
+                    )
+                }
             }
         }
     }

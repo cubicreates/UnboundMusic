@@ -27,6 +27,7 @@ import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import com.cubicreates.unboundmusic.ui.equalizer.AutoEqHeadphoneItem
 import com.cubicreates.unboundmusic.ui.recap.RecapData
+import com.cubicreates.unboundmusic.ui.search.PodcastSearchFilter
 import com.cubicreates.unboundmusic.ui.search.SearchCategory
 import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import kotlinx.coroutines.Dispatchers
@@ -62,7 +63,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Domain ViewModels Delegation ====================
     val playbackDomainViewModel by lazy { PlaybackViewModel(application) }
-    val libraryDomainViewModel by lazy { LibraryViewModel(application) }
     val searchDomainViewModel by lazy { SearchViewModel(application) }
     val equalizerDomainViewModel by lazy { EqualizerViewModel(application) }
     val lyricsDomainViewModel by lazy { LyricsViewModel(application) }
@@ -85,6 +85,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .map { (it.isPlaying || it.currentPositionMs > 0) && it.currentTrack != null && it.currentTrack.id.isNotBlank() && it.currentTrack.title != "Unknown" }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Quantized playback progress [0f..1f] for MiniPlayer progress bar without flooding Home recompositions */
+    val playbackProgress: StateFlow<Float> = serviceConnection.playbackState
+        .map { (it.progress * 200f).toInt() / 200f }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
 
     // ==================== Playback State ====================
 
@@ -268,6 +274,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal val _shazamMode = MutableStateFlow(ShazamMode.ACOUSTIC)
     val shazamMode: StateFlow<ShazamMode> = _shazamMode.asStateFlow()
 
+    // ==================== Multi-Match Lyrics & Acoustic Recognition State ====================
+
+    internal val _musicRecognitionState = MutableStateFlow<RecognitionUiState>(RecognitionUiState.Idle)
+    val musicRecognitionState: StateFlow<RecognitionUiState> = _musicRecognitionState.asStateFlow()
+
+    internal val _recognitionCandidates = MutableStateFlow<List<RecognitionCandidateDto>>(emptyList())
+    val recognitionCandidates: StateFlow<List<RecognitionCandidateDto>> = _recognitionCandidates.asStateFlow()
+
+    // ==================== Home Section & Dedicated Podcast State ====================
+
+    internal val _selectedHomeSection = MutableStateFlow(HomeSection.MUSIC)
+    val selectedHomeSection: StateFlow<HomeSection> = _selectedHomeSection.asStateFlow()
+
+    internal val _selectedPodcastCategory = MutableStateFlow("All Podcasts")
+    val selectedPodcastCategory: StateFlow<String> = _selectedPodcastCategory.asStateFlow()
+
+    internal val _podcastFeaturedShows = MutableStateFlow<List<PodcastShowDto>>(emptyList())
+    val podcastFeaturedShows: StateFlow<List<PodcastShowDto>> = _podcastFeaturedShows.asStateFlow()
+
+    internal val _podcastRecentEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val podcastRecentEpisodes: StateFlow<List<PodcastEpisodeDto>> = _podcastRecentEpisodes.asStateFlow()
+
+    internal val _podcastTopEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val podcastTopEpisodes: StateFlow<List<PodcastEpisodeDto>> = _podcastTopEpisodes.asStateFlow()
+
+    internal val _podcastGlobalEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val podcastGlobalEpisodes: StateFlow<List<PodcastEpisodeDto>> = _podcastGlobalEpisodes.asStateFlow()
+
+    internal val _podcastRegionalEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val podcastRegionalEpisodes: StateFlow<List<PodcastEpisodeDto>> = _podcastRegionalEpisodes.asStateFlow()
+
+    internal val _podcastSearchResults = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val podcastSearchResults: StateFlow<List<PodcastEpisodeDto>> = _podcastSearchResults.asStateFlow()
+
+    internal val _selectedPodcastShow = MutableStateFlow<PodcastShowDto?>(null)
+    val selectedPodcastShow: StateFlow<PodcastShowDto?> = _selectedPodcastShow.asStateFlow()
+
+    internal val _isPodcastLoading = MutableStateFlow(false)
+    val isPodcastLoading: StateFlow<Boolean> = _isPodcastLoading.asStateFlow()
+
+    internal val _podcastError = MutableStateFlow<String?>(null)
+    val podcastError: StateFlow<String?> = _podcastError.asStateFlow()
+
+    internal val _activePodcastTopicQuery = MutableStateFlow<String?>(null)
+    val activePodcastTopicQuery: StateFlow<String?> = _activePodcastTopicQuery.asStateFlow()
+
+    // ==================== Split Search (Music vs Podcasts) State ====================
+
+    internal val _selectedSearchSection = MutableStateFlow(HomeSection.MUSIC)
+    val selectedSearchSection: StateFlow<HomeSection> = _selectedSearchSection.asStateFlow()
+
+    internal val _podcastSearchQuery = MutableStateFlow("")
+    val podcastSearchQuery: StateFlow<String> = _podcastSearchQuery.asStateFlow()
+
+    internal val _podcastSearchFilter = MutableStateFlow(PodcastSearchFilter.ALL)
+    val podcastSearchFilter: StateFlow<PodcastSearchFilter> = _podcastSearchFilter.asStateFlow()
+
+    internal val _podcastSearchShows = MutableStateFlow<List<PodcastShowDto>>(emptyList())
+    val podcastSearchShows: StateFlow<List<PodcastShowDto>> = _podcastSearchShows.asStateFlow()
+
+    internal val _podcastSearchHistory = MutableStateFlow<List<String>>(emptyList())
+    val podcastSearchHistory: StateFlow<List<String>> = _podcastSearchHistory.asStateFlow()
+
+    internal val _isPodcastSearching = MutableStateFlow(false)
+    val isPodcastSearching: StateFlow<Boolean> = _isPodcastSearching.asStateFlow()
+
+    internal var podcastSearchJob: Job? = null
+    internal var pendingVoiceSearchSection: HomeSection = HomeSection.MUSIC
+
+    // ==================== Saved Podcast Library State ====================
+
+    internal val _followedPodcastShows = MutableStateFlow<List<PodcastShowDto>>(emptyList())
+    val followedPodcastShows: StateFlow<List<PodcastShowDto>> = _followedPodcastShows.asStateFlow()
+
+    internal val _savedPodcastEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val savedPodcastEpisodes: StateFlow<List<PodcastEpisodeDto>> = _savedPodcastEpisodes.asStateFlow()
+
+    internal val _inProgressPodcastEpisodes = MutableStateFlow<List<PodcastEpisodeDto>>(emptyList())
+    val inProgressPodcastEpisodes: StateFlow<List<PodcastEpisodeDto>> = _inProgressPodcastEpisodes.asStateFlow()
+
     // ==================== Application Lifecycle & Update State ====================
 
     internal val _availableUpdate = MutableStateFlow<AppUpdateInfo?>(null)
@@ -294,7 +380,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                val currentVer = "2.0.0"
+                val currentVer = "2.0.1"
                 val res = withContext(Dispatchers.IO) {
                     client.checkForUpdates(currentVer)
                 }
@@ -516,6 +602,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal val _adaptiveQuickPicks = MutableStateFlow<List<TrackItem>>(emptyList())
     val adaptiveQuickPicks: StateFlow<List<TrackItem>> = _adaptiveQuickPicks.asStateFlow()
 
+    internal val _homeJumpBackTracks = MutableStateFlow<List<TrackItem>>(emptyList())
+    val homeJumpBackTracks: StateFlow<List<TrackItem>> = _homeJumpBackTracks.asStateFlow()
+
+    internal val _homeMixes = MutableStateFlow<List<HomeMixDto>>(emptyList())
+    val homeMixes: StateFlow<List<HomeMixDto>> = _homeMixes.asStateFlow()
+
     internal val _quickPicksTitle = MutableStateFlow("Trending Quick Picks")
     val quickPicksTitle: StateFlow<String> = _quickPicksTitle.asStateFlow()
 
@@ -525,6 +617,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==================== Affective MIR & Decoupled Vibe State ====================
     internal val _homeVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
     val homeVibeState: StateFlow<VibeSearchUiState> = _homeVibeState.asStateFlow()
+
+    internal val _homeSearchState = MutableStateFlow<HomeSearchUiState>(HomeSearchUiState.Idle)
+    val homeSearchState: StateFlow<HomeSearchUiState> = _homeSearchState.asStateFlow()
 
     internal val _searchVibeState = MutableStateFlow<VibeSearchUiState>(VibeSearchUiState.Idle)
     val searchVibeState: StateFlow<VibeSearchUiState> = _searchVibeState.asStateFlow()
@@ -653,9 +748,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.e(TAG, "restoreLastPlaybackState failed: ${e.message}")
         }
 
-        // Load persistent search history
+        // Load persistent search history (Music & Podcasts isolated) & podcast library cache
         try {
             loadSearchHistory()
+            loadPodcastSearchHistory()
+            loadLocalPodcastLibraryCache()
         } catch (_: Throwable) {}
 
         // Orchestrate startup hydration with splash screen telemetry

@@ -356,3 +356,34 @@ type UserFavorite struct {
 	FavoritedAt int64  `json:"favorited_at"`
 }
 
+// RecognitionCandidate represents a single candidate song match from lyrics, singing, or acoustic recognition.
+type RecognitionCandidate struct {
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Artist         string  `json:"artist"`
+	Album          string  `json:"album"`
+	DurationMs     int64   `json:"duration_ms"`
+	CoverURL       string  `json:"cover_url"`
+	ThumbnailURL   string  `json:"thumbnail_url"`
+	Year           string  `json:"year,omitempty"`
+	Confidence     float64 `json:"confidence"`
+	RelevanceLabel string  `json:"relevance_label"`
+	MatchedLyric   string  `json:"matched_lyric,omitempty"`
+	MatchSource    string  `json:"match_source"`
+	IsOriginal     bool    `json:"is_original"`
+	IsRadarMatch   bool    `json:"is_radar_match,omitempty"`
+	Explanation    string  `json:"explanation,omitempty"`
+}
+
+// RecognitionResponse is the structured multi-candidate response returned by lyrics and acoustic recognition endpoints.
+type RecognitionResponse struct {
+	Query      string                 `json:"query,omitempty"`
+	Mode       string                 `json:"mode"`
+	Matched    bool                   `json:"matched"`
+	Count      int                    `json:"count"`
+	Candidates []RecognitionCandidate `json:"candidates"`
+	Variants   []RecognitionCandidate `json:"variants,omitempty"`
+	LatencyMs  int64                  `json:"latency_ms"`
+	Message    string                 `json:"message,omitempty"`
+}
+

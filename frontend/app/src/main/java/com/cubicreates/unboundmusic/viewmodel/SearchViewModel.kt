@@ -107,9 +107,13 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         _isSearching.value = true
         try {
             var foundTracks = false
-            val (code, resp) = client.search(query, type = _searchCategory.value.apiParam)
+            val (code, resp) = client.searchMusic(query, filter = _searchCategory.value.apiParam)
             if (code in 200..299 && resp.isNotBlank()) {
-                val parsed = client.parseSearchResults(resp)
+                val parsed = client.parseSearchResults(resp).filterNot {
+                    it.itemType.equals("podcast", ignoreCase = true) ||
+                        it.id.startsWith("MPSP") ||
+                        it.browseId.startsWith("MPSP")
+                }
                 if (parsed.isNotEmpty()) {
                     _searchResults.value = parsed
                     foundTracks = true

@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -58,11 +59,11 @@ import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 import com.cubicreates.unboundmusic.ui.theme.UnboundTertiary
 
 data class RecapData(
-    val totalMinutes: Int = 1420,
+    val totalMinutes: Int = 0,
     val topTracks: List<TrackItem> = emptyList(),
-    val topArtists: List<String> = listOf("The Weeknd", "Daft Punk", "Hans Zimmer"),
-    val topDecade: String = "2020s (68%)",
-    val diversityScore: String = "8.7 / 10 (Eclectic Explorer)"
+    val topArtists: List<String> = emptyList(),
+    val topDecade: String = "",
+    val diversityScore: String = ""
 )
 
 @Composable
@@ -130,146 +131,166 @@ fun RecapScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Card 1: Total Listening Minutes Hero Card
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF1E3C72),
-                                Color(0xFF2A5298),
-                                Color(0xFF4CD6FB).copy(alpha = 0.6f)
+            val hasRecapData = data.totalMinutes > 0 ||
+                data.topArtists.isNotEmpty() ||
+                data.topTracks.isNotEmpty() ||
+                data.diversityScore.isNotBlank()
+
+            if (!hasRecapData) {
+                UnboundEmptyStateCard(
+                    title = "No Listening Recap Yet",
+                    subtitle = "Play songs in Unbound Music to build your listening stats, top artists, and taste profile.",
+                    icon = Icons.Default.Equalizer
+                )
+            } else {
+                // Card 1: Total Listening Minutes Hero Card
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF1E3C72),
+                                    Color(0xFF2A5298),
+                                    Color(0xFF4CD6FB).copy(alpha = 0.6f)
+                                )
                             )
                         )
-                    )
-                    .padding(24.dp)
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Timer,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "TOTAL PLAYTIME",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White.copy(alpha = 0.8f),
-                            letterSpacing = 1.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "${data.totalMinutes}",
-                        fontSize = 54.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "minutes listened this month across offline & online audio",
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Card 2: Top Artists
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(SurfaceGlassHighest)
-                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            tint = UnboundPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "TOP ARTISTS",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurfaceVariant,
-                            letterSpacing = 1.sp
-                        )
-                    }
-
-                    data.topArtists.forEachIndexed { index, artist ->
+                        .padding(24.dp)
+                ) {
+                    Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "#${index + 1}",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = UnboundPrimary,
-                                modifier = Modifier.width(32.dp)
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = artist,
-                                fontSize = 16.sp,
+                                text = "Total Playtime",
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = OnSurface
+                                color = Color.White.copy(alpha = 0.85f)
                             )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "${data.totalMinutes}",
+                            fontSize = 54.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "minutes listened across offline & online audio",
+                            fontSize = 14.sp,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Card 2: Top Artists
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SurfaceGlassHighest)
+                        .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
+                        .padding(20.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Top Artists",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OnSurfaceVariant
+                            )
+                        }
+
+                        if (data.topArtists.isEmpty()) {
+                            Text(
+                                text = "Not enough playback history for top artists yet.",
+                                fontSize = 13.sp,
+                                color = OnSurfaceVariant
+                            )
+                        } else {
+                            data.topArtists.forEachIndexed { index, artist ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "#${index + 1}",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = UnboundPrimary,
+                                        modifier = Modifier.width(32.dp)
+                                    )
+                                    Text(
+                                        text = artist,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = OnSurface
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            // Card 3: Taste Diversity Score (Shannon Entropy)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(SurfaceGlassHighest)
-                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Equalizer,
-                            contentDescription = null,
-                            tint = UnboundTertiary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                // Card 3: Taste Diversity Score
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(SurfaceGlassHighest)
+                        .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(16.dp))
+                        .padding(20.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Equalizer,
+                                contentDescription = null,
+                                tint = UnboundTertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Taste Diversity",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = OnSurfaceVariant
+                            )
+                        }
+
                         Text(
-                            text = "TASTE DIVERSITY",
-                            fontSize = 12.sp,
+                            text = data.diversityScore.ifBlank { "No score calculated yet" },
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = OnSurfaceVariant,
-                            letterSpacing = 1.sp
+                            color = OnSurface
                         )
+
+                        if (data.topDecade.isNotBlank()) {
+                            Text(
+                                text = "Primary era: ${data.topDecade}",
+                                fontSize = 13.sp,
+                                color = OnSurfaceVariant
+                            )
+                        }
                     }
-
-                    Text(
-                        text = data.diversityScore,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OnSurface
-                    )
-
-                    Text(
-                        text = "Primary era: ${data.topDecade}",
-                        fontSize = 13.sp,
-                        color = OnSurfaceVariant
-                    )
                 }
             }
         }

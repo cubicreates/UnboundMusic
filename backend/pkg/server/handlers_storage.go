@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -338,4 +339,165 @@ func (s *Server) handleFingerprintIdentify(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, track)
+}
+
+type libraryFolderGroup struct {
+	Name            string              `json:"name"`
+	Path            string              `json:"path"`
+	PathDescription string              `json:"path_description"`
+	Count           int                 `json:"count"`
+	Tracks          []models.LocalTrack `json:"tracks"`
+}
+
+// handleStorageLibrary offloads local music library filtering, sorting, folder grouping,
+// and untagged-audio detection onto the Go backend.
+// Route: GET /api/v1/storage/library?q=&sort=recent|title|artist|duration&category=all|music|mixed|downloads
+func (s *Server) handleStorageLibrary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	sortMode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
+	category := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("category")))
+
+	allTracks, err := s.repo.GetAllLocalTracks(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to retrieve library tracks: %v", err))
+		return
+	}
+
+	filtered := make([]models.LocalTrack, 0, len(allTracks))
+	musicCount := 0
+	mixedCount := 0
+	downloadsCount := 0
+	untaggedCount := 0
+
+	folderMap := make(map[string]*libraryFolderGroup)
+
+	for _, tr := range allTracks {
+		srcLower := strings.ToLower(tr.SourceFolder)
+		pathLower := strings.ToLower(tr.FilePath)
+		idMethod := strings.ToLower(strings.TrimSpace(tr.IdentificationMethod))
+		isIdentified := idMethod == "acoustid" || idMethod == "llm_semantic" || idMethod == "heuristic"
+		isVoiceSource := strings.Contains(srcLower, "whatsapp") || strings.Contains(srcLower, "voice") || strings.Contains(srcLower, "telegram")
+		isMixed := !isIdentified && (isVoiceSource || (tr.DurationMs > 0 && tr.DurationMs < 30000))
+		isMusic := !isMixed
+		isDownload := strings.Contains(srcLower, "download") || strings.Contains(srcLower, "unbound") || strings.Contains(pathLower, "download")
+
+		if isMusic {
+			musicCount++
+		}
+		if isMixed {
+			mixedCount++
+		}
+		if isDownload {
+			downloadsCount++
+		}
+		if isLibraryTrackUntagged(tr) {
+			untaggedCount++
+		}
+
+		// Folder grouping in Go instead of Android UI
+		folderName := resolveFriendlyLibraryFolder(tr)
+		grp, exists := folderMap[folderName]
+		if !exists {
+			grp = &libraryFolderGroup{
+				Name:   folderName,
+				Path:   filepath.Dir(tr.FilePath),
+				Tracks: make([]models.LocalTrack, 0),
+			}
+			folderMap[folderName] = grp
+		}
+		grp.Tracks = append(grp.Tracks, tr)
+
+		if category == "music" && !isMusic {
+			continue
+		}
+		if category == "mixed" && !isMixed {
+			continue
+		}
+		if category == "downloads" && !isDownload {
+			continue
+		}
+
+		if query != "" {
+			qLower := strings.ToLower(query)
+			if !strings.Contains(strings.ToLower(tr.Title), qLower) &&
+				!strings.Contains(strings.ToLower(tr.Artist), qLower) &&
+				!strings.Contains(strings.ToLower(tr.Album), qLower) {
+				continue
+			}
+		}
+		filtered = append(filtered, tr)
+	}
+
+	switch sortMode {
+	case "title", "title_az":
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return strings.ToLower(filtered[i].Title) < strings.ToLower(filtered[j].Title)
+		})
+	case "artist", "artist_az":
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return strings.ToLower(filtered[i].Artist) < strings.ToLower(filtered[j].Artist)
+		})
+	case "duration":
+		sort.SliceStable(filtered, func(i, j int) bool {
+			return filtered[i].DurationMs > filtered[j].DurationMs
+		})
+	}
+
+	folders := make([]libraryFolderGroup, 0, len(folderMap))
+	for _, grp := range folderMap {
+		grp.Count = len(grp.Tracks)
+		grp.PathDescription = fmt.Sprintf("Device Storage • %d audio files", grp.Count)
+		folders = append(folders, *grp)
+	}
+	sort.SliceStable(folders, func(i, j int) bool {
+		return folders[i].Count > folders[j].Count
+	})
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"tracks":          filtered,
+		"folders":         folders,
+		"music_count":     musicCount,
+		"mixed_count":     mixedCount,
+		"downloads_count": downloadsCount,
+		"untagged_count":  untaggedCount,
+	})
+}
+
+func resolveFriendlyLibraryFolder(tr models.LocalTrack) string {
+	src := strings.TrimSpace(tr.SourceFolder)
+	switch {
+	case strings.Contains(strings.ToLower(src), "whatsapp voice"):
+		return "WhatsApp Voice Notes"
+	case strings.Contains(strings.ToLower(src), "whatsapp"):
+		return "WhatsApp Audio"
+	case strings.Contains(strings.ToLower(src), "telegram"):
+		return "Telegram Audio"
+	case strings.Contains(strings.ToLower(src), "download") || strings.Contains(strings.ToLower(src), "unbound"):
+		return "Downloads"
+	case strings.Contains(strings.ToLower(src), "music"):
+		return "Music"
+	case src != "" && !strings.EqualFold(src, "youtube"):
+		return src
+	default:
+		if dir := filepath.Base(filepath.Dir(tr.FilePath)); dir != "" && dir != "." && dir != string(filepath.Separator) {
+			return dir
+		}
+		return "Device Audio"
+	}
+}
+
+func isLibraryTrackUntagged(tr models.LocalTrack) bool {
+	titleLower := strings.ToLower(strings.TrimSpace(tr.Title))
+	artistLower := strings.ToLower(strings.TrimSpace(tr.Artist))
+	return strings.HasPrefix(titleLower, "aud-") ||
+		strings.HasPrefix(titleLower, "ptt-") ||
+		strings.HasPrefix(titleLower, "wa") ||
+		artistLower == "" ||
+		artistLower == "unknown artist" ||
+		strings.Contains(titleLower, "y2mate")
 }

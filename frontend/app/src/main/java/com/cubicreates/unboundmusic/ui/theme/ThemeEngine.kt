@@ -30,9 +30,9 @@ enum class AppThemePreset(
     STUDIO_DARK(
         id = "studio_dark",
         displayName = "Studio Obsidian",
-        description = "Precision audio cyan and deep obsidian glass",
-        previewPrimary = Color(0xFF4CD6FB),
-        previewBackground = Color(0xFF131313)
+        description = "Electric cyan telemetry and deep obsidian glass",
+        previewPrimary = Color(0xFF00E5FF),
+        previewBackground = Color(0xFF0C0E10)
     ),
     NEON_VIOLET(
         id = "neon_violet",

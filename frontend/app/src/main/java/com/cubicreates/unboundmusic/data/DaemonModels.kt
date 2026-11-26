@@ -8,9 +8,18 @@
 
 package com.cubicreates.unboundmusic.data
 
+import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
 import com.cubicreates.unboundmusic.ui.components.TrackItem
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+
+/**
+ * Top-level media section on the redesigned Home screen.
+ */
+enum class HomeSection {
+    MUSIC,
+    PODCASTS
+}
 
 /**
  * Represents a situational 24-hour time-aware recommendation card.
@@ -171,6 +180,16 @@ sealed interface VibeSearchUiState {
 
     val isSuccess: Boolean
         get() = this is Success
+}
+
+/**
+ * UI State for unified Home normal/lyrics search when on-device AI is not installed (or as fallback).
+ */
+sealed interface HomeSearchUiState {
+    object Idle : HomeSearchUiState
+    data class Loading(val query: String) : HomeSearchUiState
+    data class Success(val query: String, val tracks: List<TrackItem>) : HomeSearchUiState
+    data class Empty(val query: String, val message: String) : HomeSearchUiState
 }
 
 /**
@@ -440,6 +459,34 @@ data class MixDto(
 )
 
 /**
+ * Backend-generated YouTube-style mix item for Home ("Made For Your Mood").
+ */
+data class HomeMixDto(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val coverUrl: String,
+    val mixType: String,
+    val seedTrackId: String = "",
+    val seedTitle: String = "",
+    val seedArtist: String = ""
+)
+
+/**
+ * Unified Home screen payload computed on the Go backend for both guest and logged-in users.
+ */
+data class HomeFeedDto(
+    val isLoggedIn: Boolean = false,
+    val accountName: String = "",
+    val avatarUrl: String? = null,
+    val regionCode: String = "IN",
+    val jumpBackIn: List<TrackItem> = emptyList(),
+    val madeForYouMixes: List<HomeMixDto> = emptyList(),
+    val trendingGlobally: List<TrackItem> = emptyList(),
+    val trendingRegionally: List<TrackItem> = emptyList()
+)
+
+/**
  * Represents a dynamic algorithmic recommendation shelf (Quick Picks, Similar to X, More from Artist, Listen Again).
  */
 data class SmartShelfDto(
@@ -622,5 +669,177 @@ data class EQPresetDto(
     @SerialName("preamp_gain_db") val preampGainDb: Double = 0.0,
     val bands: List<EQBandDto> = emptyList()
 )
+
+/**
+ * Multi-candidate recognition result item returned by /api/v1/recognize/lyrics and /api/v1/shazam/identify.
+ */
+@Serializable
+data class RecognitionCandidateDto(
+    val id: String = "",
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    @SerialName("duration_ms") val durationMs: Long = 0L,
+    @SerialName("cover_url") val coverUrl: String = "",
+    @SerialName("thumbnail_url") val thumbnailUrl: String = "",
+    val year: String = "",
+    val confidence: Double = 0.0,
+    @SerialName("relevance_label") val relevanceLabel: String = "Match",
+    @SerialName("matched_lyric") val matchedLyric: String = "",
+    @SerialName("match_source") val matchSource: String = "lyrics",
+    @SerialName("is_original") val isOriginal: Boolean = true,
+    @SerialName("is_radar_match") val isRadarMatch: Boolean = false,
+    val explanation: String = ""
+) {
+    val effectiveCoverUrl: String
+        get() = coverUrl.ifBlank {
+            thumbnailUrl.ifBlank {
+                if (id.length == 11 && !id.startsWith("local:") && !id.startsWith("lrc_") && !id.startsWith("genius_")) {
+                    "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+                } else ""
+            }
+        }
+
+    val confidencePercent: Int
+        get() = (confidence * 100.0).toInt().coerceIn(0, 100)
+
+    fun toTrackItem(): TrackItem {
+        return TrackItem(
+            id = id,
+            title = title,
+            artist = artist.ifBlank { "Unknown Artist" },
+            album = album,
+            durationMs = durationMs,
+            coverUrl = effectiveCoverUrl,
+            streamUrl = "",
+            source = matchSource.ifBlank { "lyrics" },
+            year = year
+        )
+    }
+
+    fun toRecognizedVariant(): RecognizedTrackVariant {
+        return RecognizedTrackVariant(
+            track = toTrackItem(),
+            badge = relevanceLabel.ifBlank { if (isOriginal) "Original Match" else "Alternative Match" },
+            isOriginal = isOriginal,
+            isRadarMatch = isRadarMatch,
+            explanation = explanation.ifBlank { matchedLyric }
+        )
+    }
+}
+
+/**
+ * Structured multi-candidate response from /api/v1/recognize/lyrics.
+ */
+@Serializable
+data class RecognitionResponseDto(
+    val query: String = "",
+    val mode: String = "lyrics",
+    val matched: Boolean = false,
+    val count: Int = 0,
+    val candidates: List<RecognitionCandidateDto> = emptyList(),
+    @SerialName("latency_ms") val latencyMs: Long = 0L,
+    val message: String = ""
+)
+
+/**
+ * Unified UI State for Music Screen & Identify Screen multi-match recognition.
+ */
+sealed interface RecognitionUiState {
+    object Idle : RecognitionUiState
+    data class Listening(val message: String = "Listening...", val durationSeconds: Int = 0) : RecognitionUiState
+    data class Loading(val query: String, val mode: String = "lyrics") : RecognitionUiState
+    data class Success(
+        val query: String,
+        val mode: String,
+        val candidates: List<RecognitionCandidateDto>,
+        val latencyMs: Long = 0L
+    ) : RecognitionUiState
+    data class Empty(val query: String, val message: String) : RecognitionUiState
+    data class Error(val message: String) : RecognitionUiState
+}
+
+/**
+ * Dedicated Podcast Episode DTO (strictly isolated from Music tracks).
+ */
+@Serializable
+data class PodcastEpisodeDto(
+    val id: String = "",
+    @SerialName("show_id") val showId: String = "",
+    @SerialName("show_title") val showTitle: String = "",
+    val author: String = "",
+    val title: String = "",
+    val description: String = "",
+    val category: String = "",
+    @SerialName("duration_ms") val durationMs: Long = 0L,
+    @SerialName("thumbnail_url") val thumbnailUrl: String = "",
+    @SerialName("release_date") val releaseDate: String = "",
+    @SerialName("resume_pos_ms") val resumePosMs: Long = 0L
+) {
+    val effectiveThumbnail: String
+        get() = thumbnailUrl.ifBlank {
+            if (id.length == 11) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else ""
+        }
+
+    val resumeFraction: Float
+        get() = if (durationMs > 0L && resumePosMs > 0L) {
+            (resumePosMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+        } else 0f
+
+    fun toPlayableTrackItem(): TrackItem {
+        return TrackItem(
+            id = id,
+            title = title,
+            artist = author.ifBlank { showTitle.ifBlank { "Podcast" } },
+            album = showTitle,
+            durationMs = durationMs,
+            coverUrl = effectiveThumbnail,
+            streamUrl = "",
+            source = "podcast",
+            itemType = "podcast",
+            audioCategory = AudioCategory.MIXED_AUDIO,
+            isIdentifiedMusic = false
+        )
+    }
+}
+
+/**
+ * Dedicated Podcast Show DTO.
+ */
+@Serializable
+data class PodcastShowDto(
+    val id: String = "",
+    val title: String = "",
+    val author: String = "",
+    val description: String = "",
+    val category: String = "",
+    @SerialName("thumbnail_url") val thumbnailUrl: String = "",
+    @SerialName("episode_count") val episodeCount: Int = 0,
+    val episodes: List<PodcastEpisodeDto> = emptyList()
+)
+
+/**
+ * Dedicated Podcast Discovery Feed DTO from /api/v1/podcasts/discover.
+ */
+@Serializable
+data class PodcastDiscoveryDto(
+    val category: String = "All Podcasts",
+    @SerialName("featured_shows") val featuredShows: List<PodcastShowDto> = emptyList(),
+    @SerialName("recent_episodes") val recentEpisodes: List<PodcastEpisodeDto> = emptyList(),
+    @SerialName("top_episodes") val topEpisodes: List<PodcastEpisodeDto> = emptyList(),
+    @SerialName("global_episodes") val globalEpisodes: List<PodcastEpisodeDto> = emptyList(),
+    @SerialName("regional_episodes") val regionalEpisodes: List<PodcastEpisodeDto> = emptyList()
+)
+
+/**
+ * Persisted Podcast Library state from GET /api/v1/podcasts/library.
+ */
+@Serializable
+data class PodcastLibraryDto(
+    @SerialName("followed_shows") val followedShows: List<PodcastShowDto> = emptyList(),
+    @SerialName("saved_episodes") val savedEpisodes: List<PodcastEpisodeDto> = emptyList(),
+    @SerialName("in_progress_episodes") val inProgressEpisodes: List<PodcastEpisodeDto> = emptyList()
+)
+
 
 

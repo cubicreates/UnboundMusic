@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.cubicreates.unboundmusic.data.HomeSection
 import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.FloatingMiniPlayer
 import com.cubicreates.unboundmusic.ui.components.MainOverlayHost
@@ -45,7 +46,7 @@ import com.cubicreates.unboundmusic.ui.components.rememberMainOverlayState
 import com.cubicreates.unboundmusic.ui.home.HomeScreen
 import com.cubicreates.unboundmusic.ui.library.LibraryScreen
 import com.cubicreates.unboundmusic.ui.search.SearchScreen
-import com.cubicreates.unboundmusic.ui.shazam.ShazamScreen
+import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.viewmodel.*
 
@@ -76,6 +77,27 @@ fun MainApp(
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val hasActivePlayback by viewModel.hasActivePlayback.collectAsStateWithLifecycle()
+    val playbackProgress by viewModel.playbackProgress.collectAsStateWithLifecycle()
+    val selectedHomeSection by viewModel.selectedHomeSection.collectAsStateWithLifecycle()
+    val selectedSearchSection by viewModel.selectedSearchSection.collectAsStateWithLifecycle()
+    val musicRecognitionState by viewModel.musicRecognitionState.collectAsStateWithLifecycle()
+    val selectedPodcastCategory by viewModel.selectedPodcastCategory.collectAsStateWithLifecycle()
+    val podcastFeaturedShows by viewModel.podcastFeaturedShows.collectAsStateWithLifecycle()
+    val podcastRecentEpisodes by viewModel.podcastRecentEpisodes.collectAsStateWithLifecycle()
+    val podcastTopEpisodes by viewModel.podcastTopEpisodes.collectAsStateWithLifecycle()
+    val podcastGlobalEpisodes by viewModel.podcastGlobalEpisodes.collectAsStateWithLifecycle()
+    val podcastRegionalEpisodes by viewModel.podcastRegionalEpisodes.collectAsStateWithLifecycle()
+    val podcastSearchResults by viewModel.podcastSearchResults.collectAsStateWithLifecycle()
+    val podcastSearchShows by viewModel.podcastSearchShows.collectAsStateWithLifecycle()
+    val podcastSearchQuery by viewModel.podcastSearchQuery.collectAsStateWithLifecycle()
+    val podcastSearchFilter by viewModel.podcastSearchFilter.collectAsStateWithLifecycle()
+    val podcastSearchHistory by viewModel.podcastSearchHistory.collectAsStateWithLifecycle()
+    val isPodcastSearching by viewModel.isPodcastSearching.collectAsStateWithLifecycle()
+    val selectedPodcastShow by viewModel.selectedPodcastShow.collectAsStateWithLifecycle()
+    val isPodcastLoading by viewModel.isPodcastLoading.collectAsStateWithLifecycle()
+    val podcastError by viewModel.podcastError.collectAsStateWithLifecycle()
+    val activePodcastTopicQuery by viewModel.activePodcastTopicQuery.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSearching by viewModel.isSearching.collectAsStateWithLifecycle()
     val libraryTracks by viewModel.libraryTracks.collectAsStateWithLifecycle()
@@ -89,6 +111,8 @@ fun MainApp(
     val chartTracks by viewModel.chartTracks.collectAsStateWithLifecycle()
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
     val adaptiveQuickPicks by viewModel.adaptiveQuickPicks.collectAsStateWithLifecycle()
+    val homeJumpBackTracks by viewModel.homeJumpBackTracks.collectAsStateWithLifecycle()
+    val homeMixes by viewModel.homeMixes.collectAsStateWithLifecycle()
     val quickPicksTitle by viewModel.quickPicksTitle.collectAsStateWithLifecycle()
     val quickPicksSubtitle by viewModel.quickPicksSubtitle.collectAsStateWithLifecycle()
     val searchCategory by viewModel.searchCategory.collectAsStateWithLifecycle()
@@ -96,6 +120,7 @@ fun MainApp(
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val daypartingState by viewModel.daypartingState.collectAsStateWithLifecycle()
     val homeVibeState by viewModel.homeVibeState.collectAsStateWithLifecycle()
+    val homeSearchState by viewModel.homeSearchState.collectAsStateWithLifecycle()
     val searchVibeState by viewModel.searchVibeState.collectAsStateWithLifecycle()
     val genreSections by viewModel.genreSections.collectAsStateWithLifecycle()
 
@@ -108,16 +133,20 @@ fun MainApp(
     val favoriteTracks by viewModel.favoriteTracks.collectAsStateWithLifecycle()
     val recentlyPlayedTracks by viewModel.recentlyPlayedTracks.collectAsStateWithLifecycle()
     val isListeningShazam by viewModel.isListeningShazam.collectAsStateWithLifecycle()
-    val audioWaveAmplitude by viewModel.audioWaveAmplitude.collectAsStateWithLifecycle()
-    val lastRecognizedTrack by viewModel.lastRecognizedTrack.collectAsStateWithLifecycle()
-    val recognizedVariants by viewModel.recognizedVariants.collectAsStateWithLifecycle()
-    val shazamHistory by viewModel.shazamHistory.collectAsStateWithLifecycle()
-    val hummingHistory by viewModel.hummingHistory.collectAsStateWithLifecycle()
-    val lastHummedTrack by viewModel.lastHummedTrack.collectAsStateWithLifecycle()
-    val hummedVariants by viewModel.hummedVariants.collectAsStateWithLifecycle()
-    val recognizedMessage by viewModel.recognizedMessage.collectAsStateWithLifecycle()
-    val shazamMode by viewModel.shazamMode.collectAsStateWithLifecycle()
     val recordingDurationSeconds by viewModel.recordingDurationSeconds.collectAsStateWithLifecycle()
+
+    val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
+    val cachePurgeStatus by viewModel.cachePurgeStatus.collectAsStateWithLifecycle()
+    val cacheSizeMB by viewModel.cacheSizeMB.collectAsStateWithLifecycle()
+    val downloadsSizeMB by viewModel.downloadsSizeMB.collectAsStateWithLifecycle()
+    val autoDownloadLikedSongs by viewModel.autoDownloadLikedSongs.collectAsStateWithLifecycle()
+    val skipSilenceEnabled by viewModel.skipSilenceEnabled.collectAsStateWithLifecycle()
+    val normalizeVolumeEnabled by viewModel.normalizeVolumeEnabled.collectAsStateWithLifecycle()
+    val sponsorBlockEnabled by viewModel.sponsorBlockEnabled.collectAsStateWithLifecycle()
+    val streamingQuality by viewModel.streamingQuality.collectAsStateWithLifecycle()
+    val downloadQuality by viewModel.downloadQuality.collectAsStateWithLifecycle()
+    val isLockscreenWallpaperEnabled by viewModel.isLockscreenWallpaperEnabled.collectAsStateWithLifecycle()
+    val isVlcAutoScanEnabled by viewModel.isVlcAutoScanEnabled.collectAsStateWithLifecycle()
 
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
@@ -190,6 +219,26 @@ fun MainApp(
         overlayState.isPlayerExpanded = false
     }
 
+    BackHandler(
+        enabled = selectedTab == NavigationTab.HOME &&
+            selectedHomeSection == HomeSection.PODCASTS &&
+            !overlayState.isPlayerExpanded
+    ) {
+        viewModel.setHomeSection(HomeSection.MUSIC)
+    }
+
+    BackHandler(
+        enabled = selectedTab == NavigationTab.SEARCH &&
+            !overlayState.isPlayerExpanded &&
+            (selectedPodcastShow != null || selectedSearchSection == HomeSection.PODCASTS)
+    ) {
+        if (selectedPodcastShow != null) {
+            viewModel.closePodcastShow()
+        } else {
+            viewModel.setSearchSection(HomeSection.MUSIC)
+        }
+    }
+
     BackHandler(enabled = selectedTab != NavigationTab.HOME && !overlayState.isPlayerExpanded) {
         selectedTab = NavigationTab.HOME
     }
@@ -205,12 +254,14 @@ fun MainApp(
             topBar = {
                 UnboundTopAppBar(
                     currentTab = selectedTab,
-                    userAvatarUrl = userAvatarUrl,
-                    accountName = accountName,
-                    isLoggedIn = isYouTubeConnected,
-                    activeDownloadsCount = downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" },
-                    onProfileClick = { overlayState.showSettings = true },
-                    onDownloadsClick = { overlayState.showDownloadsScreen = true }
+                    telemetrySubtitle = when {
+                        selectedTab == NavigationTab.HOME && selectedHomeSection == HomeSection.PODCASTS -> "Stories & conversations"
+                        selectedTab == NavigationTab.SEARCH && selectedSearchSection == HomeSection.PODCASTS -> "Explore shows & episodes"
+                        selectedTab == NavigationTab.SEARCH -> "Explore sound & moods"
+                        selectedTab == NavigationTab.LIBRARY -> "Your personal collection"
+                        selectedTab == NavigationTab.PROFILE -> "Audio studio & account"
+                        else -> "Made for your ears"
+                    }
                 )
             },
             bottomBar = {
@@ -226,17 +277,22 @@ fun MainApp(
                             coverUrl = currentTrack.coverUrl,
                             isPlaying = isPlaying,
                             isFavorite = isFavorite,
+                            progress = playbackProgress,
                             onPlayPauseToggle = { viewModel.togglePlayPause() },
                             onFavoriteToggle = { viewModel.toggleFavorite() },
                             onPlayerClick = { overlayState.isPlayerExpanded = true },
                             onDismiss = { viewModel.dismissMiniPlayer() }
                         )
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
 
                     UnboundBottomNavBar(
                         currentTab = selectedTab,
+                        userAvatarUrl = userAvatarUrl,
+                        accountName = accountName,
+                        isLoggedIn = isYouTubeConnected,
+                        activeDownloadsCount = downloadTasks.values.count { it.status == "DOWNLOADING" || it.status == "TAGGING" || it.status == "QUEUED" },
                         onTabSelected = { tab -> selectedTab = tab }
                     )
                 }
@@ -254,101 +310,111 @@ fun MainApp(
                 ) { tab ->
                     when (tab) {
                         NavigationTab.HOME -> {
+                            val userRegionCode = remember(context) {
+                                com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(context)
+                            }
+                            val userRegionName = remember(context) {
+                                com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryDisplayName(context)
+                            }
                             HomeScreen(
-                                tracks = if (adaptiveQuickPicks.isNotEmpty()) adaptiveQuickPicks else if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
-                                quickPicksTitle = quickPicksTitle,
-                                quickPicksSubtitle = quickPicksSubtitle,
-                                syncedYouTubeTracks = syncedYouTubeTracks,
-                                userMixes = userMixes,
-                                smartShelves = smartShelves,
-                                daypartingState = daypartingState,
-                                genreSections = genreSections,
-                                userAvatarUrl = userAvatarUrl,
+                                selectedSection = selectedHomeSection,
+                                onSectionSelected = { viewModel.setHomeSection(it) },
+                                jumpBackTracks = if (homeJumpBackTracks.isNotEmpty()) homeJumpBackTracks
+                                    else if (syncedYouTubeTracks.isNotEmpty()) syncedYouTubeTracks
+                                    else if (adaptiveQuickPicks.isNotEmpty()) adaptiveQuickPicks
+                                    else if (regionalCharts.isNotEmpty()) regionalCharts
+                                    else chartTracks,
+                                homeMixes = homeMixes,
+                                globalChartTracks = chartTracks,
+                                regionalChartTracks = regionalCharts,
+                                regionCode = userRegionCode,
+                                regionName = userRegionName,
                                 accountName = accountName,
                                 isYouTubeConnected = isYouTubeConnected,
                                 isSyncing = isSyncingAccount,
                                 isLoadingMore = isLoadingMoreTracks,
+                                currentTrackId = currentTrack.id,
+                                isPlaying = isPlaying,
                                 onLoadMore = { viewModel.loadMorePersonalizedTracks() },
                                 onSyncClick = { viewModel.resyncYouTubeAccount() },
                                 onConnectClick = { overlayState.showYouTubeLoginSheet = true },
-                                onCapsuleSelect = { capsule ->
-                                    viewModel.playMoodCapsule(capsule)
-                                    overlayState.isPlayerExpanded = true
-                                },
-                                onMoodSelect = { mood ->
-                                    viewModel.openCuratedCollection(mood.title, mood.imageUrl)
-                                },
-                                onGenreSelect = { genre ->
-                                    overlayState.viewingGenre = genre
-                                    viewModel.loadGenreDetail(genre.params, genre.title)
-                                },
                                 onMixClick = { mix ->
                                     viewModel.playCuratedMix(mix)
                                     overlayState.isPlayerExpanded = true
-                                },
-                                onAlbumPlaylistClick = { id, title, coverUrl ->
-                                    viewModel.openAlbumPlaylist(id, title, coverUrl)
-                                },
-                                onArtistClick = { artistName ->
-                                    overlayState.viewingArtist = artistName
-                                    viewModel.loadArtistProfile(artistName)
                                 },
                                 onTrackSelect = { track, queue ->
                                     viewModel.playTrackWithQueue(track, queue)
                                     overlayState.isPlayerExpanded = true
                                 },
-                                onProfileClick = { overlayState.showSettings = true },
-                                onMenuClick = {
-                                    viewModel.loadRecap()
-                                    overlayState.showRecap = true
-                                },
-                                currentTrackId = currentTrack.id,
-                                isPlaying = isPlaying,
-                                onPlayNext = { track -> viewModel.playNextBatch(listOf(track)) },
-                                onAddToQueue = { track -> viewModel.addToQueueBatch(listOf(track)) },
-                                onDownload = { track -> viewModel.downloadBatch(listOf(track)) },
                                 onStartRadio = { track ->
                                     viewModel.startRadio(track)
                                     overlayState.isPlayerExpanded = true
                                 },
-                                selectedMood = selectedHomeMood,
-                                moodTracks = moodTracks,
-                                isMoodLoading = isMoodLoading,
-                                onMoodFilterSelect = { viewModel.selectHomeMood(it) },
-                                isVibeLoading = homeVibeState is VibeSearchUiState.Loading,
                                 vibeState = homeVibeState,
-                                onVibeSubmit = { prompt -> viewModel.submitHomeVibeQuery(prompt) },
-                                onClearVibe = { viewModel.clearHomeVibeQuery() }
+                                homeSearchState = homeSearchState,
+                                onUnifiedHomeSearch = { q -> viewModel.submitUnifiedHomeSearch(q) },
+                                onClearHomeResults = { viewModel.clearUnifiedHomeResults() },
+                                isListeningAudio = isListeningShazam,
+                                recordingSeconds = recordingDurationSeconds,
+                                recognitionState = musicRecognitionState,
+                                onShazamToggle = { viewModel.startAmbientShazamRecognition(context) },
+                                onSingLyricsClick = { viewModel.startHumSearch() },
+                                podcastFeaturedShows = podcastFeaturedShows,
+                                podcastRecentEpisodes = podcastRecentEpisodes,
+                                podcastTopEpisodes = podcastTopEpisodes,
+                                podcastGlobalEpisodes = podcastGlobalEpisodes,
+                                podcastRegionalEpisodes = podcastRegionalEpisodes,
+                                podcastSearchResults = podcastSearchResults,
+                                selectedPodcastShow = selectedPodcastShow,
+                                activePodcastTopicQuery = activePodcastTopicQuery,
+                                isPodcastLoading = isPodcastLoading,
+                                podcastError = podcastError,
+                                onRefreshPodcasts = { viewModel.loadPodcastDiscovery() },
+                                onPodcastTopicSubmit = { viewModel.submitPodcastTopicQuery(it) },
+                                onClearPodcastTopic = { viewModel.clearPodcastTopicQuery() },
+                                onPodcastVoiceSearchClick = { viewModel.startVoiceSearch(HomeSection.PODCASTS) },
+                                onPodcastShowClick = { viewModel.openPodcastShow(it) },
+                                onClosePodcastShow = { viewModel.closePodcastShow() },
+                                onPodcastEpisodePlay = { ep ->
+                                    viewModel.playPodcastEpisode(ep)
+                                    overlayState.isPlayerExpanded = true
+                                }
                             )
                         }
                         NavigationTab.SEARCH -> {
+                            val combinedSearchCharts = remember(chartTracks, regionalCharts) {
+                                (chartTracks + regionalCharts).distinctBy { it.id.ifBlank { it.title } }
+                            }
+                            val combinedPodcastDiscover = remember(podcastGlobalEpisodes, podcastRegionalEpisodes, podcastTopEpisodes) {
+                                (podcastGlobalEpisodes + podcastRegionalEpisodes + podcastTopEpisodes)
+                                    .distinctBy { it.id.ifBlank { it.title } }
+                            }
                             SearchScreen(
-                                isYouTubeConnected = isYouTubeConnected,
+                                selectedSection = selectedSearchSection,
+                                onSectionSelected = { viewModel.setSearchSection(it) },
+                                searchQuery = searchQuery,
                                 searchResults = searchResults,
                                 isSearching = isSearching,
                                 vibeState = searchVibeState,
+                                recognitionState = musicRecognitionState,
                                 selectedCategory = searchCategory,
-                                chartTracks = if (regionalCharts.isNotEmpty()) regionalCharts else chartTracks,
-                                searchSuggestions = searchSuggestions,
+                                chartTracks = combinedSearchCharts,
                                 searchHistory = searchHistory,
                                 currentTrackId = currentTrack.id,
                                 isPlaying = isPlaying,
+                                isListeningAudio = isListeningShazam,
+                                recordingSeconds = recordingDurationSeconds,
                                 onCategorySelected = { viewModel.setSearchCategory(it) },
                                 onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
                                 onSearchSubmit = { viewModel.submitSearch(it) },
+                                onClearMusicSearch = { viewModel.clearMusicSearch() },
                                 onSearchHistoryItemRemoved = { viewModel.removeSearchHistoryItem(it) },
                                 onSearchHistoryCleared = { viewModel.clearSearchHistory() },
                                 onVibeSubmit = { viewModel.submitSearchVibeQuery(it) },
                                 onClearVibe = { viewModel.clearSearchVibeQuery() },
-                                onListenToSurroundings = {
-                                    selectedTab = NavigationTab.SHAZAM
-                                    viewModel.startAmbientShazamRecognition()
-                                },
-                                onVoiceSearchClick = {
-                                    viewModel.startVoiceSearch()
-                                },
-                                onVibeTagClick = { tag -> viewModel.submitSearchVibeQuery(tag.removePrefix("#")) },
-                                onGenreCardClick = { genre -> viewModel.openCuratedCollection(genre) },
+                                onSingLyricsClick = { viewModel.startHumSearch() },
+                                onIdentifyAudioClick = { viewModel.startAmbientShazamRecognition(context) },
+                                onClearRecognition = { viewModel.clearLyricsRecognition() },
                                 onTrackSelect = { track, queue ->
                                     if (queue.size > 1) {
                                         viewModel.playTrackWithQueue(track, queue)
@@ -364,9 +430,6 @@ fun MainApp(
                                     overlayState.viewingArtist = artistName
                                     viewModel.loadArtistProfile(artistName)
                                 },
-                                onPlayNextBatch = { tracks -> viewModel.playNextBatch(tracks) },
-                                onAddToQueueBatch = { tracks -> viewModel.addToQueueBatch(tracks) },
-                                onDownloadBatch = { tracks -> viewModel.downloadBatch(tracks) },
                                 onPlayNextSingle = { track -> viewModel.playNextBatch(listOf(track)) },
                                 onAddToQueueSingle = { track -> viewModel.addToQueueBatch(listOf(track)) },
                                 onStartRadioSingle = { track ->
@@ -375,63 +438,87 @@ fun MainApp(
                                 },
                                 onDownloadSingle = { track -> viewModel.downloadBatch(listOf(track)) },
                                 onAddToPlaylistSingle = { track -> viewModel.showAddToPlaylist(track) },
-                                isListeningAudio = isListeningShazam
+                                podcastSearchQuery = podcastSearchQuery,
+                                podcastSearchFilter = podcastSearchFilter,
+                                podcastFeaturedShows = podcastFeaturedShows,
+                                podcastTopEpisodes = combinedPodcastDiscover,
+                                podcastSearchResults = podcastSearchResults,
+                                podcastSearchShows = podcastSearchShows,
+                                selectedPodcastShow = selectedPodcastShow,
+                                podcastSearchHistory = podcastSearchHistory,
+                                isPodcastLoading = isPodcastLoading,
+                                isPodcastSearching = isPodcastSearching,
+                                podcastError = podcastError,
+                                onPodcastFilterSelected = { viewModel.setPodcastSearchFilter(it) },
+                                onPodcastSearchQueryChanged = { viewModel.onPodcastSearchQueryChanged(it) },
+                                onPodcastSearchSubmit = { viewModel.submitPodcastSearch(it) },
+                                onClearPodcastSearch = { viewModel.clearPodcastSearch() },
+                                onPodcastVoiceSearchClick = { viewModel.startVoiceSearch(HomeSection.PODCASTS) },
+                                onPodcastSearchHistoryItemRemoved = { viewModel.removePodcastSearchHistoryItem(it) },
+                                onPodcastSearchHistoryCleared = { viewModel.clearPodcastSearchHistory() },
+                                onPodcastShowClick = { viewModel.openPodcastShow(it) },
+                                onClosePodcastShow = { viewModel.closePodcastShow() },
+                                onPodcastEpisodePlay = { ep ->
+                                    viewModel.playPodcastEpisode(ep)
+                                    overlayState.isPlayerExpanded = true
+                                }
                             )
                         }
-                        NavigationTab.SHAZAM -> {
-                            ShazamScreen(
+                        NavigationTab.PROFILE -> {
+                            SettingsScreen(
+                                enableBackHandler = false,
+                                onClose = { selectedTab = NavigationTab.HOME },
+                                onEqualizerClick = { overlayState.showEqualizer = true },
+                                onAutoEqClick = { overlayState.showAutoEqPicker = true },
                                 isYouTubeConnected = isYouTubeConnected,
-                                isListening = isListeningShazam,
-                                audioAmplitude = audioWaveAmplitude,
-                                statusMessage = recognizedMessage,
                                 accountName = accountName,
-                                lastRecognizedTrack = lastRecognizedTrack,
-                                recognizedVariants = recognizedVariants,
-                                shazamHistory = shazamHistory,
-                                hummingHistory = hummingHistory,
-                                lastHummedTrack = lastHummedTrack,
-                                hummedVariants = hummedVariants,
-                                isFavorite = (lastRecognizedTrack ?: lastHummedTrack)?.let { it.id == currentTrack.id && isFavorite } ?: false,
-                                shazamMode = shazamMode,
-                                recordingDurationSeconds = recordingDurationSeconds,
-                                onModeChange = { viewModel.setShazamMode(it) },
-                                onLaunchGoogleSoundSearch = { viewModel.launchGoogleSoundSearch(context) },
-                                onStartListening = { viewModel.startAmbientShazamRecognition(context) },
-                                onStopListening = { viewModel.stopAndSendShazamRecording() },
-                                onDismissRecognized = { viewModel.clearLastRecognizedTrack() },
-                                onDismissHummed = { viewModel.clearLastHummedTrack() },
-                                onPlayTrack = { track ->
-                                    viewModel.playTrack(track)
-                                    overlayState.isPlayerExpanded = true
-                                },
-                                onStartRadio = { track ->
-                                    viewModel.startRadio(track)
-                                    overlayState.isPlayerExpanded = true
-                                },
-                                onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
-                                onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
-                                onDownload = { track -> viewModel.startTrackDownload(track) },
-                                onConnectYouTubeClick = { launchYouTubeAuth() },
-                                onVoiceSearchClick = { viewModel.startVoiceSearch() }
+                                userAvatarUrl = userAvatarUrl,
+                                currentTheme = selectedTheme,
+                                cachePurgeStatus = cachePurgeStatus,
+                                downloadedTracksCount = downloadedMusicTracks.size,
+                                downloadsSizeMB = downloadsSizeMB,
+                                cacheSizeMB = cacheSizeMB,
+                                localTracksCount = libraryTracks.size,
+                                onThemeSelected = { viewModel.setTheme(it) },
+                                onSpotifyImportSubmit = { url -> viewModel.importSpotifyPlaylist(url) },
+                                onYouTubeSyncClick = { launchYouTubeAuth() },
+                                onYouTubeResyncClick = { viewModel.resyncYouTubeAccount() },
+                                onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
+                                onPurgeCacheClick = { viewModel.purgeCache() },
+                                onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
+                                autoDownloadLikedSongs = autoDownloadLikedSongs,
+                                skipSilenceEnabled = skipSilenceEnabled,
+                                normalizeVolumeEnabled = normalizeVolumeEnabled,
+                                sponsorBlockEnabled = sponsorBlockEnabled,
+                                lockscreenWallpaperEnabled = isLockscreenWallpaperEnabled,
+                                vlcAutoScanEnabled = isVlcAutoScanEnabled,
+                                streamingQuality = streamingQuality,
+                                downloadQuality = downloadQuality,
+                                onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
+                                onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
+                                onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
+                                onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
+                                onLockscreenWallpaperChange = { viewModel.setLockscreenWallpaperEnabled(it) },
+                                onVlcAutoScanChange = { viewModel.setVlcAutoScanEnabled(it) },
+                                onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
+                                onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
+                                onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
+                                onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
+                                onCheckUpdateClick = { viewModel.checkForAppUpdates(manual = true) },
+                                onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
+                                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
                             )
                         }
                         NavigationTab.LIBRARY -> {
                             LibraryScreen(
+                                currentTrackId = currentTrack.id,
+                                isPlaying = isPlaying,
                                 isYouTubeConnected = isYouTubeConnected,
-                                savedGB = savedGB,
-                                downloadsCount = downloadsCount,
-                                whatsappCount = whatsappCount,
-                                telegramCount = telegramCount,
-                                youtubeCount = if (isYouTubeConnected) syncedYouTubeTracks.size else youtubeCount,
                                 tracks = libraryTracks,
                                 musicTracks = musicTracks,
                                 mixedAudioTracks = mixedAudioTracks,
                                 syncedYouTubeTracks = syncedYouTubeTracks,
-                                downloadTasks = downloadTasks,
-                                onStartDownload = { viewModel.startTrackDownload(it) },
-                                onCancelDownload = { viewModel.cancelTrackDownload(it) },
                                 onDeleteDownload = { viewModel.deleteTrackDownload(it) },
-                                onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
                                 customPlaylists = customPlaylists,
                                 artistPlaylists = artistPlaylists,
                                 albumicPlaylists = albumicPlaylists,
@@ -442,23 +529,17 @@ fun MainApp(
                                 onAddToPlaylist = { track -> viewModel.showAddToPlaylist(track) },
                                 onPlayNext = { track -> viewModel.playNext(track) },
                                 onAddToQueue = { track -> viewModel.addToQueue(track) },
-                                onStartRadio = { track ->
-                                    viewModel.startRadio(track)
-                                    overlayState.isPlayerExpanded = true
-                                },
                                 downloadedTracks = downloadedMusicTracks,
                                 onTrackSelect = { track, queue ->
                                     viewModel.playTrackWithQueue(track, queue)
                                     overlayState.isPlayerExpanded = true
                                 },
                                 onRefresh = { viewModel.refreshLibrary() },
-                                onProfileClick = { overlayState.showSettings = true },
+                                onConnectClick = { launchYouTubeAuth() },
                                 favoriteTracks = favoriteTracks,
                                 recentlyPlayedTracks = recentlyPlayedTracks,
-                                onOpenEqualizer = { overlayState.showEqualizer = true },
                                 onOpenRingtoneCutter = { track -> overlayState.ringtoneCutterTrack = track },
                                 onToggleFavorite = { track -> viewModel.toggleTrackFavorite(track) },
-                                onStartShazam = { viewModel.startAmbientShazamRecognition() },
                                 onShufflePlayAll = { viewModel.shufflePlayMusicTracks() },
                                 onIdentifyTrack = { track -> viewModel.identifyTrack(track) },
                                 onBatchIdentify = { viewModel.batchIdentifyUnknownTracks() },

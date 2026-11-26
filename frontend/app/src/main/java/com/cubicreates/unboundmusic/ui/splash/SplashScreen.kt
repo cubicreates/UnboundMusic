@@ -15,6 +15,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -42,14 +43,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import com.cubicreates.unboundmusic.R
 import kotlinx.coroutines.launch
-
-private const val SPLASH_LOGO_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuCiCHsQD6ywAgAk-W6VoIUdO1HFQY3AI2rLY_bbdoWFW0xgkO8UJYAd3UknVFBw2t0B_WLsOrbRERpoUHFswsBKpfSwWOAHb-sJwqi7jhP8BNO_UW0xdMqfqRGuYPpfoFdX1lAlk0UvkRm7Qvw8H1j-cz5zwhr0rV8ITYg_ELFlOv1XCPI73JT4DDjOc6uCxRQSv0Vl1TucvQdHpseSMrq-Bv1SipZ8mNKhXz5VBYZdY_A059PL9UMC7g"
 
 @Composable
 fun SplashScreen(
@@ -152,12 +152,10 @@ fun SplashScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = SPLASH_LOGO_URL,
+                Image(
+                    painter = painterResource(id = R.drawable.unbound_logo),
                     contentDescription = "Unbound Music Logo",
-                    modifier = Modifier
-                        .size(110.dp)
-                        .shadow(elevation = 12.dp, spotColor = Color(0xFF4CD6FB).copy(alpha = 0.4f)),
+                    modifier = Modifier.size(124.dp),
                     contentScale = ContentScale.Fit
                 )
             }

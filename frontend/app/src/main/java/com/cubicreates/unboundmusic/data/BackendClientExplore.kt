@@ -23,6 +23,21 @@ suspend fun BackendClient.search(query: String, type: String = "all"): Pair<Int,
     get("/api/v1/search?q=$encoded&type=$encodedType")
 }
 
+/** Searches strictly Music-only catalog (/api/v1/search/unified?domain=music) with subtype filter ("all", "songs", "artists", "albums", "playlists") and legacy fallback. */
+suspend fun BackendClient.searchMusic(query: String, filter: String = "all"): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val encoded = URLEncoder.encode(query, "UTF-8")
+    val encodedFilter = URLEncoder.encode(filter, "UTF-8")
+    val (unifiedCode, unifiedBody) = get("/api/v1/search/unified?domain=music&q=$encoded&filter=$encodedFilter")
+    if (unifiedCode != 404) {
+        return@withContext Pair(unifiedCode, unifiedBody)
+    }
+    val (code, body) = get("/api/v1/search/music?q=$encoded&filter=$encodedFilter")
+    if (code == 404) {
+        return@withContext search(query, type = if (filter == "all") "music" else filter)
+    }
+    Pair(code, body)
+}
+
 /** Executes the 4-stage search cascade (official -> fan lyric/audio -> broad community sweep -> clean empty). */
 suspend fun BackendClient.searchCascade(query: String): Pair<Int, String> = withContext(Dispatchers.IO) {
     val encoded = URLEncoder.encode(query, "UTF-8")
@@ -204,6 +219,84 @@ suspend fun BackendClient.getExploreMoods(): Pair<Int, String> = withContext(Dis
 /** Regional & global Top 100 charts. */
 suspend fun BackendClient.getExploreCharts(country: String = "US"): Pair<Int, String> = withContext(Dispatchers.IO) {
     get("/api/v1/explore/charts?country=${URLEncoder.encode(country, "UTF-8")}")
+}
+
+/** Unified backend-computed Home feed (Jump Back In, Made For Your Mood Mixes, Global & Regional Singles). */
+suspend fun BackendClient.getHomeFeed(gl: String = "IN", hl: String = "en"): HomeFeedDto? = withContext(Dispatchers.IO) {
+    val (code, json) = get("/api/v1/explore/home?gl=${URLEncoder.encode(gl, "UTF-8")}&hl=${URLEncoder.encode(hl, "UTF-8")}")
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    parseHomeFeed(json)
+}
+
+fun BackendClient.parseHomeFeed(json: String): HomeFeedDto? {
+    if (json.isBlank()) return null
+    return try {
+        val root = JSONObject(json)
+
+        fun parseTrackArray(arr: JSONArray?): List<TrackItem> {
+            if (arr == null) return emptyList()
+            val out = mutableListOf<TrackItem>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val id = obj.optString("id").ifBlank { obj.optString("track_id") }
+                val title = obj.optString("title")
+                if (id.isBlank() || title.isBlank()) continue
+                val thumb = obj.optString("thumbnail")
+                    .ifBlank { obj.optString("thumbnail_url") }
+                    .ifBlank { obj.optString("cover_url") }
+                out.add(
+                    TrackItem(
+                        id = id,
+                        title = title,
+                        artist = obj.optString("artist"),
+                        album = obj.optString("album"),
+                        coverUrl = thumb,
+                        streamUrl = "",
+                        durationMs = obj.optLong("duration_ms"),
+                        source = obj.optString("source", "youtube"),
+                        isExplicit = obj.optBoolean("is_explicit", false)
+                    )
+                )
+            }
+            return out
+        }
+
+        val mixes = mutableListOf<HomeMixDto>()
+        val mixArr = root.optJSONArray("made_for_you_mixes")
+        if (mixArr != null) {
+            for (i in 0 until mixArr.length()) {
+                val m = mixArr.optJSONObject(i) ?: continue
+                val id = m.optString("id")
+                val title = m.optString("title")
+                if (id.isBlank() || title.isBlank()) continue
+                mixes.add(
+                    HomeMixDto(
+                        id = id,
+                        title = title,
+                        subtitle = m.optString("subtitle"),
+                        coverUrl = m.optString("cover_url").ifBlank { m.optString("thumbnail_url") },
+                        mixType = m.optString("mix_type", "track_radio"),
+                        seedTrackId = m.optString("seed_track_id"),
+                        seedTitle = m.optString("seed_title"),
+                        seedArtist = m.optString("seed_artist")
+                    )
+                )
+            }
+        }
+
+        HomeFeedDto(
+            isLoggedIn = root.optBoolean("is_logged_in", false),
+            accountName = root.optString("account_name"),
+            avatarUrl = root.optString("avatar_url").takeIf { it.isNotBlank() },
+            regionCode = root.optString("region_code", "IN"),
+            jumpBackIn = parseTrackArray(root.optJSONArray("jump_back_in")),
+            madeForYouMixes = mixes,
+            trendingGlobally = parseTrackArray(root.optJSONArray("trending_globally")),
+            trendingRegionally = parseTrackArray(root.optJSONArray("trending_regionally"))
+        )
+    } catch (_: Exception) {
+        null
+    }
 }
 
 /** Fetches 24-hour situational mood capsules. */
@@ -790,6 +883,206 @@ fun BackendClient.parseSettings(jsonStr: String): Map<String, String> {
 /** YouTube podcasts browser with resume position. */
 suspend fun BackendClient.getPodcasts(podcastId: String): Pair<Int, String> = withContext(Dispatchers.IO) {
     get("/api/v1/podcasts/browse?id=${URLEncoder.encode(podcastId, "UTF-8")}")
+}
+
+/** Fetches dedicated Podcast discovery feed (featured shows, recent/resumable episodes, top episodes). */
+suspend fun BackendClient.discoverPodcasts(
+    category: String = "All Podcasts",
+    country: String = "US"
+): PodcastDiscoveryDto? = withContext(Dispatchers.IO) {
+    val encCat = URLEncoder.encode(category, "UTF-8")
+    val encGl = URLEncoder.encode(country, "UTF-8")
+    val (code, json) = get("/api/v1/podcasts/discover?category=$encCat&gl=$encGl")
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    parsePodcastDiscovery(json)
+}
+
+/** Searches exclusively for podcast shows and episodes (/api/v1/search/podcasts with /api/v1/podcasts/search fallback). */
+suspend fun BackendClient.searchPodcastsOnly(
+    query: String,
+    filter: String = "all"
+): Pair<List<PodcastEpisodeDto>, List<PodcastShowDto>> = withContext(Dispatchers.IO) {
+    val encQ = URLEncoder.encode(query.trim(), "UTF-8")
+    val encFilter = URLEncoder.encode(filter, "UTF-8")
+    var (code, json) = get("/api/v1/search/podcasts?q=$encQ&filter=$encFilter")
+    if (code == 404) {
+        val fallback = get("/api/v1/podcasts/search?q=$encQ&filter=$encFilter")
+        code = fallback.first
+        json = fallback.second
+    }
+    if (code !in 200..299 || json.isBlank()) return@withContext Pair(emptyList(), emptyList())
+    try {
+        val root = JSONObject(json)
+        val eps = parsePodcastEpisodes(root.optJSONArray("episodes"))
+        val shows = parsePodcastShows(root.optJSONArray("shows"))
+        Pair(eps, shows)
+    } catch (_: Exception) {
+        Pair(emptyList(), emptyList())
+    }
+}
+
+/** Browses a specific podcast show and its episodes. */
+suspend fun BackendClient.browsePodcastShow(showId: String, showTitle: String = ""): PodcastShowDto? = withContext(Dispatchers.IO) {
+    val encId = URLEncoder.encode(showId, "UTF-8")
+    val encTitle = URLEncoder.encode(showTitle, "UTF-8")
+    val (code, json) = get("/api/v1/podcasts/browse?id=$encId&title=$encTitle")
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    try {
+        parsePodcastShow(JSONObject(json))
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/** Saves exact millisecond resume position and optional metadata for a podcast episode. */
+suspend fun BackendClient.savePodcastResume(
+    episodeId: String,
+    positionMs: Long,
+    episode: PodcastEpisodeDto? = null
+): Boolean = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("episode_id", episodeId)
+        put("position_ms", positionMs)
+        if (episode != null) {
+            put("title", episode.title)
+            put("show_title", episode.showTitle)
+            put("author", episode.author)
+            put("thumbnail_url", episode.effectiveThumbnail)
+            put("duration_ms", episode.durationMs)
+        }
+    }.toString()
+    val (code, _) = post("/api/v1/podcasts/resume", payload)
+    code in 200..299
+}
+
+/** Fetches persisted Podcast Library state (followed shows, saved episodes, in-progress episodes). */
+suspend fun BackendClient.getPodcastLibrary(): PodcastLibraryDto? = withContext(Dispatchers.IO) {
+    val (code, json) = get("/api/v1/podcasts/library")
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    parsePodcastLibrary(json)
+}
+
+fun BackendClient.parsePodcastLibrary(jsonStr: String): PodcastLibraryDto? {
+    if (jsonStr.isBlank()) return null
+    return try {
+        val root = JSONObject(jsonStr)
+        PodcastLibraryDto(
+            followedShows = parsePodcastShows(root.optJSONArray("followed_shows")),
+            savedEpisodes = parsePodcastEpisodes(root.optJSONArray("saved_episodes")),
+            inProgressEpisodes = parsePodcastEpisodes(root.optJSONArray("in_progress_episodes"))
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/** Toggles follow state for a podcast show on the Go daemon. */
+suspend fun BackendClient.toggleFollowPodcastShow(show: PodcastShowDto): Boolean? = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("id", show.id.ifBlank { show.title })
+        put("title", show.title)
+        put("author", show.author)
+        put("description", show.description)
+        put("category", show.category)
+        put("thumbnail_url", show.thumbnailUrl)
+        put("episode_count", show.episodeCount)
+    }.toString()
+    val (code, json) = post("/api/v1/podcasts/library/follow", payload)
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    try {
+        JSONObject(json).optBoolean("followed", false)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/** Toggles saved/bookmarked state for a podcast episode on the Go daemon. */
+suspend fun BackendClient.toggleSavePodcastEpisode(episode: PodcastEpisodeDto): Boolean? = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("id", episode.id)
+        put("show_id", episode.showId)
+        put("show_title", episode.showTitle)
+        put("author", episode.author)
+        put("title", episode.title)
+        put("description", episode.description)
+        put("category", episode.category)
+        put("duration_ms", episode.durationMs)
+        put("thumbnail_url", episode.effectiveThumbnail)
+        put("release_date", episode.releaseDate)
+        put("resume_pos_ms", episode.resumePosMs)
+    }.toString()
+    val (code, json) = post("/api/v1/podcasts/library/save", payload)
+    if (code !in 200..299 || json.isBlank()) return@withContext null
+    try {
+        JSONObject(json).optBoolean("saved", false)
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun BackendClient.parsePodcastDiscovery(jsonStr: String): PodcastDiscoveryDto? {
+    if (jsonStr.isBlank()) return null
+    return try {
+        val root = JSONObject(jsonStr)
+        PodcastDiscoveryDto(
+            category = root.optString("category", "All Podcasts"),
+            featuredShows = parsePodcastShows(root.optJSONArray("featured_shows")),
+            recentEpisodes = parsePodcastEpisodes(root.optJSONArray("recent_episodes")),
+            topEpisodes = parsePodcastEpisodes(root.optJSONArray("top_episodes")),
+            globalEpisodes = parsePodcastEpisodes(root.optJSONArray("global_episodes")),
+            regionalEpisodes = parsePodcastEpisodes(root.optJSONArray("regional_episodes"))
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun parsePodcastShows(arr: JSONArray?): List<PodcastShowDto> {
+    if (arr == null) return emptyList()
+    val list = mutableListOf<PodcastShowDto>()
+    for (i in 0 until arr.length()) {
+        val obj = arr.optJSONObject(i) ?: continue
+        list.add(parsePodcastShow(obj))
+    }
+    return list
+}
+
+private fun parsePodcastShow(obj: JSONObject): PodcastShowDto {
+    val eps = parsePodcastEpisodes(obj.optJSONArray("episodes"))
+    return PodcastShowDto(
+        id = obj.optString("id", ""),
+        title = obj.optString("title", "Podcast Show"),
+        author = obj.optString("author", "Creator"),
+        description = obj.optString("description", ""),
+        category = obj.optString("category", ""),
+        thumbnailUrl = obj.optString("thumbnail_url", ""),
+        episodeCount = obj.optInt("episode_count", eps.size),
+        episodes = eps
+    )
+}
+
+private fun parsePodcastEpisodes(arr: JSONArray?): List<PodcastEpisodeDto> {
+    if (arr == null) return emptyList()
+    val list = mutableListOf<PodcastEpisodeDto>()
+    for (i in 0 until arr.length()) {
+        val obj = arr.optJSONObject(i) ?: continue
+        list.add(
+            PodcastEpisodeDto(
+                id = obj.optString("id", ""),
+                showId = obj.optString("show_id", ""),
+                showTitle = obj.optString("show_title", ""),
+                author = obj.optString("author", ""),
+                title = obj.optString("title", ""),
+                description = obj.optString("description", ""),
+                category = obj.optString("category", ""),
+                durationMs = obj.optLong("duration_ms", 0L),
+                thumbnailUrl = obj.optString("thumbnail_url", ""),
+                releaseDate = obj.optString("release_date", ""),
+                resumePosMs = obj.optLong("resume_pos_ms", 0L)
+            )
+        )
+    }
+    return list
 }
 
 /** Fetches YouTube Music algorithmic automix radio queue for a seed videoId. */

@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.service.PlaybackMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
@@ -194,13 +195,33 @@ fun QueueBottomSheet(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Tracklist
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(queue) { index, track ->
+                if (queue.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        UnboundEmptyStateCard(
+                            title = "Queue is empty",
+                            subtitle = "Play any song or tap Radio above to queue up tracks.",
+                            icon = Icons.Default.MusicNote,
+                            actionLabel = "Start Radio",
+                            onAction = {
+                                onStartRadio()
+                                onDismiss()
+                            },
+                            compact = true
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(queue) { index, track ->
                         val isCurrent = track.title == currentTrack?.title
                         Row(
                             modifier = Modifier
@@ -301,6 +322,7 @@ fun QueueBottomSheet(
                                 }
                             }
                         }
+                    }
                     }
                 }
             }

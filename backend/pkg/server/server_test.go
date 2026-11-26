@@ -782,3 +782,59 @@ func TestServerFallbackResolveEndpoint(t *testing.T) {
 	}
 }
 
+// TestStorageLibraryEndpoint verifies backend-side sorting, filtering, and folder grouping.
+func TestStorageLibraryEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           45734,
+		DatabasePath:   filepath.Join(tempDir, "test_storage_library.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	ingestBody := `{"tracks":[
+		{"id":"t1","file_path":"/storage/emulated/0/Music/Zebra.mp3","title":"Zebra","artist":"B Artist","album":"Mix","duration_ms":210000,"source_folder":"Music","identification_method":"acoustid"},
+		{"id":"t2","file_path":"/storage/emulated/0/WhatsApp/Media/WhatsApp Audio/AUD-1.opus","title":"AUD-1","artist":"Unknown Artist","duration_ms":12000,"source_folder":"WhatsApp Audio","identification_method":"local_unrecognized"}
+	]}`
+	reqIngest := httptest.NewRequest(http.MethodPost, "/api/v1/storage/ingest-batch", strings.NewReader(ingestBody))
+	wIngest := httptest.NewRecorder()
+	srv.handleStorageIngestBatch(wIngest, reqIngest)
+	if wIngest.Code != http.StatusOK {
+		t.Fatalf("ingest failed with status %d", wIngest.Code)
+	}
+
+	reqLib := httptest.NewRequest(http.MethodGet, "/api/v1/storage/library?sort=title", nil)
+	wLib := httptest.NewRecorder()
+	srv.handleStorageLibrary(wLib, reqLib)
+	if wLib.Code != http.StatusOK {
+		t.Fatalf("library endpoint returned %d", wLib.Code)
+	}
+
+	var payload struct {
+		Tracks   []models.LocalTrack `json:"tracks"`
+		Folders  []any               `json:"folders"`
+		Untagged int                 `json:"untagged_count"`
+	}
+	if err := json.NewDecoder(wLib.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(payload.Tracks) != 2 {
+		t.Fatalf("expected 2 tracks, got %d", len(payload.Tracks))
+	}
+	if payload.Tracks[0].Title != "AUD-1" {
+		t.Errorf("expected sorted first track AUD-1, got %s", payload.Tracks[0].Title)
+	}
+	if len(payload.Folders) != 2 {
+		t.Errorf("expected 2 grouped folders, got %d", len(payload.Folders))
+	}
+	if payload.Untagged != 1 {
+		t.Errorf("expected 1 untagged track, got %d", payload.Untagged)
+	}
+}
+

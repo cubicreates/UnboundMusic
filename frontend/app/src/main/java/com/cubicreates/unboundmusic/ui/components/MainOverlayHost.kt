@@ -57,7 +57,6 @@ import com.cubicreates.unboundmusic.ui.player.SleepTimerSheet
 import com.cubicreates.unboundmusic.ui.playlist.AddToPlaylistSheet
 import com.cubicreates.unboundmusic.ui.playlist.CustomPlaylistScreen
 import com.cubicreates.unboundmusic.ui.recap.RecapScreen
-import com.cubicreates.unboundmusic.ui.settings.SettingsScreen
 import com.cubicreates.unboundmusic.ui.tools.RingtoneCutterScreen
 import com.cubicreates.unboundmusic.viewmodel.*
 
@@ -72,7 +71,6 @@ class MainOverlayState(
     showYouTubeLoginSheet: Boolean = false,
     showYouTubeDeviceAuthSheet: Boolean = false,
     showDownloadsScreen: Boolean = false,
-    showSettings: Boolean = false,
     viewingArtist: String? = null,
     viewingGenre: GenreItemDto? = null,
     ringtoneCutterTrack: TrackItem? = null,
@@ -85,7 +83,6 @@ class MainOverlayState(
     var showYouTubeLoginSheet by mutableStateOf(showYouTubeLoginSheet)
     var showYouTubeDeviceAuthSheet by mutableStateOf(showYouTubeDeviceAuthSheet)
     var showDownloadsScreen by mutableStateOf(showDownloadsScreen)
-    var showSettings by mutableStateOf(showSettings)
     var viewingArtist by mutableStateOf(viewingArtist)
     var viewingGenre by mutableStateOf(viewingGenre)
     var ringtoneCutterTrack by mutableStateOf(ringtoneCutterTrack)
@@ -96,13 +93,12 @@ class MainOverlayState(
 fun rememberMainOverlayState(): MainOverlayState {
     return androidx.compose.runtime.saveable.rememberSaveable(
         saver = androidx.compose.runtime.saveable.Saver(
-            save = { listOf(it.isPlayerExpanded, it.showSettings, it.showDownloadsScreen, it.viewingArtist) },
+            save = { listOf(it.isPlayerExpanded, it.showDownloadsScreen, it.viewingArtist) },
             restore = {
                 MainOverlayState(
                     isPlayerExpanded = (it.getOrNull(0) as? Boolean) ?: false,
-                    showSettings = (it.getOrNull(1) as? Boolean) ?: false,
-                    showDownloadsScreen = (it.getOrNull(2) as? Boolean) ?: false,
-                    viewingArtist = it.getOrNull(3) as? String
+                    showDownloadsScreen = (it.getOrNull(1) as? Boolean) ?: false,
+                    viewingArtist = it.getOrNull(2) as? String
                 )
             }
         )
@@ -209,47 +205,6 @@ fun MainOverlayHost(
     }
     val currentDownloadProgress = currentTask?.progress ?: 0.0
 
-    // Modal: Settings Screen (Launched via top bar profile avatar)
-    if (overlayState.showSettings) {
-        BackHandler(enabled = true) { overlayState.showSettings = false }
-        SettingsScreen(
-            onClose = { overlayState.showSettings = false },
-            onEqualizerClick = { overlayState.showEqualizer = true },
-            onAutoEqClick = { overlayState.showAutoEqPicker = true },
-            isYouTubeConnected = isYouTubeConnected,
-            accountName = accountName,
-            userAvatarUrl = userAvatarUrl,
-            currentTheme = selectedTheme,
-            cachePurgeStatus = cachePurgeStatus,
-            onThemeSelected = { viewModel.setTheme(it) },
-            onYouTubeSyncClick = { launchYouTubeAuth() },
-            onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },
-            onPurgeCacheClick = { viewModel.purgeCache() },
-            onCleanStorageForUninstallClick = { viewModel.purgeUnboundStorageForUninstall() },
-            autoDownloadLikedSongs = autoDownloadLikedSongs,
-            skipSilenceEnabled = skipSilenceEnabled,
-            normalizeVolumeEnabled = normalizeVolumeEnabled,
-            sponsorBlockEnabled = sponsorBlockEnabled,
-            lockscreenWallpaperEnabled = isLockscreenWallpaperEnabled,
-            vlcAutoScanEnabled = isVlcAutoScanEnabled,
-            streamingQuality = streamingQuality,
-            downloadQuality = downloadQuality,
-            onAutoDownloadLikedSongsChange = { viewModel.setAutoDownloadLikedSongs(it) },
-            onSkipSilenceChange = { viewModel.setSkipSilenceEnabled(it) },
-            onNormalizeVolumeChange = { viewModel.setNormalizeVolumeEnabled(it) },
-            onSponsorBlockChange = { viewModel.setSponsorBlockEnabled(it) },
-            onLockscreenWallpaperChange = { viewModel.setLockscreenWallpaperEnabled(it) },
-            onVlcAutoScanChange = { viewModel.setVlcAutoScanEnabled(it) },
-            onStreamingQualityChange = { viewModel.setStreamingQuality(it) },
-            onDownloadQualityChange = { viewModel.setDownloadQuality(it) },
-            onOpenDownloadsHub = { overlayState.showDownloadsScreen = true },
-            onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
-            onCheckUpdateClick = { viewModel.checkForAppUpdates(manual = true) },
-            onExportBackupClick = onExportBackupClick,
-            onRestoreBackupClick = onRestoreBackupClick
-        )
-    }
-
     // Modal: Sleep Timer from Settings
     if (overlayState.showSleepTimerFromSettings) {
         BackHandler(enabled = true) { overlayState.showSleepTimerFromSettings = false }
@@ -277,7 +232,7 @@ fun MainOverlayHost(
         val effectiveProfile = artistProfile ?: com.cubicreates.unboundmusic.ui.artist.ArtistProfileData(
             name = currentViewingArtist,
             heroImageUrl = "",
-            monthlyListeners = "Loading monthly listeners...",
+            monthlyListeners = "",
             bio = ""
         )
         ArtistScreen(

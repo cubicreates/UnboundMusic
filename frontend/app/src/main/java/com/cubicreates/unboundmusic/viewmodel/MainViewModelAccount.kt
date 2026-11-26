@@ -63,6 +63,7 @@ fun MainViewModel.syncYouTubeAccount(cookie: String) {
                 checkAccountStatus()
                 loadSyncedYouTubeTracks()
                 loadSmartFeed()
+                refreshHomeFeed()
                 withContext(Dispatchers.Main) {
                     UnboundToast.show(getApplication(), "YouTube synced successfully!", isLong = false)
                 }
@@ -92,6 +93,7 @@ fun MainViewModel.resyncYouTubeAccount() {
                 checkAccountStatus()
                 loadSyncedYouTubeTracks()
                 loadSmartFeed()
+                refreshHomeFeed()
                 withContext(Dispatchers.Main) {
                     UnboundToast.show(getApplication(), "Library refreshed!", isLong = false)
                 }
@@ -215,6 +217,7 @@ fun MainViewModel.disconnectYouTubeAccount() {
                 _syncedYouTubeTracks.value = emptyList()
                 _youtubeCount.value = 0
                 SessionStore.getInstance(getApplication()).clear()
+                refreshHomeFeed()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Account disconnect failed: ${e.message}")
@@ -250,23 +253,49 @@ fun MainViewModel.loadSyncedYouTubeTracks() {
     }
 }
 
-/** Continuously loads next wave of music tracks for infinite scroll. */
+/** Continuously loads next wave of music tracks for infinite scroll (logged-in & guest). */
 fun MainViewModel.loadMorePersonalizedTracks() {
     if (_isLoadingMoreTracks.value) return
     viewModelScope.launch(Dispatchers.IO) {
         _isLoadingMoreTracks.value = true
         try {
-            val seed = _syncedYouTubeTracks.value.shuffled().firstOrNull()?.id
+            val seedPool = (_syncedYouTubeTracks.value + _adaptiveQuickPicks.value + _regionalCharts.value + _chartTracks.value)
+                .filter { it.id.isNotBlank() && !it.id.startsWith("local:") }
+            val seed = seedPool.randomOrNull()?.id
+
+            var fetchedTracks: List<TrackItem> = emptyList()
             val (code, resp) = client.getAccountFeedInfinite(seed)
             if (code in 200..299 && resp.isNotBlank()) {
-                val newTracks = client.parseLikedTracks(resp)
-                if (newTracks.isNotEmpty()) {
-                    val existingIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
-                    val uniqueNew = newTracks.filter { it.id !in existingIds }
-                    if (uniqueNew.isNotEmpty()) {
-                        _syncedYouTubeTracks.value = _syncedYouTubeTracks.value + uniqueNew
+                fetchedTracks = client.parseLikedTracks(resp)
+            }
+            if (fetchedTracks.isEmpty() && !seed.isNullOrBlank()) {
+                val (rCode, rResp) = client.getRadioNext(seed)
+                if (rCode in 200..299 && rResp.isNotBlank()) {
+                    fetchedTracks = client.parseRadioNext(rResp)
+                }
+            }
+
+            val musicTracks = fetchedTracks.filter {
+                !it.source.equals("podcast", true) && !it.itemType.equals("podcast", true)
+            }
+            if (musicTracks.isNotEmpty()) {
+                if (_isYouTubeConnected.value || _syncedYouTubeTracks.value.isNotEmpty()) {
+                    val existingSyncedIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
+                    val uniqueSynced = musicTracks.filter { it.id !in existingSyncedIds }
+                    if (uniqueSynced.isNotEmpty()) {
+                        _syncedYouTubeTracks.value = _syncedYouTubeTracks.value + uniqueSynced
                         _youtubeCount.value = _syncedYouTubeTracks.value.size
                     }
+                }
+                val existingPickIds = _adaptiveQuickPicks.value.map { it.id }.toSet()
+                val uniquePicks = musicTracks.filter { it.id !in existingPickIds }
+                if (uniquePicks.isNotEmpty()) {
+                    _adaptiveQuickPicks.value = _adaptiveQuickPicks.value + uniquePicks
+                }
+                val existingHomeIds = _homeJumpBackTracks.value.map { it.id }.toSet()
+                val uniqueHome = musicTracks.filter { it.id !in existingHomeIds }
+                if (uniqueHome.isNotEmpty()) {
+                    _homeJumpBackTracks.value = _homeJumpBackTracks.value + uniqueHome
                 }
             }
         } catch (e: Exception) {
@@ -325,6 +354,76 @@ fun MainViewModel.logPlaybackEvent(track: TrackItem, listenedSec: Int) {
             loadSmartFeed()
         } catch (e: Exception) {
             Log.d(TAG, "Analytics log note: ${e.message}")
+        }
+    }
+}
+
+/**
+ * Imports a public Spotify playlist URL via the Go backend importer and saves it as a local playlist.
+ */
+fun MainViewModel.importSpotifyPlaylist(url: String) {
+    val trimmed = url.trim()
+    if (trimmed.isBlank()) return
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            val (code, resp) = client.importSpotify(trimmed)
+            if (code !in 200..299 || resp.isBlank()) {
+                val msg = try {
+                    JSONObject(resp).optString("error", "Import failed [HTTP $code]")
+                } catch (_: Exception) {
+                    "Import failed [HTTP $code]"
+                }
+                withContext(Dispatchers.Main) {
+                    UnboundToast.show(getApplication(), msg, isLong = true)
+                }
+                return@launch
+            }
+            val root = JSONObject(resp)
+            val title = root.optString("title", "Spotify Playlist").ifBlank { "Spotify Playlist" }
+            val description = root.optString("description", "Imported from Spotify")
+            val arr = root.optJSONArray("tracks")
+            val importedTracks = mutableListOf<TrackItem>()
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val trackTitle = obj.optString("title", "").trim()
+                    if (trackTitle.isBlank()) continue
+                    val artist = obj.optString("artist", "Unknown Artist").ifBlank { "Unknown Artist" }
+                    val album = obj.optString("album", "")
+                    val durationMs = obj.optLong("duration_sec", 0L) * 1000L
+                    importedTracks.add(
+                        TrackItem(
+                            id = "sp_${(trackTitle + artist).hashCode()}",
+                            title = trackTitle,
+                            artist = artist,
+                            album = album,
+                            durationMs = durationMs,
+                            coverUrl = "",
+                            source = "spotify_import"
+                        )
+                    )
+                }
+            }
+            LocalPlaylistStore.createPlaylist(
+                context = getApplication(),
+                title = title,
+                description = description,
+                coverUrl = "",
+                initialTracks = importedTracks
+            )
+            loadCustomPlaylists()
+            withContext(Dispatchers.Main) {
+                UnboundToast.show(
+                    getApplication(),
+                    "Imported \"$title\" (${importedTracks.size} tracks)",
+                    isLong = true
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Spotify import failed: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                UnboundToast.show(getApplication(), "Spotify import error: ${e.message}", isLong = true)
+            }
         }
     }
 }

@@ -83,6 +83,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
+import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -97,7 +99,8 @@ data class AlbumPlaylistData(
     val subtitle: String,
     val coverUrl: String,
     val tracks: List<TrackItem> = emptyList(),
-    val totalDuration: String = "45 mins"
+    val totalDuration: String = "",
+    val isLoading: Boolean = false
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -238,18 +241,19 @@ fun AlbumPlaylistScreen(
                                 .background(SurfaceGlassHighest)
                                 .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(22.dp))
                         ) {
-                            AsyncImage(
-                                model = data.coverUrl,
+                            UnboundTrackThumbnail(
+                                coverUrl = data.coverUrl,
                                 contentDescription = data.title,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                shape = RoundedCornerShape(22.dp),
+                                iconSize = 56.dp
                             )
                         }
 
                         Spacer(modifier = Modifier.height(18.dp))
 
                         Text(
-                            text = data.title,
+                            text = data.title.ifBlank { "Untitled Collection" },
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = OnSurface,
@@ -260,7 +264,7 @@ fun AlbumPlaylistScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = if (data.subtitle.isNotBlank()) data.subtitle else "Curated Playlist",
+                            text = if (data.subtitle.isNotBlank()) data.subtitle else "Album / Playlist",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = UnboundPrimary
@@ -269,83 +273,90 @@ fun AlbumPlaylistScreen(
                         Spacer(modifier = Modifier.height(4.dp))
 
                         Text(
-                            text = "${data.tracks.size} tracks • ${data.totalDuration}",
+                            text = buildString {
+                                append("${data.tracks.size} tracks")
+                                if (data.totalDuration.isNotBlank()) {
+                                    append(" • ${data.totalDuration}")
+                                }
+                            },
                             fontSize = 12.sp,
                             color = OnSurfaceVariant
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    if (data.tracks.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
 
-                    // 3. Transport Action Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Play All Button
-                        Box(
+                        // 3. Transport Action Row
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(46.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(UnboundPrimary)
-                                .clickable(onClick = onPlayAll),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Play All Button
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(UnboundPrimary)
+                                    .clickable(onClick = onPlayAll),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = OnPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Play All",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnPrimary
+                                    )
+                                }
+                            }
+
+                            // Shuffle Button
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(SurfaceGlassHighest)
+                                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                                    .clickable(onClick = onShuffleAll),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.PlayArrow,
-                                    contentDescription = null,
-                                    tint = OnPrimary,
+                                    imageVector = Icons.Default.Shuffle,
+                                    contentDescription = "Shuffle",
+                                    tint = UnboundPrimary,
                                     modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Play All",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = OnPrimary
+                            }
+
+                            // Download All Button
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(SurfaceGlassHighest)
+                                    .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                                    .clickable(onClick = onDownloadAll),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download All",
+                                    tint = UnboundPrimary,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                        }
-
-                        // Shuffle Button
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(SurfaceGlassHighest)
-                                .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
-                                .clickable(onClick = onShuffleAll),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Shuffle",
-                                tint = UnboundPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        // Download All Button
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(SurfaceGlassHighest)
-                                .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
-                                .clickable(onClick = onDownloadAll),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Download,
-                                contentDescription = "Download All",
-                                tint = UnboundPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
                         }
                     }
 
@@ -421,16 +432,19 @@ fun AlbumPlaylistScreen(
             // 6. Interactive Track Rows
             if (displayedTracks.isEmpty()) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 40.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "No tracks matched '$searchQuery'" else "Curating playlist tracks...",
-                            fontSize = 13.sp,
-                            color = OnSurfaceVariant
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
+                        UnboundEmptyStateCard(
+                            title = when {
+                                data.isLoading -> "Loading tracks..."
+                                searchQuery.isNotBlank() -> "No tracks matched \"$searchQuery\""
+                                else -> "No tracks found"
+                            },
+                            subtitle = when {
+                                data.isLoading -> "Fetching tracklist details"
+                                searchQuery.isNotBlank() -> "Try a different song or artist filter"
+                                else -> "This album or playlist doesn't contain any playable tracks right now."
+                            },
+                            icon = if (data.isLoading) Icons.Default.MusicNote else Icons.Default.Search
                         )
                     }
                 }

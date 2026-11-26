@@ -48,13 +48,20 @@ fun MainViewModel.playTrack(track: TrackItem, preserveQueue: Boolean = false) {
         track
     }
 
+    val isPodcastItem = targetTrack.source.equals("podcast", ignoreCase = true) ||
+        targetTrack.itemType.equals("podcast", ignoreCase = true)
+
     _currentTrack.value = targetTrack
     saveCurrentPlaybackState(0L)
-    try {
-        PlaybackStateStore.addRecentlyPlayed(getApplication(), targetTrack)
-        _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
-        refreshAdaptiveQuickPicks()
-    } catch (_: Exception) {}
+    if (!isPodcastItem) {
+        try {
+            PlaybackStateStore.addRecentlyPlayed(getApplication(), targetTrack)
+            _recentlyPlayedTracks.value = PlaybackStateStore.getRecentlyPlayed(getApplication())
+            refreshAdaptiveQuickPicks()
+        } catch (_: Exception) {}
+    } else {
+        recordPodcastEpisodePlay(targetTrack)
+    }
 
     if (offlineMatch != null) {
         com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing offline downloaded version (0 MB data)", isLong = false)
@@ -69,10 +76,12 @@ fun MainViewModel.playTrack(track: TrackItem, preserveQueue: Boolean = false) {
         val initialQ = listOf(targetTrack)
         _currentQueue.value = initialQ
         serviceConnection.setQueue(initialQ)
-        if (!_isYouTubeConnected.value) {
-            fetchGuestAlgorithmicRadio(targetTrack)
-        } else {
-            fetchAutomixQueue(targetTrack)
+        if (!isPodcastItem) {
+            if (!_isYouTubeConnected.value) {
+                fetchGuestAlgorithmicRadio(targetTrack)
+            } else {
+                fetchAutomixQueue(targetTrack)
+            }
         }
     }
 

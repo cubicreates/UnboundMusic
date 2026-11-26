@@ -52,27 +52,8 @@ internal fun MainViewModel.loadHomeFeed() {
         }
 
         try {
-            // Load Top Charts
-            val (cCode, cResp) = client.getExploreCharts()
-            if (cCode in 200..299 && cResp.isNotBlank()) {
-                val json = JSONObject(cResp)
-                val tracks = json.optJSONArray("tracks") ?: json.optJSONArray("chart")
-                if (tracks != null) {
-                    val parsed = mutableListOf<TrackItem>()
-                    for (i in 0 until minOf(tracks.length(), 20)) {
-                        val t = tracks.getJSONObject(i)
-                        val vId = t.optString("id").ifBlank { t.optString("video_id", "") }
-                        parsed.add(TrackItem(
-                            id = vId,
-                            title = t.optString("title", ""),
-                            artist = t.optString("artist", ""),
-                            coverUrl = t.optString("thumbnail_url", ""),
-                            streamUrl = ""
-                        ))
-                    }
-                    _chartTracks.value = parsed
-                }
-            }
+            // Load separate Global & Regional Charts
+            refreshGlobalAndRegionalCharts()
         } catch (e: Exception) {
             Log.d(TAG, "Charts load note: ${e.message}")
         }
@@ -225,8 +206,8 @@ fun MainViewModel.loadArtistProfile(artistName: String) {
                     loadedProfile = ArtistProfileData(
                         name = json.optString("name", artistName),
                         heroImageUrl = json.optString("hero_image_url"),
-                        monthlyListeners = json.optString("monthly_listeners", "${(10..40).random()}.${(1..9).random()}M monthly listeners"),
-                        bio = json.optString("bio", "Verified Artist on YouTube Music & Unbound."),
+                        monthlyListeners = json.optString("monthly_listeners", ""),
+                        bio = json.optString("bio", ""),
                         topTracks = parsedTracks,
                         albums = parsedAlbums,
                         similarArtists = parsedSimilar
@@ -247,8 +228,8 @@ fun MainViewModel.loadArtistProfile(artistName: String) {
                 loadedProfile = ArtistProfileData(
                     name = artistName,
                     heroImageUrl = heroCover,
-                    monthlyListeners = "${(12..35).random()}.${(1..9).random()}M monthly listeners",
-                    bio = "Top tracks and discography for $artistName.",
+                    monthlyListeners = "",
+                    bio = "",
                     topTracks = fallbackTracks.take(15),
                     albums = emptyList(),
                     similarArtists = emptyList()
@@ -271,7 +252,8 @@ fun MainViewModel.openAlbumPlaylist(id: String, initialTitle: String = "", initi
         subtitle = "",
         coverUrl = initialCover,
         tracks = emptyList(),
-        totalDuration = ""
+        totalDuration = "",
+        isLoading = true
     )
     viewModelScope.launch(Dispatchers.IO) {
         try {
@@ -312,8 +294,26 @@ fun MainViewModel.openAlbumPlaylist(id: String, initialTitle: String = "", initi
                     }
                 }
             }
+            withContext(Dispatchers.Main) {
+                val cur = _albumPlaylistData.value
+                if (cur != null && cur.isLoading && cur.tracks.isEmpty()) {
+                    _albumPlaylistData.value = cur.copy(
+                        title = initialTitle.ifBlank { "Playlist" },
+                        isLoading = false
+                    )
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load album/playlist details: ${e.message}")
+            withContext(Dispatchers.Main) {
+                val cur = _albumPlaylistData.value
+                if (cur != null && cur.isLoading) {
+                    _albumPlaylistData.value = cur.copy(
+                        title = initialTitle.ifBlank { "Playlist" },
+                        isLoading = false
+                    )
+                }
+            }
         }
     }
 }
@@ -330,7 +330,8 @@ fun MainViewModel.openCuratedCollection(key: String, overrideCover: String? = nu
         subtitle = subtitle,
         coverUrl = cover,
         tracks = emptyList(),
-        totalDuration = "Curating tracks..."
+        totalDuration = "",
+        isLoading = true
     )
 
     viewModelScope.launch(Dispatchers.IO) {
@@ -435,10 +436,18 @@ fun MainViewModel.loadRecap() {
             val (code, resp) = client.getRecap()
             if (code in 200..299 && resp.isNotBlank()) {
                 val json = JSONObject(resp)
+                val artistsArr = json.optJSONArray("top_artists")
+                val topArtists = mutableListOf<String>()
+                if (artistsArr != null) {
+                    for (i in 0 until artistsArr.length()) {
+                        artistsArr.optString(i).trim().takeIf { it.isNotBlank() }?.let { topArtists.add(it) }
+                    }
+                }
                 _recapData.value = RecapData(
-                    totalMinutes = json.optInt("total_minutes", 1420),
-                    topDecade = json.optString("top_decade", "2020s"),
-                    diversityScore = json.optString("diversity_score", "8.7 / 10")
+                    totalMinutes = json.optInt("total_minutes", 0),
+                    topArtists = topArtists,
+                    topDecade = json.optString("top_decade", ""),
+                    diversityScore = json.optString("diversity_score", "")
                 )
             }
         } catch (e: Exception) {
@@ -539,6 +548,79 @@ fun MainViewModel.refreshAdaptiveQuickPicks() {
     }
 }
 
+internal suspend fun MainViewModel.refreshGlobalAndRegionalCharts(
+    countryOverride: String? = null,
+    languageOverride: String? = null
+) {
+    val actualCountry = if (!countryOverride.isNullOrBlank()) countryOverride else GeoLocationProvider.getCountryCode(getApplication())
+    val actualLanguage = if (!languageOverride.isNullOrBlank()) languageOverride else GeoLocationProvider.getLanguageCode()
+
+    // Heavy lifting runs on the Go backend (/api/v1/explore/home):
+    // builds Jump Back In (user history vs public YouTube), Made For Your Mood Mixes,
+    // Trending Globally (worldwide singles), and Trending Regionally (detected country singles).
+    val backendHome = try {
+        client.getHomeFeed(gl = actualCountry, hl = actualLanguage)
+    } catch (e: Exception) {
+        Log.d(TAG, "Backend home feed note: ${e.message}")
+        null
+    }
+
+    if (backendHome != null) {
+        if (backendHome.trendingGlobally.isNotEmpty()) {
+            _chartTracks.value = backendHome.trendingGlobally
+        }
+        if (backendHome.trendingRegionally.isNotEmpty()) {
+            _regionalCharts.value = backendHome.trendingRegionally
+        }
+        if (backendHome.jumpBackIn.isNotEmpty()) {
+            _homeJumpBackTracks.value = backendHome.jumpBackIn
+            if (_recentlyPlayedTracks.value.isEmpty() || _adaptiveQuickPicks.value.isEmpty()) {
+                _adaptiveQuickPicks.value = backendHome.jumpBackIn
+            }
+        }
+        if (backendHome.madeForYouMixes.isNotEmpty()) {
+            _homeMixes.value = backendHome.madeForYouMixes
+        }
+        if (backendHome.isLoggedIn && !_isYouTubeConnected.value) {
+            _isYouTubeConnected.value = true
+            if (backendHome.accountName.isNotBlank()) _accountName.value = backendHome.accountName
+            if (!backendHome.avatarUrl.isNullOrBlank()) _userAvatarUrl.value = backendHome.avatarUrl
+        }
+        if (backendHome.trendingGlobally.isNotEmpty() || backendHome.trendingRegionally.isNotEmpty()) {
+            return
+        }
+    }
+
+    // Minimal fallback if backend /api/v1/explore/home returned empty during cold startup
+    val globalCharts = try {
+        client.getCharts(gl = "ZZ", hl = "en")
+    } catch (_: Exception) {
+        emptyList()
+    }
+    if (globalCharts.isNotEmpty()) {
+        _chartTracks.value = globalCharts
+    }
+    val regionalCharts = try {
+        client.getCharts(gl = actualCountry, hl = actualLanguage)
+    } catch (_: Exception) {
+        emptyList()
+    }
+    if (regionalCharts.isNotEmpty()) {
+        _regionalCharts.value = regionalCharts
+    }
+    val seedPool = (regionalCharts + globalCharts).distinctBy { it.id.ifBlank { it.title } }
+    if (_homeJumpBackTracks.value.isEmpty() && seedPool.isNotEmpty()) {
+        _homeJumpBackTracks.value = seedPool
+        _adaptiveQuickPicks.value = seedPool
+    }
+}
+
+fun MainViewModel.refreshHomeFeed(countryOverride: String? = null) {
+    viewModelScope.launch(Dispatchers.IO) {
+        refreshGlobalAndRegionalCharts(countryOverride)
+    }
+}
+
 fun MainViewModel.initializeColdStart(countryCode: String? = null, languageCode: String? = null) {
     val actualCountry = if (!countryCode.isNullOrBlank()) countryCode else GeoLocationProvider.getCountryCode(getApplication())
     val actualLanguage = if (!languageCode.isNullOrBlank()) languageCode else GeoLocationProvider.getLanguageCode()
@@ -548,14 +630,7 @@ fun MainViewModel.initializeColdStart(countryCode: String? = null, languageCode:
 
         // 1. Fetch explore charts & mood capsules concurrently
         launch {
-            val charts = client.getCharts(actualCountry, actualLanguage)
-            if (charts.isNotEmpty()) {
-                _regionalCharts.value = charts
-                _chartTracks.value = charts
-                if (_recentlyPlayedTracks.value.isEmpty()) {
-                    _adaptiveQuickPicks.value = charts
-                }
-            }
+            refreshGlobalAndRegionalCharts(actualCountry, actualLanguage)
         }
         launch {
             val dp = client.getMoodCapsules()

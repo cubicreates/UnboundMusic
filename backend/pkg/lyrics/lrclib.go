@@ -238,6 +238,157 @@ func (c *LRCLIBClient) Search(ctx context.Context, query string, durationSec int
 	return buildLyricsPayloadFromLRCLIB(bestItem)
 }
 
+// LRCLIBCandidate represents a single candidate song match returned from an LRCLIB multi-result search.
+type LRCLIBCandidate struct {
+	TrackName    string  `json:"track_name"`
+	ArtistName   string  `json:"artist_name"`
+	AlbumName    string  `json:"album_name"`
+	DurationMs   int64   `json:"duration_ms"`
+	MatchedLyric string  `json:"matched_lyric,omitempty"`
+	Confidence   float64 `json:"confidence"`
+}
+
+// SearchMultiple queries LRCLIB /api/search and returns up to limit scored candidate matches with lyric snippets.
+func (c *LRCLIBClient) SearchMultiple(ctx context.Context, query string, limit int) ([]LRCLIBCandidate, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("search query cannot be empty")
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+
+	targetURL := fmt.Sprintf("%s/search?q=%s", c.baseURL, url.QueryEscape(query))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create LRCLIB search request: %w", err)
+	}
+
+	req.Header.Set("User-Agent", LRCLIBUserAgent)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("LRCLIB search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("LRCLIB search returned status %d", resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read LRCLIB search response: %w", err)
+	}
+
+	var results []LRCLIBResponse
+	if err := json.Unmarshal(bodyBytes, &results); err != nil {
+		return nil, fmt.Errorf("failed to parse LRCLIB search response: %w", err)
+	}
+
+	return ScoreLRCLIBCandidates(query, results, limit), nil
+}
+
+// ScoreLRCLIBCandidates scores and deduplicates LRCLIB search responses for multi-candidate lyrics matching.
+func ScoreLRCLIBCandidates(query string, results []LRCLIBResponse, limit int) []LRCLIBCandidate {
+	if limit <= 0 {
+		limit = 8
+	}
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	tokens := strings.Fields(lowerQuery)
+
+	var candidates []LRCLIBCandidate
+	seen := make(map[string]bool)
+
+	for idx, item := range results {
+		title := strings.TrimSpace(item.TrackName)
+		artist := strings.TrimSpace(item.ArtistName)
+		if title == "" {
+			continue
+		}
+		key := strings.ToLower(title) + "::" + strings.ToLower(artist)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		lyricSource := item.PlainLyrics
+		if strings.TrimSpace(lyricSource) == "" {
+			lyricSource = item.SyncedLyrics
+		}
+		snippet := extractMatchingLyricSnippet(lyricSource, lowerQuery, tokens)
+
+		confidence := 0.84 - float64(idx)*0.025
+		if confidence < 0.62 {
+			confidence = 0.62
+		}
+
+		lowerLyrics := strings.ToLower(lyricSource)
+		if lowerQuery != "" && strings.Contains(lowerLyrics, lowerQuery) {
+			confidence = 0.94 - float64(idx)*0.015
+		} else if snippet != "" {
+			confidence = 0.88 - float64(idx)*0.02
+		} else if strings.Contains(strings.ToLower(title), lowerQuery) {
+			confidence = 0.87 - float64(idx)*0.02
+		}
+		if confidence > 0.96 {
+			confidence = 0.96
+		}
+		if confidence < 0.55 {
+			confidence = 0.55
+		}
+
+		candidates = append(candidates, LRCLIBCandidate{
+			TrackName:    title,
+			ArtistName:   artist,
+			AlbumName:    strings.TrimSpace(item.AlbumName),
+			DurationMs:   int64(item.Duration * 1000),
+			MatchedLyric: snippet,
+			Confidence:   confidence,
+		})
+		if len(candidates) >= limit {
+			break
+		}
+	}
+	return candidates
+}
+
+func extractMatchingLyricSnippet(lyricsText, lowerQuery string, tokens []string) string {
+	if strings.TrimSpace(lyricsText) == "" {
+		return ""
+	}
+	lines := strings.Split(lyricsText, "\n")
+	bestLine := ""
+	bestHits := 0
+
+	for _, rawLine := range lines {
+		clean := regexLRCLine.ReplaceAllString(strings.TrimSpace(rawLine), "$4")
+		clean = strings.TrimSpace(clean)
+		if clean == "" {
+			continue
+		}
+		lowerLine := strings.ToLower(clean)
+		if lowerQuery != "" && strings.Contains(lowerLine, lowerQuery) {
+			return clean
+		}
+		hits := 0
+		for _, tok := range tokens {
+			if len(tok) >= 3 && strings.Contains(lowerLine, tok) {
+				hits++
+			}
+		}
+		if hits > bestHits {
+			bestHits = hits
+			bestLine = clean
+		}
+	}
+	if bestHits >= 2 || (len(tokens) == 1 && bestHits == 1) {
+		return bestLine
+	}
+	return ""
+}
+
 func buildLyricsPayloadFromLRCLIB(data *LRCLIBResponse) (*models.LyricsPayload, error) {
 	if data.Instrumental {
 		return &models.LyricsPayload{

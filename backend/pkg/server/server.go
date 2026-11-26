@@ -118,6 +118,7 @@ type Server struct {
 	radioGen     *ytmusic.RadioGenerator
 	algoEngine   *algorithm.Engine
 	neteaseClient *lyrics.NetEaseClient
+	lyricsRec     *lyrics.LyricsRecognizer
 	fallbackCoord *fallback.Coordinator
 	udsServer      *http.Server
 	udsListener    net.Listener
@@ -179,6 +180,8 @@ func NewServer(cfg Config) (*Server, error) {
 	playlistImporter := importer.NewImporter()
 	scrobbler := lastfm.NewScrobbler("", "")
 	podcastEngine := podcasts.NewEngine(ytClient)
+	podcastEngine.SetRepository(repo)
+	lyricsRecognizer := lyrics.NewLyricsRecognizer(repo, lyrics.NewLRCLIBClient(), geniusClient, ytClient)
 	canvasCacheDir := ""
 	if tree != nil && tree.CachePath != "" {
 		canvasCacheDir = filepath.Join(tree.CachePath, "canvas")
@@ -239,6 +242,7 @@ func NewServer(cfg Config) (*Server, error) {
 		radioGen:      radioGen,
 		algoEngine:    algorithm.NewEngine(repo, ytClient),
 		neteaseClient: lyrics.NewNetEaseClient(),
+		lyricsRec:     lyricsRecognizer,
 		fallbackCoord: fallback.NewCoordinator(downloadDir),
 		spoolCancels:  make(map[string]context.CancelFunc),
 	}
@@ -260,6 +264,9 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// --- 3. Search & AI Discovery ---
 	mux.HandleFunc("/api/v1/search", s.handleSearch)
+	mux.HandleFunc("/api/v1/search/music", s.handleMusicSearch)
+	mux.HandleFunc("/api/v1/search/podcasts", s.handlePodcastSearch)
+	mux.HandleFunc("/api/v1/search/unified", s.handleUnifiedSearch)
 	mux.HandleFunc("/api/v1/search/vibe", s.handleVibeSearch)
 	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
 	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
@@ -267,6 +274,8 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// --- 4. Synced Lyrics & Alignment ---
 	mux.HandleFunc("/api/v1/lyrics", s.handleLyrics)
+	mux.HandleFunc("/api/v1/recognize/lyrics", s.handleLyricsRecognize)
+	mux.HandleFunc("/api/v1/lyrics/recognize", s.handleLyricsRecognize)
 
 	// --- 5. AutoEq & Audio DSP ---
 	mux.HandleFunc("/api/v1/autoeq/search", s.handleAutoEqSearch)
@@ -297,6 +306,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/storage/search", s.handleStorageSearch)
 	mux.HandleFunc("/api/v1/storage/scan", s.handleStorageScan)
 	mux.HandleFunc("/api/v1/storage/tracks", s.handleStorageTracks)
+	mux.HandleFunc("/api/v1/storage/library", s.handleStorageLibrary)
+	mux.HandleFunc("/api/v1/storage/folders", s.handleStorageLibrary)
 	mux.HandleFunc("/api/v1/storage/ingest-batch", s.handleStorageIngestBatch)
 	mux.HandleFunc("/api/v1/download/start", s.handleDownloadStart)
 	mux.HandleFunc("/api/v1/download/status", s.handleDownloadStatus)
@@ -321,6 +332,12 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/lastfm/nowplaying", s.handleLastfmNowPlaying)
 	mux.HandleFunc("/api/v1/lastfm/scrobble", s.handleLastfmScrobble)
 	mux.HandleFunc("/api/v1/podcasts/browse", s.handlePodcastBrowse)
+	mux.HandleFunc("/api/v1/podcasts/discover", s.handlePodcastDiscover)
+	mux.HandleFunc("/api/v1/podcasts/search", s.handlePodcastSearch)
+	mux.HandleFunc("/api/v1/podcasts/resume", s.handlePodcastResume)
+	mux.HandleFunc("/api/v1/podcasts/library", s.handlePodcastLibrary)
+	mux.HandleFunc("/api/v1/podcasts/library/follow", s.handlePodcastFollow)
+	mux.HandleFunc("/api/v1/podcasts/library/save", s.handlePodcastSaveEpisode)
 	mux.HandleFunc("/api/v1/canvas", s.handleCanvas)
 	mux.HandleFunc("/api/v1/account/sync", s.handleAccountSync)
 	mux.HandleFunc("/api/v1/account/status", s.handleAccountStatus)
@@ -331,6 +348,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/account/device/poll", s.handleAccountDevicePoll)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
 	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
+	mux.HandleFunc("/api/v1/explore/home", s.handleExploreHome)
 	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
 	mux.HandleFunc("/api/v1/playlist", s.handlePlaylist)
 	mux.HandleFunc("/api/v1/album", s.handlePlaylist)
@@ -952,12 +970,13 @@ func (s *Server) handleLastfmScrobble(w http.ResponseWriter, r *http.Request) {
 // handlePodcastBrowse retrieves podcast episodes.
 func (s *Server) handlePodcastBrowse(w http.ResponseWriter, r *http.Request) {
 	podcastID := r.URL.Query().Get("id")
-	if podcastID == "" {
-		writeError(w, http.StatusBadRequest, "parameter 'id' is required")
+	title := r.URL.Query().Get("title")
+	if podcastID == "" && title == "" {
+		writeError(w, http.StatusBadRequest, "parameter 'id' or 'title' is required")
 		return
 	}
 
-	show, err := s.podcastEng.BrowseShow(r.Context(), podcastID)
+	show, err := s.podcastEng.BrowseShowWithTitle(r.Context(), podcastID, title)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -991,7 +1010,7 @@ func (s *Server) handleExploreMoods(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, moods)
 }
 
-// handleExploreCharts returns regional top 100 charts.
+// handleExploreCharts returns global or regional singles charts.
 func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
 	country := r.URL.Query().Get("gl")
 	if country == "" {
@@ -1004,12 +1023,17 @@ func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
 	if lang == "" {
 		lang = "en"
 	}
+	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
 
 	var tracks []models.TrackItem
 	var err error
 
 	if s.ytExploreEng != nil {
-		tracks, err = s.ytExploreEng.FetchRegionalCharts(r.Context(), country, lang)
+		if strings.EqualFold(country, "ZZ") || scope == "global" {
+			tracks, err = s.ytExploreEng.FetchGlobalSingles(r.Context())
+		} else {
+			tracks, err = s.ytExploreEng.FetchRegionalSingles(r.Context(), country, lang)
+		}
 	}
 
 	if (err != nil || len(tracks) == 0) && s.exploreEng != nil {
@@ -1017,13 +1041,15 @@ func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
 		if chartErr == nil && len(charts) > 0 {
 			tracks = make([]models.TrackItem, 0, len(charts))
 			for _, c := range charts {
-				tracks = append(tracks, models.TrackItem{
-					ID:           c.TrackID,
-					Title:        c.Title,
-					Artist:       c.Artist,
-					Thumbnail: c.ThumbnailURL,
-					Source:    "youtube",
-				})
+				if ytmusic.IsSingleSongTrack(c.Title) {
+					tracks = append(tracks, models.TrackItem{
+						ID:        c.TrackID,
+						Title:     c.Title,
+						Artist:    c.Artist,
+						Thumbnail: c.ThumbnailURL,
+						Source:    "youtube",
+					})
+				}
 			}
 		}
 	}
@@ -1035,6 +1061,278 @@ func (s *Server) handleExploreCharts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"tracks": tracks,
 		"charts": tracks,
+	})
+}
+
+// HomeMixPayload represents a YouTube-style 1:1 mix built by the backend for Home ("Made For Your Mood").
+type HomeMixPayload struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Subtitle    string `json:"subtitle"`
+	CoverURL    string `json:"cover_url"`
+	MixType     string `json:"mix_type"` // "account_mix" or "track_radio"
+	SeedTrackID string `json:"seed_track_id,omitempty"`
+	SeedTitle   string `json:"seed_title,omitempty"`
+	SeedArtist  string `json:"seed_artist,omitempty"`
+}
+
+// handleExploreHome offloads Home screen aggregation to the Go daemon, serving a unified payload
+// for both guest and signed-in users:
+//   - jump_back_in: personalized history + liked library when logged in, public YouTube/chart singles when guest
+//   - made_for_you_mixes: backend-built YouTube-style Mixes seeded by user history or public YouTube feed
+//   - trending_globally: worldwide top singles (never localized to India)
+//   - trending_regionally: detected country's top singles
+func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
+	country := strings.TrimSpace(r.URL.Query().Get("gl"))
+	if country == "" {
+		country = strings.TrimSpace(r.URL.Query().Get("country"))
+	}
+	if country == "" {
+		country = "IN"
+	}
+	lang := strings.TrimSpace(r.URL.Query().Get("hl"))
+	if lang == "" {
+		lang = "en"
+	}
+
+	ctx := r.Context()
+	status := s.accountSync.GetStatus()
+
+	var (
+		globalSingles   []models.TrackItem
+		regionalSingles []models.TrackItem
+		publicFeed      []models.Track
+		recentEvents    []models.PlaybackEvent
+		wg              sync.WaitGroup
+	)
+
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		if s.ytExploreEng != nil {
+			globalSingles, _ = s.ytExploreEng.FetchGlobalSingles(ctx)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if s.ytExploreEng != nil {
+			regionalSingles, _ = s.ytExploreEng.FetchRegionalSingles(ctx, country, lang)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if s.ytClient != nil {
+			publicFeed, _ = s.ytClient.FetchInfinitePersonalizedFeed(ctx, "")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if s.repo != nil {
+			recentEvents, _ = s.repo.GetRecentPlaybackEvents(ctx, 25)
+		}
+	}()
+	wg.Wait()
+
+	// Exclude global duplicates from regional hits outside US/GB so both shelves feel distinct
+	if !strings.EqualFold(country, "US") && !strings.EqualFold(country, "GB") && len(globalSingles) > 0 && len(regionalSingles) > 0 {
+		globalKeys := make(map[string]bool, len(globalSingles))
+		for _, g := range globalSingles {
+			globalKeys[strings.ToLower(strings.TrimSpace(g.Title)+"|"+strings.TrimSpace(g.Artist))] = true
+		}
+		distinctRegional := make([]models.TrackItem, 0, len(regionalSingles))
+		for _, reg := range regionalSingles {
+			k := strings.ToLower(strings.TrimSpace(reg.Title) + "|" + strings.TrimSpace(reg.Artist))
+			if !globalKeys[k] {
+				distinctRegional = append(distinctRegional, reg)
+			}
+		}
+		if len(distinctRegional) >= 6 {
+			regionalSingles = distinctRegional
+		}
+	}
+
+	// Build Jump Back In list (User History + Account Sync if logged in; Public YouTube + Charts if guest)
+	jumpBackIn := make([]models.TrackItem, 0, 48)
+	seenJump := make(map[string]bool)
+	appendJumpItem := func(it models.TrackItem) {
+		if it.ID == "" || strings.TrimSpace(it.Title) == "" || !ytmusic.IsSingleSongTrack(it.Title) {
+			return
+		}
+		upperID := strings.ToUpper(it.ID)
+		if strings.HasPrefix(upperID, "MPSP") || strings.HasPrefix(upperID, "VL") || strings.HasPrefix(upperID, "PL") || strings.HasPrefix(upperID, "MPRE") || strings.HasPrefix(upperID, "UC") {
+			return
+		}
+		if strings.EqualFold(it.Source, "podcast") {
+			return
+		}
+		key := strings.ToLower(strings.TrimSpace(it.Title) + "|" + strings.TrimSpace(it.Artist))
+		if !seenJump[it.ID] && !seenJump[key] {
+			seenJump[it.ID] = true
+			seenJump[key] = true
+			if it.Thumbnail == "" && len(it.ID) == 11 && !strings.HasPrefix(it.ID, "local:") {
+				it.Thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", it.ID)
+			}
+			jumpBackIn = append(jumpBackIn, it)
+		}
+	}
+
+	toTrackItem := func(t models.Track) models.TrackItem {
+		thumb := t.ThumbnailURL
+		if thumb == "" && len(t.ID) == 11 && !strings.HasPrefix(t.ID, "local:") {
+			thumb = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", t.ID)
+		}
+		return models.TrackItem{
+			ID:         t.ID,
+			Title:      t.Title,
+			Artist:     t.Artist,
+			Album:      t.Album,
+			DurationMs: t.DurationMs,
+			Thumbnail:  thumb,
+			Source:     "youtube",
+		}
+	}
+
+	if status.Connected {
+		// Logged-in user: recent playback history + synced YouTube library + personalized feed
+		for _, ev := range recentEvents {
+			if ev.TrackID != "" && ev.Title != "" {
+				appendJumpItem(models.TrackItem{
+					ID:         ev.TrackID,
+					Title:      ev.Title,
+					Artist:     ev.Artist,
+					Album:      ev.Album,
+					DurationMs: int64(ev.DurationSec) * 1000,
+					Source:     "youtube",
+				})
+			}
+		}
+		for _, t := range s.accountSync.GetLikedTracks() {
+			appendJumpItem(toTrackItem(t))
+		}
+		for _, t := range publicFeed {
+			appendJumpItem(toTrackItem(t))
+		}
+		for _, t := range regionalSingles {
+			appendJumpItem(t)
+		}
+	} else {
+		// Guest user: recent playback (if any) + public YouTube home/feed + regional & global singles
+		for _, ev := range recentEvents {
+			if ev.TrackID != "" && ev.Title != "" {
+				appendJumpItem(models.TrackItem{
+					ID:         ev.TrackID,
+					Title:      ev.Title,
+					Artist:     ev.Artist,
+					Album:      ev.Album,
+					DurationMs: int64(ev.DurationSec) * 1000,
+					Source:     "youtube",
+				})
+			}
+		}
+		for _, t := range publicFeed {
+			appendJumpItem(toTrackItem(t))
+		}
+		for _, t := range regionalSingles {
+			appendJumpItem(t)
+		}
+		for _, t := range globalSingles {
+			appendJumpItem(t)
+		}
+	}
+
+	// Build Made For Your Mood YouTube-style mixes on the backend
+	mixes := make([]HomeMixPayload, 0, 32)
+	seenMixIDs := make(map[string]bool)
+
+	if status.Connected {
+		lib, _ := s.accountSync.SyncLibrary(ctx)
+		if lib != nil {
+			for _, m := range lib.Mixes {
+				if m.ID != "" && m.Title != "" && !seenMixIDs[m.ID] {
+					seenMixIDs[m.ID] = true
+					mixTitle := m.Title
+					if !strings.Contains(strings.ToLower(mixTitle), "mix") {
+						mixTitle = "Mix – " + mixTitle
+					}
+					mixes = append(mixes, HomeMixPayload{
+						ID:       "mix:" + m.ID,
+						Title:    mixTitle,
+						Subtitle: m.Subtitle,
+						CoverURL: m.ThumbnailURL,
+						MixType:  "account_mix",
+					})
+				}
+			}
+		}
+	}
+
+	// Collect distinct artists for authentic "Artist 1, Artist 2, Artist 3, and more" subtitles
+	distinctArtists := make([]string, 0, len(jumpBackIn))
+	seenArtists := make(map[string]bool)
+	for _, t := range jumpBackIn {
+		a := strings.TrimSpace(t.Artist)
+		if a != "" && !seenArtists[strings.ToLower(a)] {
+			seenArtists[strings.ToLower(a)] = true
+			distinctArtists = append(distinctArtists, a)
+		}
+	}
+
+	for idx, seed := range jumpBackIn {
+		if len(mixes) >= 24 {
+			break
+		}
+		if seenMixIDs[seed.ID] {
+			continue
+		}
+		seenMixIDs[seed.ID] = true
+		primaryArtist := strings.TrimSpace(seed.Artist)
+		if primaryArtist == "" {
+			primaryArtist = "YouTube Music"
+		}
+		others := make([]string, 0, 2)
+		for offset := 0; offset < len(distinctArtists) && len(others) < 2; offset++ {
+			cand := distinctArtists[(idx+offset)%len(distinctArtists)]
+			if !strings.EqualFold(cand, primaryArtist) {
+				others = append(others, cand)
+			}
+		}
+		var roster string
+		switch len(others) {
+		case 2:
+			roster = fmt.Sprintf("%s, %s, %s, and more", primaryArtist, others[0], others[1])
+		case 1:
+			roster = fmt.Sprintf("%s, %s, and more", primaryArtist, others[0])
+		default:
+			roster = fmt.Sprintf("%s, and more", primaryArtist)
+		}
+		mixes = append(mixes, HomeMixPayload{
+			ID:          "trackmix:" + seed.ID,
+			Title:       "Mix – " + seed.Title,
+			Subtitle:    roster,
+			CoverURL:    seed.Thumbnail,
+			MixType:     "track_radio",
+			SeedTrackID: seed.ID,
+			SeedTitle:   seed.Title,
+			SeedArtist:  seed.Artist,
+		})
+	}
+
+	if globalSingles == nil {
+		globalSingles = []models.TrackItem{}
+	}
+	if regionalSingles == nil {
+		regionalSingles = []models.TrackItem{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"is_logged_in":        status.Connected,
+		"account_name":        status.AccountName,
+		"avatar_url":          status.AvatarURL,
+		"region_code":         strings.ToUpper(country),
+		"jump_back_in":        jumpBackIn,
+		"made_for_you_mixes":  mixes,
+		"trending_globally":   globalSingles,
+		"trending_regionally": regionalSingles,
 	})
 }
 

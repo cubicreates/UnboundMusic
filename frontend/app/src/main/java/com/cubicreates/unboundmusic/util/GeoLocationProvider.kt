@@ -77,6 +77,20 @@ object GeoLocationProvider {
     }
 
     /**
+     * Resolves a human-readable English country/region name (e.g., "India", "United States")
+     * for the detected ISO 3166-1 alpha-2 country code.
+     */
+    fun getCountryDisplayName(context: Context?): String {
+        val code = getCountryCode(context)
+        return try {
+            @Suppress("DEPRECATION")
+            Locale("", code).getDisplayCountry(Locale.ENGLISH).ifBlank { code }
+        } catch (_: Exception) {
+            code
+        }
+    }
+
+    /**
      * Resolves the lowercase 2-letter ISO 639-1 language code (e.g., "en", "hi", "es").
      */
     fun getLanguageCode(): String {

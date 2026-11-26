@@ -18,11 +18,71 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
 )
+
+// handleLyricsRecognize handles multi-candidate song recognition from typed or sung lyrics.
+// Route: POST /api/v1/recognize/lyrics or GET /api/v1/recognize/lyrics?q=...
+func (s *Server) handleLyricsRecognize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var query, mode string
+	limit := 8
+
+	if r.Method == http.MethodGet {
+		query = strings.TrimSpace(r.URL.Query().Get("q"))
+		if query == "" {
+			query = strings.TrimSpace(r.URL.Query().Get("query"))
+		}
+		mode = strings.TrimSpace(r.URL.Query().Get("mode"))
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
+				limit = l
+			}
+		}
+	} else {
+		type LyricsRecReq struct {
+			Query string `json:"query"`
+			Mode  string `json:"mode"`
+			Limit int    `json:"limit"`
+		}
+		var req LyricsRecReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request payload: "+err.Error())
+			return
+		}
+		query = strings.TrimSpace(req.Query)
+		mode = strings.TrimSpace(req.Mode)
+		if req.Limit > 0 {
+			limit = req.Limit
+		}
+	}
+
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter is required")
+		return
+	}
+
+	if s.lyricsRec == nil {
+		writeError(w, http.StatusServiceUnavailable, "lyrics recognizer not initialized")
+		return
+	}
+
+	resp, err := s.lyricsRec.Recognize(r.Context(), query, mode, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
 
 // handleShazamDSP computes 16kHz audio DSP FFT, extracts peak constellation map, and encodes into binary signature.
 func (s *Server) handleShazamDSP(w http.ResponseWriter, r *http.Request) {
@@ -356,6 +416,7 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		"latency_ms":      res.LatencyMs,
 		"source":          res.Source,
 		"variants":        variants,
+		"candidates":      variants,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -406,47 +467,60 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 	}
 
 	radarVariant := map[string]any{
-		"id":             trackID,
-		"title":          title,
-		"artist":         artist,
-		"album":          album,
-		"cover_url":      coverURL,
-		"badge":          radarBadge,
-		"is_original":    !isDetectedRemix,
-		"is_radar_match": true,
-		"explanation":    radarExpl,
-		"source":         "shazam",
+		"id":              trackID,
+		"title":           title,
+		"artist":          artist,
+		"album":           album,
+		"cover_url":       coverURL,
+		"thumbnail_url":   coverURL,
+		"badge":           radarBadge,
+		"relevance_label": radarBadge,
+		"confidence":      0.96,
+		"match_source":    "shazam",
+		"is_original":     !isDetectedRemix,
+		"is_radar_match":  true,
+		"explanation":     radarExpl,
+		"source":          "shazam",
 	}
 	variants = append(variants, radarVariant)
 
-	// 2. If the detected track was a remix, search catalog for the canonical original!
+	// 2. If the detected track was a remix, search catalog for the canonical original and additional candidates!
 	if s.ytClient != nil && resolution.CanonicalTitle != "" {
 		searchQuery := fmt.Sprintf("%s %s", resolution.CanonicalTitle, resolution.CanonicalArtist)
-		tracks, err := s.ytClient.SearchWithCategory(ctx, searchQuery, "song")
+		tracks, err := s.ytClient.SearchWithCategory(ctx, searchQuery, "music")
 		if err == nil && len(tracks) > 0 {
 			var origFound bool
+			seenIDs := map[string]bool{trackID: true}
 			for _, t := range tracks {
 				if t.ItemType == "album" || t.ItemType == "artist" || t.ItemType == "playlist" ||
 					strings.HasPrefix(t.ID, "UC") || strings.HasPrefix(t.ID, "MPREb_") {
 					continue
 				}
+				if seenIDs[t.ID] {
+					continue
+				}
+				seenIDs[t.ID] = true
 
 				candidateIsRemix := ai.IsCandidateRemixOrVariant(t.Title)
 
 				// If detected track was a remix, we specifically search for and attach the CANONICAL ORIGINAL!
 				if isDetectedRemix && !origFound && !candidateIsRemix {
 					origVariant := map[string]any{
-						"id":             t.ID,
-						"title":          t.Title,
-						"artist":         t.Artist,
-						"album":          t.Album,
-						"cover_url":      t.ThumbnailURL,
-						"duration_ms":    t.DurationMs,
-						"badge":          "Canonical Original Version",
-						"is_original":    true,
-						"is_radar_match": false,
-						"explanation":    "Edge AI resolved the authentic original recording",
-						"source":         "vibe_ai",
+						"id":              t.ID,
+						"title":           t.Title,
+						"artist":          t.Artist,
+						"album":           t.Album,
+						"cover_url":       t.ThumbnailURL,
+						"thumbnail_url":   t.ThumbnailURL,
+						"duration_ms":     t.DurationMs,
+						"badge":           "Canonical Original Version",
+						"relevance_label": "Canonical Original Version",
+						"confidence":      0.94,
+						"match_source":    "vibe_ai",
+						"is_original":     true,
+						"is_radar_match":  false,
+						"explanation":     "Edge AI resolved the authentic original recording",
+						"source":          "vibe_ai",
 					}
 					// Place canonical original right at the top
 					variants = append([]map[string]any{origVariant}, variants...)
@@ -454,30 +528,33 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 					continue
 				}
 
-				// If detected track was ALREADY the original, do NOT add a remix as original!
-				// Only add an alternative if distinct from primary and up to 3 variants
-				if len(variants) < 3 && !strings.EqualFold(t.ID, trackID) && !strings.EqualFold(t.Title, title) {
+				if len(variants) < 6 && !strings.EqualFold(t.ID, trackID) {
 					altBadge := "Streaming Alternative"
 					if candidateIsRemix {
 						altBadge = "Remix Alternative"
 					}
+					conf := 0.85 - float64(len(variants))*0.04
+					if conf < 0.62 {
+						conf = 0.62
+					}
 					altVariant := map[string]any{
-						"id":             t.ID,
-						"title":          t.Title,
-						"artist":         t.Artist,
-						"album":          t.Album,
-						"cover_url":      t.ThumbnailURL,
-						"duration_ms":    t.DurationMs,
-						"badge":          altBadge,
-						"is_original":    false,
-						"is_radar_match": false,
-						"explanation":    "Top streaming catalog match",
-						"source":         "vibe_ai",
+						"id":              t.ID,
+						"title":           t.Title,
+						"artist":          t.Artist,
+						"album":           t.Album,
+						"cover_url":       t.ThumbnailURL,
+						"thumbnail_url":   t.ThumbnailURL,
+						"duration_ms":     t.DurationMs,
+						"badge":           altBadge,
+						"relevance_label": altBadge,
+						"confidence":      conf,
+						"match_source":    "ytmusic",
+						"is_original":     !candidateIsRemix,
+						"is_radar_match":  false,
+						"explanation":     "Top streaming catalog candidate",
+						"source":          "vibe_ai",
 					}
 					variants = append(variants, altVariant)
-					if origFound || !isDetectedRemix {
-						break
-					}
 				}
 			}
 		}

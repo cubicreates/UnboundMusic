@@ -90,6 +90,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.components.UnboundTrackThumbnail
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
@@ -411,32 +412,18 @@ fun CustomPlaylistScreen(
             }
 
             // Empty State
-            if (playlist.tracks.isEmpty()) {
+            if (displayedTracks.isEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 40.dp, bottom = 40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MusicNote,
-                            contentDescription = null,
-                            tint = OnSurfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "This playlist is empty",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = OnSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Add tracks using the 3-dots menu on any song",
-                            fontSize = 12.sp,
-                            color = OnSurfaceVariant.copy(alpha = 0.7f)
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
+                        UnboundEmptyStateCard(
+                            title = if (localTracks.isEmpty()) "This playlist is empty" else "No matching tracks",
+                            subtitle = if (localTracks.isEmpty()) {
+                                "Add tracks using the menu on any song."
+                            } else {
+                                "No tracks in this playlist matched \"$searchQuery\"."
+                            },
+                            icon = if (localTracks.isEmpty()) Icons.Default.MusicNote else Icons.Default.Search,
+                            compact = true
                         )
                     }
                 }

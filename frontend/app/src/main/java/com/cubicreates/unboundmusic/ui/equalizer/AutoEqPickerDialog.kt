@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cubicreates.unboundmusic.audio.EqualizerCurve
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -194,10 +195,15 @@ fun AutoEqPickerDialog(
                             .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (query.isBlank()) "Type a headphone brand or model" else "No matching calibration profiles",
-                            color = OnSurfaceVariant,
-                            fontSize = 14.sp
+                        UnboundEmptyStateCard(
+                            title = if (query.isBlank()) "Search headphones" else "No matching profiles",
+                            subtitle = if (query.isBlank()) {
+                                "Type a headphone brand or model above to find Harman calibration curves."
+                            } else {
+                                "No calibration profiles matched \"$query\"."
+                            },
+                            icon = Icons.Default.Headphones,
+                            compact = true
                         )
                     }
                 } else {

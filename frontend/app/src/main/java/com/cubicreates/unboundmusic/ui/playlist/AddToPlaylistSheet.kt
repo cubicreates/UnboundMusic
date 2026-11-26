@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.CustomPlaylist
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
@@ -229,29 +230,12 @@ fun AddToPlaylistSheet(
 
             // Playlists List
             if (playlists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QueueMusic,
-                            contentDescription = null,
-                            tint = OnSurfaceVariant,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Text(
-                            text = "No custom playlists yet",
-                            fontSize = 14.sp,
-                            color = OnSurfaceVariant
-                        )
-                    }
-                }
+                UnboundEmptyStateCard(
+                    title = "No custom playlists yet",
+                    subtitle = "Tap New Playlist above to create one with this song.",
+                    icon = Icons.Default.QueueMusic,
+                    compact = true
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier

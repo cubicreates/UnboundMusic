@@ -23,6 +23,7 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/genius"
 	"github.com/cubicreates/unbound-engine/pkg/lyrics"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
+	"github.com/cubicreates/unbound-engine/pkg/podcasts"
 	"github.com/cubicreates/unbound-engine/pkg/recommender"
 	"github.com/cubicreates/unbound-engine/pkg/sponsorblock"
 	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
@@ -39,6 +40,8 @@ type Daemon struct {
 	syncer        *account.Syncer
 	downloadMgr   *downloader.Manager
 	lyricsAgg     *lyrics.Aggregator
+	lyricsRec     *lyrics.LyricsRecognizer
+	podcastEng    *podcasts.Engine
 	sponsorClient *sponsorblock.Client
 	isScanning    int32
 }
@@ -69,7 +72,11 @@ func NewDaemon(
 	reranker := recommender.NewReRanker()
 	radioGen := ytmusic.NewRadioGenerator(ytClient, repo, markov, reranker)
 	syncer := account.NewSyncer(repo, ytClient)
-	lyricsAgg := lyrics.NewAggregator(repo, nil, ytClient, genius.NewClient())
+	geniusCli := genius.NewClient()
+	lyricsAgg := lyrics.NewAggregator(repo, nil, ytClient, geniusCli)
+	lyricsRec := lyrics.NewLyricsRecognizer(repo, lyrics.NewLRCLIBClient(), geniusCli, ytClient)
+	podcastEng := podcasts.NewEngine(ytClient)
+	podcastEng.SetRepository(repo)
 
 	var downloadMgr *downloader.Manager
 	if len(downloadMgrs) > 0 && downloadMgrs[0] != nil {
@@ -95,6 +102,8 @@ func NewDaemon(
 		syncer:        syncer,
 		downloadMgr:   downloadMgr,
 		lyricsAgg:     lyricsAgg,
+		lyricsRec:     lyricsRec,
+		podcastEng:    podcastEng,
 		sponsorClient: sponsorClient,
 	}
 }
@@ -115,8 +124,10 @@ func (d *Daemon) Routes() http.Handler {
 	mux.HandleFunc("/api/v1/storage/tracks", d.HandleGetLocalTracks)
 	mux.HandleFunc("/api/v1/storage/folders", d.HandleGetLocalFolders)
 
-	// Search Endpoints (Standard & 4-Stage Intelligent Cascade)
+	// Search Endpoints (Standard, Split Music/Podcast & 4-Stage Intelligent Cascade)
 	mux.HandleFunc("/api/v1/search", d.HandleSearch)
+	mux.HandleFunc("/api/v1/search/music", d.HandleMusicSearch)
+	mux.HandleFunc("/api/v1/search/podcasts", d.HandlePodcastSearch)
 	mux.HandleFunc("/api/v1/search/cascade", d.HandleSearchCascade)
 	mux.HandleFunc("/api/v1/search/vibe", d.HandleVibeSearch)
 
@@ -172,9 +183,20 @@ func (d *Daemon) Routes() http.Handler {
 
 	// Phase 6: Kinetic Synced Lyrics & Phonetic Romanization
 	mux.HandleFunc("/api/v1/lyrics", d.HandleGetLyrics)
+	mux.HandleFunc("/api/v1/recognize/lyrics", d.HandleLyricsRecognize)
+	mux.HandleFunc("/api/v1/lyrics/recognize", d.HandleLyricsRecognize)
 
 	// Phase 7: Playback Resilience & SponsorBlock Skit Skipping
 	mux.HandleFunc("/api/v1/track/skip_segments", d.HandleGetSkipSegments)
+
+	// Podcasts Discovery, Search, Browse, Resume & Library
+	mux.HandleFunc("/api/v1/podcasts/discover", d.HandlePodcastDiscover)
+	mux.HandleFunc("/api/v1/podcasts/search", d.HandlePodcastSearch)
+	mux.HandleFunc("/api/v1/podcasts/browse", d.HandlePodcastBrowse)
+	mux.HandleFunc("/api/v1/podcasts/resume", d.HandlePodcastResume)
+	mux.HandleFunc("/api/v1/podcasts/library", d.HandlePodcastLibrary)
+	mux.HandleFunc("/api/v1/podcasts/library/follow", d.HandlePodcastFollow)
+	mux.HandleFunc("/api/v1/podcasts/library/save", d.HandlePodcastSaveEpisode)
 
 	return d.corsMiddleware(mux)
 }

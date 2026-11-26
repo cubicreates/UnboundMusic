@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -69,8 +70,8 @@ import androidx.compose.ui.draw.alpha
 data class ArtistProfileData(
     val name: String,
     val heroImageUrl: String,
-    val monthlyListeners: String = "2.4M monthly listeners",
-    val bio: String = "Electronic and ambient producer known for synthetic soundscapes.",
+    val monthlyListeners: String = "",
+    val bio: String = "",
     val topTracks: List<TrackItem> = emptyList(),
     val albums: List<ArtistAlbumItem> = emptyList(),
     val similarArtists: List<SimilarArtistItem> = emptyList()
@@ -181,6 +182,20 @@ fun ArtistScreen(
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(UnboundSurfaceContainerHigh),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MusicNote,
+                                contentDescription = null,
+                                tint = UnboundPrimary.copy(alpha = 0.35f),
+                                modifier = Modifier.size(72.dp)
+                            )
+                        }
                     }
 
                     // Gradient overlay
@@ -222,85 +237,100 @@ fun ArtistScreen(
                             .align(Alignment.BottomStart)
                             .padding(horizontal = 20.dp, vertical = 16.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Verified Artist",
-                                tint = Color(0xFF1DB954),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Verified Artist",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color.White.copy(alpha = 0.9f)
-                            )
+                        if (profile.monthlyListeners.isNotBlank() || profile.topTracks.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Artist",
+                                    tint = UnboundPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Artist",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.White.copy(alpha = 0.9f)
+                                )
+                            }
                         }
                         Text(
-                            text = profile.name,
-                            fontSize = 36.sp,
+                            text = profile.name.ifBlank { "Unknown Artist" },
+                            fontSize = 34.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
-                        Text(
-                            text = profile.monthlyListeners,
-                            fontSize = 14.sp,
-                            color = OnSurfaceVariant
-                        )
-                    }
-                }
-
-                // Action Buttons: Play All & Shuffle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(UnboundPrimary)
-                            .clickable(onClick = onPlayAll)
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = null,
-                                tint = OnPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        if (profile.monthlyListeners.isNotBlank()) {
                             Text(
-                                text = "Play All",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = OnPrimary
+                                text = profile.monthlyListeners,
+                                fontSize = 14.sp,
+                                color = OnSurfaceVariant
                             )
                         }
                     }
+                }
 
-                    Box(
+                // Action Buttons: Play All & Shuffle (only when tracks exist)
+                if (profile.topTracks.isNotEmpty()) {
+                    Row(
                         modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(SurfaceGlassHighest)
-                            .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
-                            .clickable(onClick = onPlayAll),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = UnboundPrimary,
-                            modifier = Modifier.size(20.dp)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(UnboundPrimary)
+                                .clickable(onClick = onPlayAll)
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    tint = OnPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Play All",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = OnPrimary
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(SurfaceGlassHighest)
+                                .border(width = 1.dp, color = BorderGlass, shape = RoundedCornerShape(14.dp))
+                                .clickable(onClick = onPlayAll),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = UnboundPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                if (profile.topTracks.isEmpty() && profile.albums.isEmpty() && profile.similarArtists.isEmpty()) {
+                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        UnboundEmptyStateCard(
+                            title = "No artist tracks found",
+                            subtitle = "Songs, albums, and related artists for ${profile.name.ifBlank { "this artist" }} will appear here when available."
                         )
                     }
                 }

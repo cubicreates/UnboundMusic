@@ -361,7 +361,7 @@ fun MainViewModel.setPlaybackSpeed(speed: Float, pitch: Float = 1.0f) {
 fun MainViewModel.selectHomeMood(mood: String) {
     if (_selectedHomeMood.value == mood) return
     _selectedHomeMood.value = mood
-    if (mood.equals("All", ignoreCase = true)) {
+    if (mood.equals("All", ignoreCase = true) || mood.equals("All Music", ignoreCase = true)) {
         _moodTracks.value = emptyList()
         _isMoodLoading.value = false
         return
@@ -387,13 +387,15 @@ fun MainViewModel.selectHomeMood(mood: String) {
                 "workout" -> "FEmusic_moods_and_genres_category_workout"
                 "party" -> "FEmusic_moods_and_genres_category_dance"
                 "commute" -> "FEmusic_moods_and_genres_category_commute"
-                "focus" -> "FEmusic_moods_and_genres_category_focus"
+                "focus", "deep focus" -> "FEmusic_moods_and_genres_category_focus"
+                "night drive" -> "FEmusic_moods_and_genres_category_commute"
+                "acoustic" -> "FEmusic_moods_and_genres_category_chill"
                 else -> "FEmusic_moods_and_genres_category_${mood.lowercase()}"
             }
 
             var tracks = client.getMoodRadio(browseId)
             if (tracks.isEmpty()) {
-                val (code, json) = client.search("$mood mix", "music")
+                val (code, json) = client.search("$mood music", "music")
                 if (code in 200..299 && json.isNotBlank()) {
                     val searchTracks = client.parseSearchResults(json)
                     if (searchTracks.isNotEmpty()) {

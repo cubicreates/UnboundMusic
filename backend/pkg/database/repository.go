@@ -776,3 +776,73 @@ func (r *Repository) SearchTracksFTS(ctx context.Context, query string, limit in
 	return tracks, rows.Err()
 }
 
+// SearchLyricsCandidates searches cached synced_lyrics for matching lyric phrases or titles and returns scored candidates.
+func (r *Repository) SearchLyricsCandidates(ctx context.Context, query string, limit int) ([]models.RecognitionCandidate, error) {
+	cleanQuery := strings.TrimSpace(query)
+	if cleanQuery == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 6
+	}
+
+	sqlQuery := `
+	SELECT sl.track_id, sl.title, sl.artist, sl.plain_lyrics,
+	       COALESCE(t.album, ''), COALESCE(t.duration_ms, 0), COALESCE(t.thumbnail_url, '')
+	FROM synced_lyrics sl
+	LEFT JOIN tracks t ON t.id = sl.track_id
+	WHERE LOWER(sl.plain_lyrics) LIKE '%' || LOWER(?) || '%'
+	   OR LOWER(sl.title) LIKE '%' || LOWER(?) || '%'
+	LIMIT ?;
+	`
+
+	rows, err := r.db.conn.QueryContext(ctx, sqlQuery, cleanQuery, cleanQuery, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	lowerQ := strings.ToLower(cleanQuery)
+	var candidates []models.RecognitionCandidate
+	for rows.Next() {
+		var id, title, artist, plainLyrics, album, thumb string
+		var durationMs int64
+		if err := rows.Scan(&id, &title, &artist, &plainLyrics, &album, &durationMs, &thumb); err != nil {
+			continue
+		}
+
+		snippet := ""
+		for _, line := range strings.Split(plainLyrics, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" && strings.Contains(strings.ToLower(trimmed), lowerQ) {
+				snippet = trimmed
+				break
+			}
+		}
+
+		conf := 0.85
+		label := "Local Vault Title Match"
+		if snippet != "" {
+			conf = 0.95
+			label = "Exact Local Lyric Match"
+		}
+
+		candidates = append(candidates, models.RecognitionCandidate{
+			ID:             id,
+			Title:          title,
+			Artist:         artist,
+			Album:          album,
+			DurationMs:     durationMs,
+			CoverURL:       thumb,
+			ThumbnailURL:   thumb,
+			Confidence:     conf,
+			RelevanceLabel: label,
+			MatchedLyric:   snippet,
+			MatchSource:    "local_vault",
+			IsOriginal:     true,
+			Explanation:    "Matched in offline lyrics vault",
+		})
+	}
+	return candidates, rows.Err()
+}
+

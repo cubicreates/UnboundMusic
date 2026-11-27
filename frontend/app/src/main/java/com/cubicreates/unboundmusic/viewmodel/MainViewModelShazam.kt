@@ -30,23 +30,37 @@ import org.json.JSONObject
 
 private const val TAG = "MainViewModelShazam"
 
+internal fun MainViewModel.setRecognitionState(surface: MainViewModel.RecognitionSurface, state: RecognitionUiState) {
+    when (surface) {
+        MainViewModel.RecognitionSurface.HOME -> _homeRecognitionState.value = state
+        MainViewModel.RecognitionSurface.SEARCH -> _searchRecognitionState.value = state
+    }
+}
+
 fun MainViewModel.clearLastRecognizedTrack() {
     _lastRecognizedTrack.value = null
     _recognizedVariants.value = emptyList()
     _recognitionCandidates.value = emptyList()
-    _musicRecognitionState.value = RecognitionUiState.Idle
+    _homeRecognitionState.value = RecognitionUiState.Idle
+    _searchRecognitionState.value = RecognitionUiState.Idle
 }
 
 fun MainViewModel.clearLastHummedTrack() {
     _lastHummedTrack.value = null
     _hummedVariants.value = emptyList()
     _recognitionCandidates.value = emptyList()
-    _musicRecognitionState.value = RecognitionUiState.Idle
+    _homeRecognitionState.value = RecognitionUiState.Idle
+    _searchRecognitionState.value = RecognitionUiState.Idle
 }
 
-fun MainViewModel.clearLyricsRecognition() {
+fun MainViewModel.clearLyricsRecognition(surface: MainViewModel.RecognitionSurface? = null) {
     _recognitionCandidates.value = emptyList()
-    _musicRecognitionState.value = RecognitionUiState.Idle
+    if (surface == null) {
+        _homeRecognitionState.value = RecognitionUiState.Idle
+        _searchRecognitionState.value = RecognitionUiState.Idle
+    } else {
+        setRecognitionState(surface, RecognitionUiState.Idle)
+    }
     _recognizedMessage.value = null
 }
 
@@ -54,10 +68,14 @@ fun MainViewModel.clearLyricsRecognition() {
  * Queries POST /api/v1/recognize/lyrics to return multiple ranked song matches
  * for typed, spoken, or sung lyrics.
  */
-fun MainViewModel.submitLyricsRecognition(query: String, mode: String = "lyrics") {
+fun MainViewModel.submitLyricsRecognition(
+    query: String,
+    mode: String = "lyrics",
+    surface: MainViewModel.RecognitionSurface = pendingRecognitionSurface
+) {
     val trimmed = query.trim()
     if (trimmed.isBlank()) return
-    _musicRecognitionState.value = RecognitionUiState.Loading(trimmed, mode)
+    setRecognitionState(surface, RecognitionUiState.Loading(trimmed, mode))
     _recognizedMessage.value = "Matching lyrics: \"$trimmed\"..."
 
     viewModelScope.launch(Dispatchers.IO) {
@@ -67,22 +85,29 @@ fun MainViewModel.submitLyricsRecognition(query: String, mode: String = "lyrics"
             withContext(Dispatchers.Main) {
                 if (candidates.isNotEmpty()) {
                     _recognitionCandidates.value = candidates
-                    _musicRecognitionState.value = RecognitionUiState.Success(
-                        query = trimmed,
-                        mode = mode,
-                        candidates = candidates,
-                        latencyMs = response.latencyMs
+                    setRecognitionState(
+                        surface,
+                        RecognitionUiState.Success(
+                            query = trimmed,
+                            mode = mode,
+                            candidates = candidates,
+                            latencyMs = response.latencyMs
+                        )
                     )
                     val topTrack = candidates.first().toTrackItem()
+                    addSearchHistory("${topTrack.title} ${topTrack.artist}".trim())
                     _lastHummedTrack.value = topTrack
                     _hummedVariants.value = candidates.map { it.toRecognizedVariant() }
                     _hummingHistory.value = listOf(topTrack) + _hummingHistory.value.filter { it.id != topTrack.id }
                     _recognizedMessage.value = "Found ${candidates.size} possible matches for \"$trimmed\""
                 } else {
                     _recognitionCandidates.value = emptyList()
-                    _musicRecognitionState.value = RecognitionUiState.Empty(
-                        query = trimmed,
-                        message = response.message.ifBlank { "No matching songs found for \"$trimmed\". Try another lyric line." }
+                    setRecognitionState(
+                        surface,
+                        RecognitionUiState.Empty(
+                            query = trimmed,
+                            message = response.message.ifBlank { "No matching songs found for \"$trimmed\". Try another lyric line." }
+                        )
                     )
                     _recognizedMessage.value = "No matching songs found for \"$trimmed\"."
                 }
@@ -90,8 +115,11 @@ fun MainViewModel.submitLyricsRecognition(query: String, mode: String = "lyrics"
         } catch (e: Exception) {
             Log.e(TAG, "Lyrics recognition error: ${e.message}", e)
             withContext(Dispatchers.Main) {
-                _musicRecognitionState.value = RecognitionUiState.Error(
-                    e.message ?: "Could not match lyrics right now. Please try again."
+                setRecognitionState(
+                    surface,
+                    RecognitionUiState.Error(
+                        e.message ?: "Could not match lyrics right now. Please try again."
+                    )
                 )
                 _recognizedMessage.value = "Could not identify lyrics. Please try again."
             }
@@ -160,9 +188,12 @@ fun MainViewModel.startVoiceSearch(section: HomeSection = _selectedSearchSection
     voiceSearchRequestEvent.tryEmit(Unit)
 }
 
-fun MainViewModel.startHumSearch() {
-    _homeVibeState.value = VibeSearchUiState.Idle
-    _homeSearchState.value = HomeSearchUiState.Idle
+fun MainViewModel.startHumSearch(surface: MainViewModel.RecognitionSurface = MainViewModel.RecognitionSurface.SEARCH) {
+    pendingRecognitionSurface = surface
+    if (surface == MainViewModel.RecognitionSurface.HOME) {
+        _homeVibeState.value = VibeSearchUiState.Idle
+        _homeSearchState.value = HomeSearchUiState.Idle
+    }
     _recognizedMessage.value = "Listening for hummed melody, singing, or lyrics..."
     humSearchRequestEvent.tryEmit(Unit)
 }
@@ -186,10 +217,15 @@ fun MainViewModel.handleVoiceSearchResult(spokenQuery: String) {
 fun MainViewModel.handleHumSearchResult(spokenQuery: String) {
     val trimmed = spokenQuery.trim()
     if (trimmed.isBlank()) return
-    submitLyricsRecognition(trimmed, mode = "sing")
+    submitLyricsRecognition(trimmed, mode = "sing", surface = pendingRecognitionSurface)
 }
 
-fun MainViewModel.startAmbientShazamRecognition(contextOverride: Context? = null) {
+fun MainViewModel.startAmbientShazamRecognition(
+    contextOverride: Context? = null,
+    surface: MainViewModel.RecognitionSurface = MainViewModel.RecognitionSurface.SEARCH
+) {
+    pendingRecognitionSurface = surface
+    _activeShazamSurface.value = surface
     if (_shazamMode.value == ShazamMode.HUMMING) {
         val targetContext = contextOverride ?: getApplication<Application>()
         launchGoogleSoundSearch(targetContext)
@@ -205,7 +241,7 @@ fun MainViewModel.startAmbientShazamRecognition(contextOverride: Context? = null
             android.Manifest.permission.RECORD_AUDIO
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
     ) {
-        executeAmbientShazamCapture()
+        executeAmbientShazamCapture(surface)
     } else {
         audioPermissionRequestEvent.tryEmit(Unit)
     }
@@ -219,20 +255,23 @@ fun MainViewModel.stopAndSendShazamRecording() {
 }
 
 fun MainViewModel.onAudioPermissionGranted() {
-    executeAmbientShazamCapture()
+    executeAmbientShazamCapture(pendingRecognitionSurface)
 }
 
-internal fun MainViewModel.executeAmbientShazamCapture() {
+internal fun MainViewModel.executeAmbientShazamCapture(
+    surface: MainViewModel.RecognitionSurface = pendingRecognitionSurface
+) {
     if (_isListeningShazam.value) return
-    _homeVibeState.value = VibeSearchUiState.Idle
-    _homeSearchState.value = HomeSearchUiState.Idle
+    _activeShazamSurface.value = surface
+    if (surface == MainViewModel.RecognitionSurface.HOME) {
+        _homeVibeState.value = VibeSearchUiState.Idle
+        _homeSearchState.value = HomeSearchUiState.Idle
+    }
     _isListeningShazam.value = true
     val isHum = _shazamMode.value == ShazamMode.HUMMING
     _recordingDurationSeconds.value = 0
-    _musicRecognitionState.value = RecognitionUiState.Listening(
-        message = if (isHum) "Listening for sung melody..." else "Listening for music...",
-        durationSeconds = 0
-    )
+    val listenMsg = if (isHum) "Listening for sung melody..." else "Listening for music..."
+    setRecognitionState(surface, RecognitionUiState.Listening(message = listenMsg, durationSeconds = 0))
     _recognizedMessage.value = if (isHum) {
         "Hum or sing a tune... Tap radar to identify early"
     } else {
@@ -243,6 +282,17 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
         while (isActive && _isListeningShazam.value) {
             delay(1000)
             _recordingDurationSeconds.value++
+            val currentState = if (surface == MainViewModel.RecognitionSurface.HOME) {
+                _homeRecognitionState.value
+            } else {
+                _searchRecognitionState.value
+            }
+            if (currentState is RecognitionUiState.Listening) {
+                setRecognitionState(
+                    surface,
+                    RecognitionUiState.Listening(message = listenMsg, durationSeconds = _recordingDurationSeconds.value)
+                )
+            }
         }
     }
 
@@ -260,14 +310,14 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
                 _recognizedMessage.value = "Analyzing acoustic fingerprint..."
                 val (code, resp) = client.identifyPcmAudio(cumulativePcm)
                 if (code in 200..299 && resp.isNotBlank()) {
-                    val success = parseAndSetShazamResult(resp)
+                    val success = parseAndSetShazamResult(resp, surface)
                     if (success) {
                         return@streamPcm true // EARLY EXIT! Match achieved!
                     }
                 }
                 if (isFinal) {
                     val reasonMsg = if (_shazamMode.value == ShazamMode.HUMMING) {
-                        "Could not match hummed melody. Tap Google Sound Search below to identify melody by pitch, or tap 'Sing Lyrics'."
+                        "Could not match hummed melody. Tap 'Sing Lyrics' to match by lyrics."
                     } else {
                         "No acoustic match found. Try again closer to the speaker."
                     }
@@ -287,15 +337,23 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
                 }
                 false
             }
-            if (!matched && _musicRecognitionState.value is RecognitionUiState.Listening) {
-                _musicRecognitionState.value = RecognitionUiState.Empty(
-                    query = "Ambient Audio",
-                    message = _recognizedMessage.value ?: "No acoustic match found. Try again closer to the speaker."
+            val finalState = if (surface == MainViewModel.RecognitionSurface.HOME) {
+                _homeRecognitionState.value
+            } else {
+                _searchRecognitionState.value
+            }
+            if (!matched && finalState is RecognitionUiState.Listening) {
+                setRecognitionState(
+                    surface,
+                    RecognitionUiState.Empty(
+                        query = "Ambient Audio",
+                        message = _recognizedMessage.value ?: "No acoustic match found. Try again closer to the speaker."
+                    )
                 )
             }
         } catch (e: Exception) {
             _recognizedMessage.value = "Could not recognize audio. Try again."
-            _musicRecognitionState.value = RecognitionUiState.Error("Could not recognize audio. Try again.")
+            setRecognitionState(surface, RecognitionUiState.Error("Could not recognize audio. Try again."))
             withContext(Dispatchers.Main) {
                 com.cubicreates.unboundmusic.util.UnboundToast.show(
                     getApplication(),
@@ -310,7 +368,10 @@ internal fun MainViewModel.executeAmbientShazamCapture() {
     }
 }
 
-internal suspend fun MainViewModel.parseAndSetShazamResult(resp: String): Boolean {
+internal suspend fun MainViewModel.parseAndSetShazamResult(
+    resp: String,
+    surface: MainViewModel.RecognitionSurface = MainViewModel.RecognitionSurface.SEARCH
+): Boolean {
     return try {
         val json = JSONObject(resp)
         val matched = json.optBoolean("matched", false)
@@ -445,11 +506,15 @@ internal suspend fun MainViewModel.parseAndSetShazamResult(resp: String): Boolea
                 }
             }
             _recognitionCandidates.value = unifiedCandidates
-            _musicRecognitionState.value = RecognitionUiState.Success(
-                query = trackTitle,
-                mode = "shazam",
-                candidates = unifiedCandidates
+            setRecognitionState(
+                surface,
+                RecognitionUiState.Success(
+                    query = trackTitle,
+                    mode = "shazam",
+                    candidates = unifiedCandidates
+                )
             )
+            addSearchHistory("$trackTitle $artist".trim())
 
             val isEarly = json.optBoolean("early_exit", false)
             val durationMs = json.optInt("duration_ms", 0)

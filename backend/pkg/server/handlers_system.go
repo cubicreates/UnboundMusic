@@ -3,9 +3,12 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/events"
@@ -135,4 +138,124 @@ func (s *Server) handleUnpackPayload(w http.ResponseWriter, r *http.Request) {
 	_ = os.Remove(req.ArchivePath)
 
 	writeJSON(w, http.StatusOK, manifest)
+}
+
+const maxWallpaperBackupBytes = 32 * 1024 * 1024 // 32 MiB hard cap
+
+// handleWallpaperBackup stores (POST) or retrieves (GET) the user's original lock-screen wallpaper in SQLite.
+func (s *Server) handleWallpaperBackup(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		metaOnly := strings.EqualFold(r.URL.Query().Get("meta"), "1") ||
+			strings.EqualFold(r.URL.Query().Get("meta"), "true")
+		if metaOnly {
+			meta, err := s.repo.GetWallpaperBackupMeta(r.Context())
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to query wallpaper backup meta: %v", err))
+				return
+			}
+			writeJSON(w, http.StatusOK, meta)
+			return
+		}
+
+		blob, meta, err := s.repo.GetWallpaperBackup(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read wallpaper backup: %v", err))
+			return
+		}
+		if meta == nil || !meta.HasBackup || len(blob) == 0 {
+			writeError(w, http.StatusNotFound, "no original lockscreen wallpaper backup stored")
+			return
+		}
+
+		mimeType := meta.MimeType
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
+		w.Header().Set("X-Wallpaper-Source", meta.SourceFlag)
+		w.Header().Set("X-Lock-Wallpaper-Id", strconv.FormatInt(meta.LockWallpaperID, 10))
+		w.Header().Set("X-System-Wallpaper-Id", strconv.FormatInt(meta.SystemWallpaperID, 10))
+		w.Header().Set("X-Wallpaper-Sha256", meta.SHA256Hex)
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(blob)
+
+	case http.MethodPost:
+		data, err := io.ReadAll(io.LimitReader(r.Body, maxWallpaperBackupBytes+1))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("failed to read wallpaper bytes: %v", err))
+			return
+		}
+		if len(data) == 0 {
+			writeError(w, http.StatusBadRequest, "wallpaper payload cannot be empty")
+			return
+		}
+		if len(data) > maxWallpaperBackupBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "wallpaper payload exceeds 32 MiB limit")
+			return
+		}
+
+		sourceFlag := strings.TrimSpace(r.URL.Query().Get("source_flag"))
+		if sourceFlag == "" {
+			sourceFlag = strings.TrimSpace(r.Header.Get("X-Wallpaper-Source"))
+		}
+		if sourceFlag == "" {
+			sourceFlag = "lock"
+		}
+
+		lockID := parseWallpaperIDParam(r.URL.Query().Get("lock_id"), r.Header.Get("X-Lock-Wallpaper-Id"))
+		systemID := parseWallpaperIDParam(r.URL.Query().Get("system_id"), r.Header.Get("X-System-Wallpaper-Id"))
+		mimeType := strings.TrimSpace(r.Header.Get("Content-Type"))
+
+		meta, err := s.repo.SaveWallpaperBackup(r.Context(), data, mimeType, sourceFlag, lockID, systemID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save wallpaper backup: %v", err))
+			return
+		}
+		writeJSON(w, http.StatusOK, meta)
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
+}
+
+// handleWallpaperBackupIDs updates the tracked Android WallpaperManager IDs without rewriting image_blob.
+func (s *Server) handleWallpaperBackupIDs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		LockWallpaperID   int64 `json:"lock_wallpaper_id"`
+		SystemWallpaperID int64 `json:"system_wallpaper_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body")
+		return
+	}
+
+	if err := s.repo.UpdateWallpaperBackupIDs(r.Context(), req.LockWallpaperID, req.SystemWallpaperID); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update wallpaper IDs: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func parseWallpaperIDParam(queryVal, headerVal string) int64 {
+	raw := strings.TrimSpace(queryVal)
+	if raw == "" {
+		raw = strings.TrimSpace(headerVal)
+	}
+	if raw == "" {
+		return -1
+	}
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return -1
+	}
+	return parsed
 }

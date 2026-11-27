@@ -8,11 +8,12 @@
 package com.cubicreates.unboundmusic.viewmodel
 
 import android.util.Log
+import android.webkit.CookieManager
+import android.webkit.WebStorage
 import androidx.lifecycle.viewModelScope
 import com.cubicreates.unboundmusic.data.*
 import com.cubicreates.unboundmusic.data.SessionStore
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -23,24 +24,48 @@ import org.json.JSONObject
 
 private const val TAG = "MainViewModelAccount"
 
+internal fun isPlaceholderAccountName(name: String?): Boolean {
+    val trimmed = name?.trim()?.lowercase() ?: return true
+    return trimmed.isBlank() || trimmed in setOf(
+        "local user",
+        "local unbound user",
+        "connected user",
+        "youtube user",
+        "guest listener",
+        "youtube account"
+    )
+}
+
 /** Checks YouTube connection status from daemon and loads synced tracks if connected. */
 fun MainViewModel.checkAccountStatus() {
+    val epochAtStart = accountSessionEpoch.get()
     viewModelScope.launch(Dispatchers.IO) {
         try {
             val (code, resp) = client.getAccountStatus()
+            if (accountSessionEpoch.get() != epochAtStart) return@launch
             if (code in 200..299 && resp.isNotBlank()) {
                 val status = client.parseAccountStatus(resp)
                 if (status != null) {
+                    if (accountSessionEpoch.get() != epochAtStart) return@launch
                     _isYouTubeConnected.value = status.connected
-                    _accountName.value = status.accountName
-                    _userAvatarUrl.value = status.avatarUrl.takeIf { it.isNotBlank() }
                     if (status.connected) {
+                        if (!isPlaceholderAccountName(status.accountName)) {
+                            _accountName.value = status.accountName
+                        }
+                        if (status.avatarUrl.isNotBlank()) {
+                            _userAvatarUrl.value = status.avatarUrl
+                        }
                         val store = SessionStore.getInstance(getApplication())
-                        store.accountName = status.accountName
+                        if (!isPlaceholderAccountName(status.accountName)) {
+                            store.accountName = status.accountName
+                        }
                         if (status.avatarUrl.isNotBlank()) {
                             store.avatarUrl = status.avatarUrl
                         }
-                        loadSyncedYouTubeTracks()
+                        loadSyncedYouTubeTracks(silent = true)
+                    } else {
+                        _accountName.value = "Local User"
+                        _userAvatarUrl.value = null
                     }
                 }
             }
@@ -51,31 +76,51 @@ fun MainViewModel.checkAccountStatus() {
 }
 
 /** Synchronizes YouTube account credentials and pulls liked music into the local library. */
-fun MainViewModel.syncYouTubeAccount(cookie: String) {
+fun MainViewModel.syncYouTubeAccount(
+    cookie: String,
+    nameHint: String = "",
+    avatarHint: String = ""
+) {
+    val loginEpoch = accountSessionEpoch.incrementAndGet()
     viewModelScope.launch(Dispatchers.IO) {
         _isSyncingAccount.value = true
         try {
-            val (code, resp) = client.syncAccount(cookie)
+            val (code, resp) = client.syncAccount(cookie, nameHint, avatarHint)
+            if (accountSessionEpoch.get() != loginEpoch) return@launch
             if (code in 200..299) {
                 _isYouTubeConnected.value = true
                 val store = SessionStore.getInstance(getApplication())
                 store.saveSession(cookie)
+
+                val parsedStatus = client.parseAccountStatus(resp)
+                val resolvedName = parsedStatus?.accountName?.takeIf { !isPlaceholderAccountName(it) }
+                    ?: nameHint.takeIf { !isPlaceholderAccountName(it) }
+                val resolvedAvatar = parsedStatus?.avatarUrl?.takeIf { it.isNotBlank() }
+                    ?: avatarHint.takeIf { it.isNotBlank() }
+
+                if (resolvedName != null) {
+                    _accountName.value = resolvedName
+                    store.accountName = resolvedName
+                }
+                if (resolvedAvatar != null) {
+                    _userAvatarUrl.value = resolvedAvatar
+                    store.avatarUrl = resolvedAvatar
+                }
+
                 checkAccountStatus()
-                loadSyncedYouTubeTracks()
+                loadSyncedYouTubeTracks(silent = false)
                 loadSmartFeed()
                 refreshHomeFeed()
+                loadSearchHistory()
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), "YouTube synced successfully!", isLong = false)
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), "Sync Error [HTTP $code]: $resp", isLong = true)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Account sync failed: ${e.message}")
             withContext(Dispatchers.Main) {
-                UnboundToast.show(getApplication(), "Sync Exception: ${e.message}", isLong = true)
             }
         } finally {
             _isSyncingAccount.value = false
@@ -85,21 +130,22 @@ fun MainViewModel.syncYouTubeAccount(cookie: String) {
 
 /** Re-triggers sync of liked music, account metadata, and personalized home feed with daemon. */
 fun MainViewModel.resyncYouTubeAccount() {
+    val epochAtStart = accountSessionEpoch.get()
     viewModelScope.launch(Dispatchers.IO) {
         _isSyncingAccount.value = true
         try {
             val (code, _) = client.syncAccount("")
+            if (accountSessionEpoch.get() != epochAtStart) return@launch
             if (code in 200..299) {
                 checkAccountStatus()
-                loadSyncedYouTubeTracks()
+                loadSyncedYouTubeTracks(silent = false)
                 loadSmartFeed()
                 refreshHomeFeed()
+                loadSearchHistory()
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), "Library refreshed!", isLong = false)
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), "Refresh error [HTTP $code]", isLong = false)
                 }
             }
         } catch (e: Exception) {
@@ -136,13 +182,11 @@ fun MainViewModel.startYouTubeDeviceAuth(onLaunchBrowser: (String) -> Unit) {
             val errMsg = if (resp.isNotBlank()) "Device Auth Error [HTTP $code]: $resp" else "Device Auth Error [HTTP $code]"
             _deviceAuthError.value = errMsg
             withContext(Dispatchers.Main) {
-                UnboundToast.show(getApplication(), errMsg, isLong = true)
             }
         } catch (e: Exception) {
             val exMsg = "Device Auth Exception: ${e.message ?: "Unknown error"}"
             _deviceAuthError.value = exMsg
             withContext(Dispatchers.Main) {
-                UnboundToast.show(getApplication(), exMsg, isLong = true)
             }
         } finally {
             _isStartingDeviceAuth.value = false
@@ -151,15 +195,18 @@ fun MainViewModel.startYouTubeDeviceAuth(onLaunchBrowser: (String) -> Unit) {
 }
 
 internal suspend fun MainViewModel.pollDeviceAuthToken(deviceCode: String, intervalSeconds: Int) {
+    val epochAtStart = accountSessionEpoch.get()
     _isPollingDeviceAuth.value = true
     val pollDelay = (if (intervalSeconds > 0) intervalSeconds else 5) * 1000L
     val maxAttempts = 60 // 5 minutes max
 
     for (i in 0 until maxAttempts) {
-        if (!currentCoroutineContext().isActive) break
+        if (!currentCoroutineContext().isActive || accountSessionEpoch.get() != epochAtStart) break
         delay(pollDelay)
+        if (!currentCoroutineContext().isActive || accountSessionEpoch.get() != epochAtStart) break
         try {
             val (code, resp) = client.pollDeviceAuth(deviceCode)
+            if (accountSessionEpoch.get() != epochAtStart) break
             if (code in 200..299 && resp.isNotBlank()) {
                 val root = JSONObject(resp)
                 val status = root.optString("status", "")
@@ -170,11 +217,6 @@ internal suspend fun MainViewModel.pollDeviceAuthToken(deviceCode: String, inter
                     checkAccountStatus()
                     loadSyncedYouTubeTracks()
                     withContext(Dispatchers.Main) {
-                        UnboundToast.show(
-                            getApplication(),
-                            "YouTube account connected successfully!",
-                            isLong = false
-                        )
                     }
                     return
                 } else if (status == "pending") {
@@ -184,7 +226,6 @@ internal suspend fun MainViewModel.pollDeviceAuthToken(deviceCode: String, inter
                 val pollErr = "Device Poll Error [HTTP $code]: $resp"
                 _deviceAuthError.value = pollErr
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), pollErr, isLong = true)
                 }
                 break
             }
@@ -205,50 +246,107 @@ fun MainViewModel.cancelDeviceAuth() {
     _deviceAuthError.value = null
 }
 
-/** Disconnects YouTube account and purges credentials and synced library data. */
+/** Disconnects YouTube account and purges credentials, WebView cookies, and synced library data. */
 fun MainViewModel.disconnectYouTubeAccount() {
+    val disconnectEpoch = accountSessionEpoch.incrementAndGet()
+    cancelDeviceAuth()
+    _isSyncingAccount.value = false
+
+    // Optimistically clear all signed-in UI state immediately so logout is instantaneous and reliable
+    _isYouTubeConnected.value = false
+    _accountName.value = "Local User"
+    _userAvatarUrl.value = null
+    _syncedYouTubeTracks.value = emptyList()
+    _userMixes.value = emptyList()
+    _smartShelves.value = emptyList()
+    _homeMixes.value = emptyList()
+    _homeJumpBackTracks.value = emptyList()
+    _adaptiveQuickPicks.value = emptyList()
+    _youtubeCount.value = 0
+    _homeJumpBackMode.value = "guest"
+    _homeBannerTitle.value = ""
+    _homeBannerSubtitle.value = ""
+    _homeBannerAction.value = ""
+
+    val cur = _currentTrack.value
+    _isFavorite.value = try {
+        cur.title.isNotBlank() && PlaybackStateStore.isFavoriteTrack(getApplication(), cur.id, cur.title)
+    } catch (_: Throwable) {
+        false
+    }
+
+    SessionStore.getInstance(getApplication()).clear()
+
+    viewModelScope.launch(Dispatchers.Main) {
+        try {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+        } catch (e: Throwable) {
+            Log.w(TAG, "WebView cookie cleanup note: ${e.message}")
+        }
+        try {
+            WebStorage.getInstance().deleteAllData()
+        } catch (e: Throwable) {
+            Log.w(TAG, "WebStorage cleanup note: ${e.message}")
+        }
+    }
+
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            val (code, _) = client.disconnectAccount()
-            if (code in 200..299) {
-                _isYouTubeConnected.value = false
-                _accountName.value = "Local User"
-                _userAvatarUrl.value = null
-                _syncedYouTubeTracks.value = emptyList()
-                _youtubeCount.value = 0
-                SessionStore.getInstance(getApplication()).clear()
-                refreshHomeFeed()
+            var (code, _) = client.disconnectAccount()
+            if (code !in 200..299) {
+                delay(250)
+                code = client.disconnectAccount().first
+            }
+            // Guard against a startup sync racing right before disconnect finished
+            if (accountSessionEpoch.get() == disconnectEpoch) {
+                val (sCode, sResp) = client.getAccountStatus()
+                if (sCode in 200..299 && client.parseAccountStatus(sResp)?.connected == true) {
+                    client.disconnectAccount()
+                }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Account disconnect failed: ${e.message}")
+            Log.e(TAG, "Backend account disconnect note: ${e.message}")
+        }
+        if (accountSessionEpoch.get() == disconnectEpoch) {
+            refreshHomeFeed()
+            loadSearchHistory()
         }
     }
 }
 
 /** Loads cached synced Liked Music tracks from the Go engine daemon. */
-fun MainViewModel.loadSyncedYouTubeTracks() {
+fun MainViewModel.loadSyncedYouTubeTracks(silent: Boolean = false) {
+    val epochAtStart = accountSessionEpoch.get()
     viewModelScope.launch(Dispatchers.IO) {
-        _isSyncingAccount.value = true
+        if (!silent) _isSyncingAccount.value = true
         try {
             val (code, resp) = client.getLikedTracks()
+            if (accountSessionEpoch.get() != epochAtStart || !_isYouTubeConnected.value) return@launch
             if (code in 200..299 && resp.isNotBlank()) {
                 val tracks = client.parseLikedTracks(resp)
                 val mixes = client.parseUserMixes(resp)
+                if (accountSessionEpoch.get() != epochAtStart || !_isYouTubeConnected.value) return@launch
                 _syncedYouTubeTracks.value = tracks
                 _userMixes.value = mixes
                 _youtubeCount.value = tracks.size
-                withContext(Dispatchers.Main) {
-                    if (tracks.isNotEmpty()) {
-                        UnboundToast.show(getApplication(), "Synced ${tracks.size} tracks from YouTube!", isLong = false)
-                    } else {
-                        UnboundToast.show(getApplication(), "0 liked tracks found on YouTube account.", isLong = false)
+                val cur = _currentTrack.value
+                if (cur.id.isNotBlank() && tracks.any { it.id == cur.id }) {
+                    _isFavorite.value = true
+                }
+                if (!silent) {
+                    withContext(Dispatchers.Main) {
+                        if (tracks.isNotEmpty()) {
+                        } else {
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.d(TAG, "Load synced tracks note: ${e.message}")
         } finally {
-            _isSyncingAccount.value = false
+            if (!silent) _isSyncingAccount.value = false
         }
     }
 }
@@ -256,6 +354,7 @@ fun MainViewModel.loadSyncedYouTubeTracks() {
 /** Continuously loads next wave of music tracks for infinite scroll (logged-in & guest). */
 fun MainViewModel.loadMorePersonalizedTracks() {
     if (_isLoadingMoreTracks.value) return
+    val epochAtStart = accountSessionEpoch.get()
     viewModelScope.launch(Dispatchers.IO) {
         _isLoadingMoreTracks.value = true
         try {
@@ -275,11 +374,13 @@ fun MainViewModel.loadMorePersonalizedTracks() {
                 }
             }
 
+            if (accountSessionEpoch.get() != epochAtStart) return@launch
+
             val musicTracks = fetchedTracks.filter {
                 !it.source.equals("podcast", true) && !it.itemType.equals("podcast", true)
             }
             if (musicTracks.isNotEmpty()) {
-                if (_isYouTubeConnected.value || _syncedYouTubeTracks.value.isNotEmpty()) {
+                if (_isYouTubeConnected.value) {
                     val existingSyncedIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
                     val uniqueSynced = musicTracks.filter { it.id !in existingSyncedIds }
                     if (uniqueSynced.isNotEmpty()) {

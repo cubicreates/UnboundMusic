@@ -30,7 +30,6 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/fingerprint"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
-	"github.com/cubicreates/unbound-engine/pkg/importer"
 	"github.com/cubicreates/unbound-engine/pkg/lastfm"
 	"github.com/cubicreates/unbound-engine/pkg/moods"
 	"github.com/cubicreates/unbound-engine/pkg/p2p"
@@ -62,7 +61,6 @@ func main() {
 	shazamMock := flag.Bool("shazam-mock", false, "Test audio DSP FFT, landmark pairing, and Shazam signature encoder")
 	shazamFile := flag.String("shazam-file", "", "Audio file path to recognize using Shazam backend")
 	analyticsRecap := flag.Bool("analytics-recap", false, "Generate on-device listening stats and Unbound Recap report")
-	importSpotify := flag.String("import-spotify", "", "Public Spotify playlist URL to parse and import")
 	scrobbleTrack := flag.String("scrobble", "", "Track title to test Last.fm scrobble dispatch")
 	audioDSPTest := flag.Bool("audio-dsp", false, "Test ReplayGain loudness normalization, DJ crossfade, and silence trimming")
 	canvasTitle := flag.String("canvas", "", "Track title to resolve Spotify Canvas video for")
@@ -308,30 +306,6 @@ func main() {
 		fmt.Printf("  Current Version: %s\n", info.CurrentVersion)
 		fmt.Printf("  Latest Version:  %s\n", info.LatestVersion)
 		fmt.Printf("  Update Available: %v\n", info.HasUpdate)
-		return
-	}
-
-	// 10. Spotify Playlist Importer Test
-	if *importSpotify != "" {
-		fmt.Printf("\n[UNBOUND ENGINE] Importing Public Spotify Playlist: %s\n", *importSpotify)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		imp := importer.NewImporter()
-		pl, err := imp.ImportSpotifyPlaylist(ctx, *importSpotify)
-		if err != nil {
-			fmt.Printf("Spotify Import Note: %v (Tested parser successfully)\n", err)
-			return
-		}
-
-		fmt.Printf("Imported %d tracks from %q:\n", pl.TrackCount, pl.Title)
-		for i, t := range pl.Tracks {
-			if i >= 10 {
-				fmt.Printf("  ... and %d more tracks\n", len(pl.Tracks)-10)
-				break
-			}
-			fmt.Printf("  [%d] %-30s | Artist: %s\n", i+1, t.Title, t.Artist)
-		}
 		return
 	}
 

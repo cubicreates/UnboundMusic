@@ -92,8 +92,7 @@ class MainActivity : ComponentActivity() {
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             }
             voiceSearchLauncher.launch(intent)
-        } catch (e: Exception) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(this, "Voice search is not available on this device", isLong = false)
+        } catch (_: Exception) {
         }
     }
 
@@ -105,8 +104,7 @@ class MainActivity : ComponentActivity() {
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             }
             humSearchLauncher.launch(intent)
-        } catch (e: Exception) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(this, "Voice recognition is not available on this device", isLong = false)
+        } catch (_: Exception) {
         }
     }
 

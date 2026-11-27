@@ -67,9 +67,11 @@ internal fun MainViewModel.loadHomeFeed() {
  * Loads dynamic algorithmic recommendation shelves from local listening history and song seeds.
  */
 fun MainViewModel.loadSmartFeed() {
+    val epochAtStart = accountSessionEpoch.get()
     viewModelScope.launch(Dispatchers.IO) {
         try {
             val (code, resp) = client.getSmartFeed()
+            if (accountSessionEpoch.get() != epochAtStart) return@launch
             if (code in 200..299 && resp.isNotBlank()) {
                 val feed = client.parseSmartFeed(resp)
                 if (feed != null && feed.hasPersonalization) {
@@ -552,6 +554,7 @@ internal suspend fun MainViewModel.refreshGlobalAndRegionalCharts(
     countryOverride: String? = null,
     languageOverride: String? = null
 ) {
+    val epochAtStart = accountSessionEpoch.get()
     val actualCountry = if (!countryOverride.isNullOrBlank()) countryOverride else GeoLocationProvider.getCountryCode(getApplication())
     val actualLanguage = if (!languageOverride.isNullOrBlank()) languageOverride else GeoLocationProvider.getLanguageCode()
 
@@ -565,7 +568,14 @@ internal suspend fun MainViewModel.refreshGlobalAndRegionalCharts(
         null
     }
 
+    if (accountSessionEpoch.get() != epochAtStart) return
+
     if (backendHome != null) {
+        _homeJumpBackMode.value = backendHome.jumpBackMode
+        _homeBannerTitle.value = backendHome.jumpBackBannerTitle
+        _homeBannerSubtitle.value = backendHome.jumpBackBannerSubtitle
+        _homeBannerAction.value = backendHome.jumpBackBannerAction
+
         if (backendHome.trendingGlobally.isNotEmpty()) {
             _chartTracks.value = backendHome.trendingGlobally
         }
@@ -581,10 +591,14 @@ internal suspend fun MainViewModel.refreshGlobalAndRegionalCharts(
         if (backendHome.madeForYouMixes.isNotEmpty()) {
             _homeMixes.value = backendHome.madeForYouMixes
         }
-        if (backendHome.isLoggedIn && !_isYouTubeConnected.value) {
-            _isYouTubeConnected.value = true
-            if (backendHome.accountName.isNotBlank()) _accountName.value = backendHome.accountName
-            if (!backendHome.avatarUrl.isNullOrBlank()) _userAvatarUrl.value = backendHome.avatarUrl
+        if (backendHome.isLoggedIn) {
+            if (!_isYouTubeConnected.value) _isYouTubeConnected.value = true
+            if (!isPlaceholderAccountName(backendHome.accountName)) {
+                _accountName.value = backendHome.accountName
+            }
+            if (!backendHome.avatarUrl.isNullOrBlank()) {
+                _userAvatarUrl.value = backendHome.avatarUrl
+            }
         }
         if (backendHome.trendingGlobally.isNotEmpty() || backendHome.trendingRegionally.isNotEmpty()) {
             return
@@ -619,6 +633,19 @@ fun MainViewModel.refreshHomeFeed(countryOverride: String? = null) {
     viewModelScope.launch(Dispatchers.IO) {
         refreshGlobalAndRegionalCharts(countryOverride)
     }
+}
+
+/**
+ * Starts a fresh discovery mix when a signed-in user has paused/empty watch history
+ * and taps "Jump into Fresh Picks" on the Home banner.
+ */
+fun MainViewModel.jumpIntoFreshPreferences() {
+    val likedIds = _syncedYouTubeTracks.value.map { it.id }.toSet()
+    val pool = (_regionalCharts.value + _chartTracks.value + _homeJumpBackTracks.value)
+        .filter { it.id.isNotBlank() && it.id !in likedIds }
+        .ifEmpty { _regionalCharts.value + _chartTracks.value }
+    val seed = pool.randomOrNull() ?: return
+    startRadio(seed)
 }
 
 fun MainViewModel.initializeColdStart(countryCode: String? = null, languageCode: String? = null) {

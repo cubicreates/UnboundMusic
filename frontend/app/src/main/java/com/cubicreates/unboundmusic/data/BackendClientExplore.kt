@@ -1154,3 +1154,107 @@ suspend fun BackendClient.checkForUpdates(version: String? = null): Pair<Int, St
     val query = if (!version.isNullOrBlank()) "?version=${java.net.URLEncoder.encode(version, "UTF-8")}" else ""
     get("/api/v1/updater/check$query")
 }
+
+/** Fetches hierarchical, taste-weighted, ban-filtered Guest radio queue in one backend call. */
+suspend fun BackendClient.getGuestRadio(
+    videoId: String,
+    title: String,
+    artist: String,
+    album: String,
+    limit: Int = 45
+): List<TrackItem> = withContext(Dispatchers.IO) {
+    val qs = buildString {
+        append("?limit=").append(limit)
+        if (videoId.isNotBlank()) append("&video_id=").append(URLEncoder.encode(videoId, "UTF-8"))
+        if (title.isNotBlank()) append("&title=").append(URLEncoder.encode(title, "UTF-8"))
+        if (artist.isNotBlank()) append("&artist=").append(URLEncoder.encode(artist, "UTF-8"))
+        if (album.isNotBlank()) append("&album=").append(URLEncoder.encode(album, "UTF-8"))
+    }
+    val (code, json) = get("/api/v1/radio/guest$qs")
+    if (code !in 200..299 || json.isBlank()) return@withContext emptyList()
+    try {
+        val root = JSONObject(json)
+        val arr = root.optJSONArray("tracks") ?: return@withContext emptyList()
+        val list = mutableListOf<TrackItem>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val tId = obj.optString("id")
+            val tTitle = obj.optString("title")
+            if (tTitle.isBlank()) continue
+            list.add(
+                TrackItem(
+                    id = tId,
+                    title = tTitle,
+                    artist = obj.optString("artist", "Unknown Artist"),
+                    album = obj.optString("album", ""),
+                    durationMs = obj.optLong("duration_ms", 0L),
+                    coverUrl = obj.optString("thumbnail_url", obj.optString("cover_url", "")),
+                    streamUrl = "",
+                    source = obj.optString("source", "youtube")
+                )
+            )
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/** Retrieves persistent SQLite search history ("Previous Searches") per domain. */
+suspend fun BackendClient.getSearchHistory(
+    domain: String = "music",
+    prefix: String = "",
+    limit: Int = 20
+): List<String> = withContext(Dispatchers.IO) {
+    val qs = "?domain=${URLEncoder.encode(domain, "UTF-8")}&q=${URLEncoder.encode(prefix, "UTF-8")}&limit=$limit"
+    val (code, json) = get("/api/v1/search/history$qs")
+    if (code !in 200..299 || json.isBlank()) return@withContext emptyList()
+    try {
+        val arr = JSONObject(json).optJSONArray("history") ?: return@withContext emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            arr.optString(i).trim().takeIf { it.isNotBlank() }?.let { list.add(it) }
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/** Records a search query into persistent SQLite search history. */
+suspend fun BackendClient.recordSearchHistory(
+    query: String,
+    domain: String = "music"
+): List<String> = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("domain", domain)
+        put("query", query)
+    }.toString()
+    val (code, json) = post("/api/v1/search/history", payload)
+    if (code !in 200..299 || json.isBlank()) return@withContext emptyList()
+    try {
+        val arr = JSONObject(json).optJSONArray("history") ?: return@withContext emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            arr.optString(i).trim().takeIf { it.isNotBlank() }?.let { list.add(it) }
+        }
+        list
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/** Removes a single query or clears all persistent search history for a domain. */
+suspend fun BackendClient.deleteSearchHistory(
+    query: String = "",
+    domain: String = "music",
+    clearAll: Boolean = false
+): Boolean = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("domain", domain)
+        if (query.isNotBlank()) put("query", query)
+        put("clear_all", clearAll)
+    }.toString()
+    val (code, _) = post("/api/v1/search/history/delete", payload)
+    code in 200..299
+}

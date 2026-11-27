@@ -49,16 +49,27 @@ type ClientContext struct {
 	} `json:"client"`
 }
 
+// PlaybackTrackingURLs stores Innertube videostats reporting endpoints for a video.
+type PlaybackTrackingURLs struct {
+	PlaybackURL  string
+	WatchtimeURL string
+	UpdatedAt    time.Time
+}
+
+const maxTrackingCacheEntries = 256
+
 // Client provides authenticated and anonymous interaction with the YouTube Music Innertube API.
 type Client struct {
-	httpClient  *http.Client
-	hl          string
-	gl          string
-	mu          sync.RWMutex
-	cookieStr   string
-	accessToken string
-	visitorData string
-	poToken     string
+	httpClient    *http.Client
+	hl            string
+	gl            string
+	mu            sync.RWMutex
+	cookieStr     string
+	accessToken   string
+	visitorData   string
+	poToken       string
+	trackingMu    sync.RWMutex
+	trackingCache map[string]PlaybackTrackingURLs
 }
 
 // NewClient instantiates a new YouTube Music scraper client with connection pooling and timeouts.
@@ -67,7 +78,7 @@ func NewClient() *Client {
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
-		DisableCompression: false,
+		DisableCompression:  false,
 	}
 
 	return &Client{
@@ -75,9 +86,71 @@ func NewClient() *Client {
 			Transport: transport,
 			Timeout:   DefaultTimeout,
 		},
-		hl: "en",
-		gl: "US",
+		hl:            "en",
+		gl:            "US",
+		trackingCache: make(map[string]PlaybackTrackingURLs),
 	}
+}
+
+// IsValidYouTubeVideoID returns true when id is a standard 11-character YouTube video ID.
+func IsValidYouTubeVideoID(id string) bool {
+	if len(id) != 11 || strings.HasPrefix(id, "local") {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		ch := id[i]
+		isValid := (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '-' || ch == '_'
+		if !isValid {
+			return false
+		}
+	}
+	return true
+}
+
+// SetPlaybackTracking caches videostats tracking URLs for a resolved YouTube video ID.
+func (c *Client) SetPlaybackTracking(videoID, playbackURL, watchtimeURL string) {
+	if !IsValidYouTubeVideoID(videoID) || (playbackURL == "" && watchtimeURL == "") {
+		return
+	}
+	c.trackingMu.Lock()
+	defer c.trackingMu.Unlock()
+	if c.trackingCache == nil {
+		c.trackingCache = make(map[string]PlaybackTrackingURLs)
+	}
+	if len(c.trackingCache) >= maxTrackingCacheEntries {
+		var oldestKey string
+		var oldestTime time.Time
+		now := time.Now()
+		for k, v := range c.trackingCache {
+			if now.Sub(v.UpdatedAt) > 5*time.Hour {
+				delete(c.trackingCache, k)
+				continue
+			}
+			if oldestKey == "" || v.UpdatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.UpdatedAt
+			}
+		}
+		if len(c.trackingCache) >= maxTrackingCacheEntries && oldestKey != "" {
+			delete(c.trackingCache, oldestKey)
+		}
+	}
+	c.trackingCache[videoID] = PlaybackTrackingURLs{
+		PlaybackURL:  playbackURL,
+		WatchtimeURL: watchtimeURL,
+		UpdatedAt:    time.Now(),
+	}
+}
+
+// GetPlaybackTracking retrieves cached videostats tracking URLs for a video ID.
+func (c *Client) GetPlaybackTracking(videoID string) (PlaybackTrackingURLs, bool) {
+	c.trackingMu.RLock()
+	defer c.trackingMu.RUnlock()
+	entry, ok := c.trackingCache[videoID]
+	return entry, ok
 }
 
 // SetCredentials configures YouTube authentication cookies for user library and mutation requests.
@@ -477,7 +550,12 @@ func (c *Client) get(ctx context.Context, targetURL string, cfg ClientConfig) ([
 	c.mu.RLock()
 	rawCookie := c.cookieStr
 	token := c.accessToken
+	vd := c.visitorData
 	c.mu.RUnlock()
+
+	if vd != "" {
+		req.Header.Set("X-Goog-Visitor-Id", vd)
+	}
 
 	if token != "" && !strings.Contains(targetURL, "music.youtube.com") {
 		req.Header.Set("Authorization", "Bearer "+token)

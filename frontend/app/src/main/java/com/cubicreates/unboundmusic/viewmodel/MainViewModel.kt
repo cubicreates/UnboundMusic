@@ -276,8 +276,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ==================== Multi-Match Lyrics & Acoustic Recognition State ====================
 
-    internal val _musicRecognitionState = MutableStateFlow<RecognitionUiState>(RecognitionUiState.Idle)
-    val musicRecognitionState: StateFlow<RecognitionUiState> = _musicRecognitionState.asStateFlow()
+    enum class RecognitionSurface {
+        HOME,
+        SEARCH
+    }
+
+    internal val _homeRecognitionState = MutableStateFlow<RecognitionUiState>(RecognitionUiState.Idle)
+    val homeRecognitionState: StateFlow<RecognitionUiState> = _homeRecognitionState.asStateFlow()
+
+    internal val _searchRecognitionState = MutableStateFlow<RecognitionUiState>(RecognitionUiState.Idle)
+    val searchRecognitionState: StateFlow<RecognitionUiState> = _searchRecognitionState.asStateFlow()
+
+    val musicRecognitionState: StateFlow<RecognitionUiState> get() = _searchRecognitionState.asStateFlow()
+
+    internal val _activeShazamSurface = MutableStateFlow(RecognitionSurface.SEARCH)
+    val activeShazamSurface: StateFlow<RecognitionSurface> = _activeShazamSurface.asStateFlow()
+
+    internal var pendingRecognitionSurface: RecognitionSurface = RecognitionSurface.SEARCH
 
     internal val _recognitionCandidates = MutableStateFlow<List<RecognitionCandidateDto>>(emptyList())
     val recognitionCandidates: StateFlow<List<RecognitionCandidateDto>> = _recognitionCandidates.asStateFlow()
@@ -337,10 +352,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal val _podcastSearchHistory = MutableStateFlow<List<String>>(emptyList())
     val podcastSearchHistory: StateFlow<List<String>> = _podcastSearchHistory.asStateFlow()
 
+    internal val _podcastSearchSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val podcastSearchSuggestions: StateFlow<List<String>> = _podcastSearchSuggestions.asStateFlow()
+
     internal val _isPodcastSearching = MutableStateFlow(false)
     val isPodcastSearching: StateFlow<Boolean> = _isPodcastSearching.asStateFlow()
 
     internal var podcastSearchJob: Job? = null
+    internal var podcastSuggestionJob: Job? = null
     internal var pendingVoiceSearchSection: HomeSection = HomeSection.MUSIC
 
     // ==================== Saved Podcast Library State ====================
@@ -659,6 +678,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal val _isIdentifyingTrack = MutableStateFlow<String?>(null)
     val isIdentifyingTrack: StateFlow<String?> = _isIdentifyingTrack.asStateFlow()
     internal val recentlyCancelledIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    internal var lastViewLoggedTrackKey: String = ""
+    internal var activeTrackMaxPositionMs: Long = 0L
 
     init {
         // Connect to Media3 playback service safely
@@ -679,9 +700,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 serviceConnection.playbackState.collect { state ->
                     state.currentTrack?.let { track ->
                         if (track.title != "Unknown" && track.title.isNotBlank()) {
+                            if (state.currentPositionMs > activeTrackMaxPositionMs) {
+                                activeTrackMaxPositionMs = state.currentPositionMs
+                            }
                             val prev = _currentTrack.value
                             val changed = prev.id != track.id || !prev.title.equals(track.title, ignoreCase = true)
                             if (changed) {
+                                if (prev.title.isNotBlank() && activeTrackMaxPositionMs >= 1_000L) {
+                                    val completed = prev.durationMs > 0L && activeTrackMaxPositionMs >= (prev.durationMs * 85L) / 100L
+                                    logPlaybackTelemetry(prev, activeTrackMaxPositionMs, prev.durationMs, completed, nextTrackId = track.id)
+                                }
+                                activeTrackMaxPositionMs = 0L
                                 _currentTrack.value = track
                                 _isFavorite.value = try {
                                     PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title)
@@ -703,6 +732,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     if (idx >= 0 && idx >= q.size - 3) {
                                         fetchGuestAlgorithmicRadio(track, append = true)
                                     }
+                                }
+                            } else if (state.isPlaying && state.currentPositionMs >= 10_000L) {
+                                val trackKey = track.id.ifBlank { "${track.title}_${track.artist}" }
+                                if (trackKey.isNotBlank() && lastViewLoggedTrackKey != trackKey) {
+                                    lastViewLoggedTrackKey = trackKey
+                                    logPlaybackEvent(track, (state.currentPositionMs / 1000L).toInt().coerceAtLeast(10))
                                 }
                             }
                         }
@@ -884,6 +919,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 _startupPhase.value = "CACHE_HYDRATE"
                 _startupProgress.value = 0.90f
+
+                // Capture the user's original lock-screen wallpaper into Go SQLite on launch
+                try {
+                    com.cubicreates.unboundmusic.service.LockscreenArtworkManager.captureOriginalWallpaperOnLaunch(getApplication())
+                } catch (_: Throwable) {}
             } catch (e: Exception) {
                 Log.e(TAG, "Startup hydration core exception: ${e.message}", e)
             } finally {

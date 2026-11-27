@@ -408,6 +408,34 @@ func (s *Server) handleSearchHistory(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		if (domain == "" || strings.EqualFold(domain, "music")) &&
+			s.accountSync != nil && s.accountSync.GetStatus().Connected && s.ytClient != nil {
+			subCtx, cancel := context.WithTimeout(r.Context(), 3500*time.Millisecond)
+			ytHistory, ytErr := s.ytClient.FetchAccountSearchHistory(subCtx, prefix)
+			cancel()
+			if ytErr == nil && len(ytHistory) > 0 {
+				seen := make(map[string]bool, len(history)+len(ytHistory))
+				merged := make([]string, 0, limit)
+				for _, h := range history {
+					k := strings.ToLower(strings.TrimSpace(h))
+					if k != "" && !seen[k] {
+						seen[k] = true
+						merged = append(merged, h)
+					}
+				}
+				for _, yh := range ytHistory {
+					if len(merged) >= limit {
+						break
+					}
+					k := strings.ToLower(strings.TrimSpace(yh))
+					if k != "" && !seen[k] {
+						seen[k] = true
+						merged = append(merged, yh)
+					}
+				}
+				history = merged
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"domain":  domain,
 			"history": history,

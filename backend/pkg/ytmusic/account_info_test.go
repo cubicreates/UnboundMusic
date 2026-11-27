@@ -172,3 +172,65 @@ func TestParseAccountSwitcherEndpointJSON(t *testing.T) {
 	}
 }
 
+
+func TestParseAccountSwitcherExtractsPageIDAndDataSyncID(t *testing.T) {
+	rawJSON := `{
+		"code": "SUCCESS",
+		"data": {
+			"contents": [
+				{
+					"accountSectionListRenderer": {
+						"contents": [
+							{
+								"accountItemSectionRenderer": {
+									"contents": [
+										{
+											"accountItem": {
+												"isSelected": true,
+												"onBehalfOfParameter": "104556677889900",
+												"accountName": { "simpleText": "Studio Profile" },
+												"channelHandle": { "simpleText": "@studioprofile" },
+												"serviceEndpoint": {
+													"selectActiveIdentityEndpoint": {
+														"supportedTokens": [
+															{ "pageIdToken": { "pageId": "104556677889900" } },
+															{ "datasyncIdToken": { "datasyncIdToken": "sync_tok_abc123||" } }
+														]
+													}
+												},
+												"accountPhoto": {
+													"thumbnails": [
+														{ "url": "https://yt3.ggpht.com/a/studio=s88-c" }
+													]
+												}
+											}
+										}
+									]
+								}
+							}
+						]
+					}
+				}
+			]
+		}
+	}`
+
+	var root map[string]interface{}
+	if err := json.Unmarshal([]byte(rawJSON), &root); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	info := parseAccountInfoFromJSON(root)
+	if info == nil {
+		t.Fatalf("expected non-nil AccountInfo")
+	}
+	if info.PageID != "104556677889900" {
+		t.Errorf("expected PageID '104556677889900', got %q", info.PageID)
+	}
+	if info.DataSyncID != "sync_tok_abc123||" {
+		t.Errorf("expected DataSyncID 'sync_tok_abc123||', got %q", info.DataSyncID)
+	}
+	if info.Name != "Studio Profile" {
+		t.Errorf("expected Name 'Studio Profile', got %q", info.Name)
+	}
+}

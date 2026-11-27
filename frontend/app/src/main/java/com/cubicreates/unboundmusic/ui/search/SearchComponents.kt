@@ -39,11 +39,14 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.NorthWest
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -69,7 +72,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.PodcastEpisodeDto
 import com.cubicreates.unboundmusic.data.PodcastShowDto
+import com.cubicreates.unboundmusic.data.RecognitionUiState
 import com.cubicreates.unboundmusic.ui.components.TrackItem
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
 import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
@@ -134,7 +139,263 @@ fun <T> SearchFilterChipsRow(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * YouTube-style Previous Searches & Autocomplete Suggestions list.
+ * Shows cached SQLite search history when idle, or prefix-filtered history + live suggestions while typing.
+ */
+@Composable
+fun PreviousSearchesSection(
+    history: List<String>,
+    suggestions: List<String> = emptyList(),
+    currentQuery: String = "",
+    onQueryClick: (String) -> Unit,
+    onFillQuery: (String) -> Unit = onQueryClick,
+    onRemoveItem: (String) -> Unit,
+    onClearAll: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val trimmedQuery = currentQuery.trim()
+    val matchingHistory = if (trimmedQuery.isBlank()) {
+        history.take(10)
+    } else {
+        history.filter { it.contains(trimmedQuery, ignoreCase = true) && !it.equals(trimmedQuery, ignoreCase = true) }.take(4)
+    }
+    val filteredSuggestions = if (trimmedQuery.isBlank()) {
+        emptyList()
+    } else {
+        suggestions.filter { s ->
+            !s.equals(trimmedQuery, ignoreCase = true) &&
+                matchingHistory.none { it.equals(s, ignoreCase = true) }
+        }.take(5)
+    }
+
+    if (matchingHistory.isEmpty() && filteredSuggestions.isEmpty()) return
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (trimmedQuery.isBlank() && matchingHistory.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = UnboundPrimary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Previous Searches",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = OnSurface
+                    )
+                }
+                Text(
+                    text = "Clear all",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = UnboundPrimary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onClearAll)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = UnboundSurfaceContainerLow,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                matchingHistory.forEach { term ->
+                    PreviousSearchRow(
+                        text = term,
+                        isHistory = true,
+                        onClick = { onQueryClick(term) },
+                        onFill = { onFillQuery(term) },
+                        onRemove = { onRemoveItem(term) }
+                    )
+                }
+                filteredSuggestions.forEach { suggestion ->
+                    PreviousSearchRow(
+                        text = suggestion,
+                        isHistory = false,
+                        onClick = { onQueryClick(suggestion) },
+                        onFill = { onFillQuery(suggestion) },
+                        onRemove = null
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviousSearchRow(
+    text: String,
+    isHistory: Boolean,
+    onClick: () -> Unit,
+    onFill: () -> Unit,
+    onRemove: (() -> Unit)?
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 6.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            imageVector = if (isHistory) Icons.Default.History else Icons.Default.Search,
+            contentDescription = null,
+            tint = if (isHistory) UnboundPrimary else OnSurfaceVariant,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = text,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Medium,
+            color = OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (onRemove != null) {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove $text",
+                    tint = OnSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+        IconButton(
+            onClick = onFill,
+            modifier = Modifier.size(28.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.NorthWest,
+                contentDescription = "Insert $text",
+                tint = OnSurfaceVariant,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun ShazamRecognitionCard(
+    recognitionState: RecognitionUiState,
+    recordingSeconds: Int,
+    onStopOrMatchNow: () -> Unit,
+    onRetry: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    when (recognitionState) {
+        is RecognitionUiState.Listening,
+        is RecognitionUiState.Loading -> {
+            val isListening = recognitionState is RecognitionUiState.Listening
+            Surface(
+                modifier = modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = UnboundSurfaceContainer,
+                border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.45f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = UnboundPrimary,
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.5.dp
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isListening) "Listening (${recordingSeconds}s)..." else "Identifying song...",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurface
+                        )
+                        Text(
+                            text = if (isListening) {
+                                "Hold near audio source — auto-matching via Shazam"
+                            } else {
+                                (recognitionState as RecognitionUiState.Loading).query.ifBlank { "Resolving playable match..." }
+                            },
+                            fontSize = 11.5.sp,
+                            color = OnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = UnboundPrimary.copy(alpha = 0.16f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = if (isListening) onStopOrMatchNow else onClear)
+                    ) {
+                        Text(
+                            text = if (isListening) "Match Now" else "Cancel",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = UnboundPrimary,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        is RecognitionUiState.Empty -> {
+            UnboundEmptyStateCard(
+                title = "No song matched",
+                subtitle = recognitionState.message,
+                icon = Icons.Default.GraphicEq,
+                actionLabel = "Try Again",
+                onAction = onRetry,
+                compact = true,
+                modifier = modifier
+            )
+        }
+
+        is RecognitionUiState.Error -> {
+            UnboundEmptyStateCard(
+                title = "Recognition failed",
+                subtitle = recognitionState.message,
+                icon = Icons.Default.GraphicEq,
+                actionLabel = "Retry",
+                onAction = onRetry,
+                compact = true,
+                modifier = modifier
+            )
+        }
+
+        else -> Unit
+    }
+}
+
 @Composable
 fun RecentSearchChipsSection(
     history: List<String>,
@@ -143,84 +404,13 @@ fun RecentSearchChipsSection(
     onClearAll: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (history.isEmpty()) return
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = null,
-                    tint = UnboundPrimary,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "Recent Searches",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface
-                )
-            }
-            Text(
-                text = "Clear",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = UnboundPrimary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable(onClick = onClearAll)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            )
-        }
-
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            history.take(6).forEach { term ->
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = UnboundSurfaceContainerLow,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { onQueryClick(term) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = term,
-                            fontSize = 12.sp,
-                            color = OnSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Remove $term",
-                            tint = OnSurfaceVariant,
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clickable { onRemoveItem(term) }
-                        )
-                    }
-                }
-            }
-        }
-    }
+    PreviousSearchesSection(
+        history = history,
+        onQueryClick = onQueryClick,
+        onRemoveItem = onRemoveItem,
+        onClearAll = onClearAll,
+        modifier = modifier
+    )
 }
 
 @Composable

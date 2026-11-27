@@ -410,6 +410,20 @@ fun MainViewModel.toggleFavorite() {
             if (trackToSave.id.isNotBlank() || trackToSave.title.isNotBlank()) {
                 client.toggleFavorite(trackToSave)
                 client.toggleTrackLike(trackToSave.id, willBeFav)
+                if (willBeFav && trackToSave.artist.isNotBlank()) {
+                    client.recordTasteEvent(
+                        trackId = trackToSave.id.ifBlank { trackToSave.title },
+                        title = trackToSave.title,
+                        artistId = trackToSave.artist,
+                        artistName = trackToSave.artist,
+                        durationMs = trackToSave.durationMs,
+                        listenedMs = trackToSave.durationMs,
+                        eventType = "LOOP"
+                    )
+                    if (!_isYouTubeConnected.value) {
+                        refreshHomeFeed()
+                    }
+                }
             }
             loadSyncedYouTubeTracks()
             refreshFavoritesList()
@@ -445,6 +459,20 @@ fun MainViewModel.toggleTrackFavorite(track: TrackItem) {
         try {
             client.toggleFavorite(trackToSave)
             client.toggleTrackLike(trackToSave.id, willBeFav)
+            if (willBeFav && trackToSave.artist.isNotBlank()) {
+                client.recordTasteEvent(
+                    trackId = trackToSave.id.ifBlank { trackToSave.title },
+                    title = trackToSave.title,
+                    artistId = trackToSave.artist,
+                    artistName = trackToSave.artist,
+                    durationMs = trackToSave.durationMs,
+                    listenedMs = trackToSave.durationMs,
+                    eventType = "LOOP"
+                )
+                if (!_isYouTubeConnected.value) {
+                    refreshHomeFeed()
+                }
+            }
             loadSyncedYouTubeTracks()
             refreshFavoritesList()
         } catch (e: Exception) {
@@ -550,7 +578,13 @@ fun MainViewModel.prevTrack() {
 /**
  * Ingests physical playback behavior telemetry (completions, skips, loops) into on-device taste engine.
  */
-fun MainViewModel.logPlaybackTelemetry(track: TrackItem, listenedMs: Long, durationMs: Long, isCompleted: Boolean) {
+fun MainViewModel.logPlaybackTelemetry(
+    track: TrackItem,
+    listenedMs: Long,
+    durationMs: Long,
+    isCompleted: Boolean,
+    nextTrackId: String = ""
+) {
     viewModelScope.launch(Dispatchers.IO) {
         val eventType = when {
             isCompleted || (durationMs > 0 && listenedMs.toDouble() / durationMs >= 0.85) -> "COMPLETE"
@@ -559,13 +593,14 @@ fun MainViewModel.logPlaybackTelemetry(track: TrackItem, listenedMs: Long, durat
             else -> "COMPLETE"
         }
         client.recordTasteEvent(
-            trackId = track.title,
+            trackId = track.id.ifBlank { track.title },
             title = track.title,
             artistId = track.artist,
             artistName = track.artist,
             durationMs = durationMs,
             listenedMs = listenedMs,
-            eventType = eventType
+            eventType = eventType,
+            nextTrackId = nextTrackId
         )
     }
 }

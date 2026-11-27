@@ -14,10 +14,39 @@
 
 package com.cubicreates.unboundmusic.ui.home
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.cubicreates.unboundmusic.data.HomeMixDto
 import com.cubicreates.unboundmusic.data.HomeSearchUiState
 import com.cubicreates.unboundmusic.data.HomeSection
@@ -36,8 +65,14 @@ import com.cubicreates.unboundmusic.ui.home.components.TelemetryGreetingSection
 import com.cubicreates.unboundmusic.ui.home.components.TrendingCardData
 import com.cubicreates.unboundmusic.ui.home.components.TrendingHorizontalCarouselSection
 import com.cubicreates.unboundmusic.ui.home.components.YouTubeMixHorizontalDeckSection
+import com.cubicreates.unboundmusic.ui.theme.OnPrimary
+import com.cubicreates.unboundmusic.ui.theme.OnSurface
+import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSecondary
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
+import com.cubicreates.unboundmusic.viewmodel.isPlaceholderAccountName
 import java.util.Calendar
 
 @Composable
@@ -46,6 +81,11 @@ fun MusicScreen(
     selectedSection: HomeSection = HomeSection.MUSIC,
     onSectionSelected: (HomeSection) -> Unit = {},
     jumpBackTracks: List<TrackItem> = emptyList(),
+    jumpBackMode: String = "guest",
+    jumpBackBannerTitle: String = "",
+    jumpBackBannerSubtitle: String = "",
+    jumpBackBannerAction: String = "",
+    onJumpBackBannerActionClick: () -> Unit = {},
     homeMixes: List<HomeMixDto> = emptyList(),
     globalChartTracks: List<TrackItem> = emptyList(),
     regionalChartTracks: List<TrackItem> = emptyList(),
@@ -71,7 +111,15 @@ fun MusicScreen(
     recordingSeconds: Int = 0,
     recognitionState: RecognitionUiState = RecognitionUiState.Idle,
     onShazamToggle: () -> Unit = {},
-    onSingLyricsClick: () -> Unit = {}
+    onSingLyricsClick: () -> Unit = {},
+    isLlmInstalled: Boolean = false,
+    isLlmDownloading: Boolean = false,
+    llmDownloadProgress: Float = 0f,
+    isLlmPromptDismissed: Boolean = true,
+    llmStatusMessage: String? = null,
+    onDownloadLlmClick: () -> Unit = {},
+    onCancelLlmDownloadClick: () -> Unit = {},
+    onDismissLlmPrompt: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -85,8 +133,10 @@ fun MusicScreen(
         }
     }
     val displayName = remember(accountName, isYouTubeConnected) {
-        if (isYouTubeConnected && !accountName.isNullOrBlank() && accountName != "Local User") {
-            accountName.substringBefore(" ")
+        if (isYouTubeConnected && !isPlaceholderAccountName(accountName)) {
+            accountName!!.trim().substringBefore(" ")
+        } else if (isYouTubeConnected) {
+            "Listener"
         } else {
             "Explorer"
         }
@@ -218,11 +268,203 @@ fun MusicScreen(
             )
         }
 
-        // 4. Multifunctional "Jump Back In" <-> "Results" Section
         val isResultsMode = homeSearchState !is HomeSearchUiState.Idle ||
             vibeState !is VibeSearchUiState.Idle ||
             recognitionState !is RecognitionUiState.Idle ||
             isListeningAudio
+
+        // 3.5 Temporary Dismissible On-Device LLM Download Prompt (shown once until dismissed or installed)
+        if (!isResultsMode && !isLlmInstalled && !isLlmPromptDismissed) {
+            item(key = "home_llm_prompt_banner") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = UnboundSurfaceContainer,
+                    border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.28f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(UnboundPrimary.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Smart LLM",
+                                    tint = UnboundPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Make your music player smart",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = OnSurface,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Surface(
+                                onClick = onDismissLlmPrompt,
+                                shape = CircleShape,
+                                color = UnboundSurfaceContainerHigh,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss LLM prompt",
+                                        tint = OnSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = llmStatusMessage
+                                ?: "Hey, you have not downloaded an LLM yet. Download the local SmolLM2 model to unlock smart AI vibe search — or cross this out anytime and set it up in Profile.",
+                            fontSize = 12.sp,
+                            color = if (llmStatusMessage != null) Color(0xFFFFB4AB) else OnSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+
+                        if (isLlmDownloading) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Downloading Smart LLM... ${(llmDownloadProgress * 100).toInt()}%",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = UnboundPrimary
+                                    )
+                                    Surface(
+                                        onClick = onCancelLlmDownloadClick,
+                                        shape = RoundedCornerShape(50),
+                                        color = UnboundSurfaceContainerHigh
+                                    ) {
+                                        Text(
+                                            text = "Cancel",
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFFFB4AB),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
+                                        )
+                                    }
+                                }
+                                LinearProgressIndicator(
+                                    progress = { llmDownloadProgress.coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(50)),
+                                    color = UnboundPrimary,
+                                    trackColor = UnboundSurfaceContainerHigh
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Surface(
+                                    onClick = onDownloadLlmClick,
+                                    shape = RoundedCornerShape(50),
+                                    color = UnboundPrimary
+                                ) {
+                                    Text(
+                                        text = "Download LLM",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnPrimary,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Signed-in Watch History / Liked Fallback / Preference Builder Banner
+        if (isYouTubeConnected && !isResultsMode && jumpBackBannerTitle.isNotBlank()) {
+            item(key = "signed_in_history_banner") {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = UnboundSurfaceContainer,
+                    border = BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.30f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = jumpBackBannerTitle,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OnSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (jumpBackBannerSubtitle.isNotBlank()) {
+                            Text(
+                                text = jumpBackBannerSubtitle,
+                                fontSize = 12.sp,
+                                color = OnSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        if (jumpBackBannerAction.isNotBlank()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = UnboundPrimary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .clickable(onClick = onJumpBackBannerActionClick)
+                                ) {
+                                    Text(
+                                        text = jumpBackBannerAction,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OnPrimary,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Multifunctional "Jump Back In" <-> "Results" Section
         if (isResultsMode || jumpBackItems.isNotEmpty()) {
             item(key = "jump_back_in") {
                 val isResultsLoading = homeSearchState is HomeSearchUiState.Loading ||
@@ -264,8 +506,14 @@ fun MusicScreen(
                     }
                 }
 
+                val jumpBackSectionTitle = when {
+                    isResultsMode -> "Results"
+                    isYouTubeConnected && jumpBackMode == "liked_fallback" -> "Your Liked Music"
+                    isYouTubeConnected && jumpBackMode == "preference_builder" -> "Build Your Preferences"
+                    else -> "Jump Back In"
+                }
                 CompactJumpGridSection(
-                    title = if (isResultsMode) "Results" else "Jump Back In",
+                    title = jumpBackSectionTitle,
                     items = activeItems,
                     currentTrackId = currentTrackId,
                     isPlaying = isPlaying,

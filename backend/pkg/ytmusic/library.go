@@ -994,30 +994,49 @@ func (c *Client) FetchUserPlaylists(ctx context.Context) ([]PlaylistSummary, err
 	return playlists, nil
 }
 
-// LikeTrack sends a like mutation to YouTube Music for the specified video ID.
+// LikeTrack sends a like mutation to YouTube Music / YouTube for the specified video ID.
 func (c *Client) LikeTrack(ctx context.Context, videoID string) error {
-	body := map[string]interface{}{
-		"context": c.buildContext(ConfigWebRemix),
-		"target": map[string]interface{}{
-			"videoId": videoID,
-		},
-	}
-
-	_, err := c.post(ctx, "like/like", body, ConfigWebRemix)
-	return err
+	return c.mutateTrackLike(ctx, videoID, "like/like")
 }
 
-// UnlikeTrack sends a remove-like mutation to YouTube Music for the specified video ID.
+// UnlikeTrack sends a remove-like mutation to YouTube Music / YouTube for the specified video ID.
 func (c *Client) UnlikeTrack(ctx context.Context, videoID string) error {
-	body := map[string]interface{}{
-		"context": c.buildContext(ConfigWebRemix),
-		"target": map[string]interface{}{
-			"videoId": videoID,
-		},
+	return c.mutateTrackLike(ctx, videoID, "like/removelike")
+}
+
+func (c *Client) mutateTrackLike(ctx context.Context, videoID, endpoint string) error {
+	if !IsValidYouTubeVideoID(videoID) {
+		return fmt.Errorf("invalid YouTube video ID: %s", videoID)
+	}
+	if !c.HasCredentials() {
+		return fmt.Errorf("authentication required to mutate YouTube likes")
 	}
 
-	_, err := c.post(ctx, "like/removelike", body, ConfigWebRemix)
-	return err
+	var candidates []ClientConfig
+	if c.GetAccessToken() != "" {
+		// OAuth Bearer tokens are accepted on www.youtube.com/youtubei/v1 endpoints.
+		candidates = append(candidates, ConfigTVHTML5, ConfigAndroid)
+	}
+	if c.GetCredentials() != "" {
+		candidates = append(candidates, ConfigWebRemix, ConfigWeb)
+	}
+
+	authCtx := WithForceAuth(ctx)
+	var lastErr error
+	for _, cfg := range candidates {
+		body := map[string]interface{}{
+			"context": c.buildContext(cfg),
+			"target": map[string]interface{}{
+				"videoId": videoID,
+			},
+		}
+		if _, err := c.post(authCtx, endpoint, body, cfg); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
 
 // HomeShelf represents an authentic themed shelf/carousel extracted from YouTube Music home.

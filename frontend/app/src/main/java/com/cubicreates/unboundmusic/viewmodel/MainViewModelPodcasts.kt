@@ -75,6 +75,7 @@ fun MainViewModel.loadPodcastDiscovery(category: String = _selectedPodcastCatego
 fun MainViewModel.submitPodcastTopicQuery(query: String) {
     val trimmed = query.trim()
     if (trimmed.isBlank()) return
+    addPodcastSearchHistory(trimmed)
     _activePodcastTopicQuery.value = trimmed
     _selectedPodcastShow.value = null
 
@@ -197,16 +198,44 @@ fun MainViewModel.setPodcastSearchFilter(filter: PodcastSearchFilter) {
 
 fun MainViewModel.onPodcastSearchQueryChanged(query: String) {
     _podcastSearchQuery.value = query
+    fetchPodcastSearchSuggestions(query)
     podcastSearchJob?.cancel()
     if (query.isBlank()) {
         _podcastSearchResults.value = emptyList()
         _podcastSearchShows.value = emptyList()
+        _podcastSearchSuggestions.value = emptyList()
         _isPodcastSearching.value = false
         return
     }
     podcastSearchJob = viewModelScope.launch(Dispatchers.IO) {
         delay(350)
         executePodcastSearch(query.trim())
+    }
+}
+
+fun MainViewModel.fetchPodcastSearchSuggestions(query: String) {
+    podcastSuggestionJob?.cancel()
+    if (query.isBlank()) {
+        _podcastSearchSuggestions.value = emptyList()
+        return
+    }
+    podcastSuggestionJob = viewModelScope.launch(Dispatchers.IO) {
+        try {
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8")
+            val url = java.net.URL("https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&hl=en&gl=US&q=$encoded")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 3000
+            conn.readTimeout = 3000
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            if (conn.responseCode in 200..299) {
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                val regex = Regex("""\["([^"]+)",0,""")
+                val list = regex.findAll(text).map { it.groupValues[1] }.distinct().take(12).toList()
+                _podcastSearchSuggestions.value = list
+            }
+        } catch (_: Exception) {
+            // Ignore transient network failures for suggestions
+        }
     }
 }
 
@@ -224,9 +253,11 @@ fun MainViewModel.submitPodcastSearch(query: String) {
 
 fun MainViewModel.clearPodcastSearch() {
     podcastSearchJob?.cancel()
+    podcastSuggestionJob?.cancel()
     _podcastSearchQuery.value = ""
     _podcastSearchResults.value = emptyList()
     _podcastSearchShows.value = emptyList()
+    _podcastSearchSuggestions.value = emptyList()
     _isPodcastSearching.value = false
 }
 
@@ -256,8 +287,30 @@ internal fun MainViewModel.loadPodcastSearchHistory() {
     try {
         val prefs = getApplication<Application>().getSharedPreferences("unbound_podcast_search_history", android.content.Context.MODE_PRIVATE)
         val raw = prefs.getString("queries", null)
-        if (!raw.isNullOrBlank()) {
-            _podcastSearchHistory.value = raw.split("||||").filter { it.isNotBlank() }
+        val localList = if (!raw.isNullOrBlank()) {
+            raw.split("||||").filter { it.isNotBlank() }
+        } else {
+            emptyList()
+        }
+        if (localList.isNotEmpty()) {
+            _podcastSearchHistory.value = localList
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remoteBefore = client.getSearchHistory(domain = "podcasts", limit = 20)
+                if (remoteBefore.isEmpty() && localList.isNotEmpty()) {
+                    localList.asReversed().forEach { q ->
+                        client.recordSearchHistory(q, domain = "podcasts")
+                    }
+                }
+                val synced = client.getSearchHistory(domain = "podcasts", limit = 20)
+                if (synced.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _podcastSearchHistory.value = synced
+                    }
+                    savePodcastSearchHistory(synced)
+                }
+            } catch (_: Exception) {}
         }
     } catch (e: Exception) {
         Log.e(TAG, "Failed loading podcast search history: ${e.message}")
@@ -266,25 +319,40 @@ internal fun MainViewModel.loadPodcastSearchHistory() {
 
 fun MainViewModel.addPodcastSearchHistory(query: String) {
     val trimmed = query.trim()
-    if (trimmed.isBlank()) return
+    if (trimmed.length < 2) return
     val current = _podcastSearchHistory.value.toMutableList()
-    current.remove(trimmed)
+    current.removeAll { it.equals(trimmed, ignoreCase = true) }
     current.add(0, trimmed)
     val capped = current.take(20)
     _podcastSearchHistory.value = capped
     savePodcastSearchHistory(capped)
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.recordSearchHistory(trimmed, domain = "podcasts")
+        } catch (_: Exception) {}
+    }
 }
 
 fun MainViewModel.removePodcastSearchHistoryItem(query: String) {
     val current = _podcastSearchHistory.value.toMutableList()
-    current.remove(query)
+    current.removeAll { it.equals(query, ignoreCase = true) }
     _podcastSearchHistory.value = current
     savePodcastSearchHistory(current)
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.deleteSearchHistory(query = query, domain = "podcasts", clearAll = false)
+        } catch (_: Exception) {}
+    }
 }
 
 fun MainViewModel.clearPodcastSearchHistory() {
     _podcastSearchHistory.value = emptyList()
     savePodcastSearchHistory(emptyList())
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.deleteSearchHistory(domain = "podcasts", clearAll = true)
+        } catch (_: Exception) {}
+    }
 }
 
 internal fun MainViewModel.savePodcastSearchHistory(list: List<String>) {

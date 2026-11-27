@@ -80,7 +80,9 @@ fun MainApp(
     val playbackProgress by viewModel.playbackProgress.collectAsStateWithLifecycle()
     val selectedHomeSection by viewModel.selectedHomeSection.collectAsStateWithLifecycle()
     val selectedSearchSection by viewModel.selectedSearchSection.collectAsStateWithLifecycle()
-    val musicRecognitionState by viewModel.musicRecognitionState.collectAsStateWithLifecycle()
+    val homeRecognitionState by viewModel.homeRecognitionState.collectAsStateWithLifecycle()
+    val searchRecognitionState by viewModel.searchRecognitionState.collectAsStateWithLifecycle()
+    val activeShazamSurface by viewModel.activeShazamSurface.collectAsStateWithLifecycle()
     val selectedPodcastCategory by viewModel.selectedPodcastCategory.collectAsStateWithLifecycle()
     val podcastFeaturedShows by viewModel.podcastFeaturedShows.collectAsStateWithLifecycle()
     val podcastRecentEpisodes by viewModel.podcastRecentEpisodes.collectAsStateWithLifecycle()
@@ -92,6 +94,7 @@ fun MainApp(
     val podcastSearchQuery by viewModel.podcastSearchQuery.collectAsStateWithLifecycle()
     val podcastSearchFilter by viewModel.podcastSearchFilter.collectAsStateWithLifecycle()
     val podcastSearchHistory by viewModel.podcastSearchHistory.collectAsStateWithLifecycle()
+    val podcastSearchSuggestions by viewModel.podcastSearchSuggestions.collectAsStateWithLifecycle()
     val isPodcastSearching by viewModel.isPodcastSearching.collectAsStateWithLifecycle()
     val selectedPodcastShow by viewModel.selectedPodcastShow.collectAsStateWithLifecycle()
     val isPodcastLoading by viewModel.isPodcastLoading.collectAsStateWithLifecycle()
@@ -354,11 +357,11 @@ fun MainApp(
                                 homeSearchState = homeSearchState,
                                 onUnifiedHomeSearch = { q -> viewModel.submitUnifiedHomeSearch(q) },
                                 onClearHomeResults = { viewModel.clearUnifiedHomeResults() },
-                                isListeningAudio = isListeningShazam,
+                                isListeningAudio = isListeningShazam && activeShazamSurface == MainViewModel.RecognitionSurface.HOME,
                                 recordingSeconds = recordingDurationSeconds,
-                                recognitionState = musicRecognitionState,
-                                onShazamToggle = { viewModel.startAmbientShazamRecognition(context) },
-                                onSingLyricsClick = { viewModel.startHumSearch() },
+                                recognitionState = homeRecognitionState,
+                                onShazamToggle = { viewModel.startAmbientShazamRecognition(context, MainViewModel.RecognitionSurface.HOME) },
+                                onSingLyricsClick = { viewModel.startHumSearch(MainViewModel.RecognitionSurface.HOME) },
                                 podcastFeaturedShows = podcastFeaturedShows,
                                 podcastRecentEpisodes = podcastRecentEpisodes,
                                 podcastTopEpisodes = podcastTopEpisodes,
@@ -396,25 +399,27 @@ fun MainApp(
                                 searchResults = searchResults,
                                 isSearching = isSearching,
                                 vibeState = searchVibeState,
-                                recognitionState = musicRecognitionState,
+                                recognitionState = searchRecognitionState,
                                 selectedCategory = searchCategory,
                                 chartTracks = combinedSearchCharts,
                                 searchHistory = searchHistory,
+                                searchSuggestions = searchSuggestions,
                                 currentTrackId = currentTrack.id,
                                 isPlaying = isPlaying,
-                                isListeningAudio = isListeningShazam,
+                                isListeningAudio = isListeningShazam && activeShazamSurface == MainViewModel.RecognitionSurface.SEARCH,
                                 recordingSeconds = recordingDurationSeconds,
                                 onCategorySelected = { viewModel.setSearchCategory(it) },
                                 onSearchQueryChanged = { viewModel.onSearchQueryChanged(it) },
                                 onSearchSubmit = { viewModel.submitSearch(it) },
+                                onRecordHistory = { viewModel.addSearchHistory(it) },
                                 onClearMusicSearch = { viewModel.clearMusicSearch() },
                                 onSearchHistoryItemRemoved = { viewModel.removeSearchHistoryItem(it) },
                                 onSearchHistoryCleared = { viewModel.clearSearchHistory() },
                                 onVibeSubmit = { viewModel.submitSearchVibeQuery(it) },
                                 onClearVibe = { viewModel.clearSearchVibeQuery() },
-                                onSingLyricsClick = { viewModel.startHumSearch() },
-                                onIdentifyAudioClick = { viewModel.startAmbientShazamRecognition(context) },
-                                onClearRecognition = { viewModel.clearLyricsRecognition() },
+                                onSingLyricsClick = { viewModel.startHumSearch(MainViewModel.RecognitionSurface.SEARCH) },
+                                onIdentifyAudioClick = { viewModel.startAmbientShazamRecognition(context, MainViewModel.RecognitionSurface.SEARCH) },
+                                onClearRecognition = { viewModel.clearLyricsRecognition(MainViewModel.RecognitionSurface.SEARCH) },
                                 onTrackSelect = { track, queue ->
                                     if (queue.size > 1) {
                                         viewModel.playTrackWithQueue(track, queue)
@@ -446,12 +451,14 @@ fun MainApp(
                                 podcastSearchShows = podcastSearchShows,
                                 selectedPodcastShow = selectedPodcastShow,
                                 podcastSearchHistory = podcastSearchHistory,
+                                podcastSearchSuggestions = podcastSearchSuggestions,
                                 isPodcastLoading = isPodcastLoading,
                                 isPodcastSearching = isPodcastSearching,
                                 podcastError = podcastError,
                                 onPodcastFilterSelected = { viewModel.setPodcastSearchFilter(it) },
                                 onPodcastSearchQueryChanged = { viewModel.onPodcastSearchQueryChanged(it) },
                                 onPodcastSearchSubmit = { viewModel.submitPodcastSearch(it) },
+                                onRecordPodcastHistory = { viewModel.addPodcastSearchHistory(it) },
                                 onClearPodcastSearch = { viewModel.clearPodcastSearch() },
                                 onPodcastVoiceSearchClick = { viewModel.startVoiceSearch(HomeSection.PODCASTS) },
                                 onPodcastSearchHistoryItemRemoved = { viewModel.removePodcastSearchHistoryItem(it) },
@@ -473,14 +480,11 @@ fun MainApp(
                                 isYouTubeConnected = isYouTubeConnected,
                                 accountName = accountName,
                                 userAvatarUrl = userAvatarUrl,
-                                currentTheme = selectedTheme,
                                 cachePurgeStatus = cachePurgeStatus,
                                 downloadedTracksCount = downloadedMusicTracks.size,
                                 downloadsSizeMB = downloadsSizeMB,
                                 cacheSizeMB = cacheSizeMB,
                                 localTracksCount = libraryTracks.size,
-                                onThemeSelected = { viewModel.setTheme(it) },
-                                onSpotifyImportSubmit = { url -> viewModel.importSpotifyPlaylist(url) },
                                 onYouTubeSyncClick = { launchYouTubeAuth() },
                                 onYouTubeResyncClick = { viewModel.resyncYouTubeAccount() },
                                 onDisconnectYouTubeClick = { viewModel.disconnectYouTubeAccount() },

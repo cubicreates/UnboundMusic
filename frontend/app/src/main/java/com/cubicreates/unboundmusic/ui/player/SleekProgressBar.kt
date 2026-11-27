@@ -32,6 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHighest
 
 /**
  * Ultra-low overhead, hardware-accelerated progress bar.
@@ -43,9 +45,9 @@ fun SleekProgressBar(
     modifier: Modifier = Modifier,
     isPlaying: Boolean = false,
     bufferedFraction: Float = 0f,
-    activeColor: Color = Color(0xFF4CD6FB),
-    trackColor: Color = Color.White.copy(alpha = 0.2f),
-    thumbColor: Color = Color(0xFF4CD6FB),
+    activeColor: Color = UnboundPrimary,
+    trackColor: Color = UnboundSurfaceContainerHighest,
+    thumbColor: Color = UnboundPrimary,
     onSliderChange: (Float) -> Unit = {},
     onSliderChangeFinished: () -> Unit = {}
 ) {
@@ -145,19 +147,19 @@ fun SleekProgressBar(
                 cornerRadius = cornerRadius
             )
 
-            // 4. Sleek interactive thumb pill
-            if (isInteracting) {
-                val thumbWidth = 6.dp.toPx()
-                val thumbHeight = 16.dp.toPx() * expansionScale
-                val thumbX = (size.width * displayedFraction - thumbWidth / 2f).coerceIn(0f, size.width - thumbWidth)
-                val thumbY = centerY - (thumbHeight / 2f)
-                drawRoundRect(
-                    color = thumbColor,
-                    topLeft = Offset(thumbX, thumbY),
-                    size = Size(thumbWidth, thumbHeight),
-                    cornerRadius = CornerRadius(thumbWidth / 2f, thumbWidth / 2f)
-                )
-            }
+            // 4. Sleek circular glowing thumb dot (expands smoothly on scrub)
+            val thumbRadius = if (isInteracting) 7.5.dp.toPx() else 5.5.dp.toPx()
+            val thumbCenterX = (size.width * displayedFraction).coerceIn(thumbRadius, (size.width - thumbRadius).coerceAtLeast(thumbRadius))
+            drawCircle(
+                color = thumbColor.copy(alpha = if (isInteracting) 0.32f else 0.22f),
+                radius = thumbRadius * 1.85f,
+                center = Offset(thumbCenterX, centerY)
+            )
+            drawCircle(
+                color = thumbColor,
+                radius = thumbRadius,
+                center = Offset(thumbCenterX, centerY)
+            )
         }
     }
 }

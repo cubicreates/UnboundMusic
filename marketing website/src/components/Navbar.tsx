@@ -8,7 +8,7 @@ import { Download, Menu, Sparkles, Terminal, X } from "lucide-react";
 const navItems = [
   { label: "Home", href: "/", icon: Sparkles },
   { label: "Download", href: "/download", icon: Download },
-  { label: "API", href: "/api", icon: Terminal },
+  { label: "API", href: "/api-docs", icon: Terminal },
 ];
 
 export function Navbar() {

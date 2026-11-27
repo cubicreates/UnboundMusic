@@ -8,12 +8,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DOWNLOAD_FILENAME = `Unbound-Music-v${CURRENT_APP_VERSION}.apk`;
+const FALLBACK_APK_URL =
+  process.env.NEXT_PUBLIC_APK_DOWNLOAD_URL ||
+  "https://github.com/cubicreates/UnboundMusic/releases/latest/download/unbound-music-debug.apk";
 
-function resolveApkPath(): string | null {
+function resolveLocalApkPath(): string | null {
   const candidates = [
     path.join(process.cwd(), "public", "downloads", DOWNLOAD_FILENAME),
     path.join(process.cwd(), "public", "downloads", "Unbound-Music-v2.0.0.apk"),
-    path.resolve(process.cwd(), "..", "apk_test", "unbound-music-debug.apk"),
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -24,9 +26,9 @@ function resolveApkPath(): string | null {
 }
 
 export async function HEAD() {
-  const apkPath = resolveApkPath();
+  const apkPath = resolveLocalApkPath();
   if (!apkPath) {
-    return new NextResponse(null, { status: 404 });
+    return NextResponse.redirect(FALLBACK_APK_URL, 302);
   }
   const stat = statSync(apkPath);
   return new NextResponse(null, {
@@ -41,17 +43,14 @@ export async function HEAD() {
 }
 
 export async function GET() {
-  const apkPath = resolveApkPath();
+  const apkPath = resolveLocalApkPath();
   if (!apkPath) {
-    return NextResponse.json(
-      { error: "APK binary not found on server" },
-      { status: 404 }
-    );
+    return NextResponse.redirect(FALLBACK_APK_URL, 302);
   }
 
   const stat = statSync(apkPath);
   const nodeStream = createReadStream(apkPath);
-  const webStream = Readable.toWeb(nodeStream) as ReadableStream;
+  const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream;
 
   return new NextResponse(webStream, {
     status: 200,

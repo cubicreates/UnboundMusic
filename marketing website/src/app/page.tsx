@@ -422,7 +422,7 @@ export default function HomePage() {
                 <span>Go to Download Page</span>
               </Link>
               <Link
-                href="/api"
+                href="/api-docs"
                 className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full border border-unbound-outline bg-unbound-surfaceHigh px-6 py-3.5 text-sm font-semibold text-unbound-onSurface transition-colors hover:border-unbound-primary/50 sm:w-auto"
               >
                 <span>Explore API Docs</span>

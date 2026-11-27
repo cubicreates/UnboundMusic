@@ -29,7 +29,7 @@ export function Footer() {
             <Link href="/download" className="py-1 transition-colors hover:text-unbound-primary">
               Download App
             </Link>
-            <Link href="/api" className="py-1 transition-colors hover:text-unbound-primary">
+            <Link href="/api-docs" className="py-1 transition-colors hover:text-unbound-primary">
               API Docs
             </Link>
           </div>

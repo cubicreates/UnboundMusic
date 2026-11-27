@@ -417,8 +417,12 @@ class UnboundPlaybackService : MediaSessionService() {
                         LockscreenArtworkManager.updateLockscreenArtwork(applicationContext, track)
                     }
                 } else {
-                    // Playback paused or stopped: restore the user's original lock screen wallpaper
-                    LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = false)
+                    val isBufferingNext = exoPlayer?.playWhenReady == true &&
+                        exoPlayer?.playbackState == Player.STATE_BUFFERING
+                    if (!isBufferingNext) {
+                        // Playback paused or stopped: restore the user's original lock screen wallpaper from SQLite
+                        LockscreenArtworkManager.restoreOriginalLockscreenArtwork(applicationContext, synchronous = false)
+                    }
                 }
             }
 

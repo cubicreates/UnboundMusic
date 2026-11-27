@@ -34,12 +34,12 @@ class SessionStore(context: Context) {
             putString(KEY_COOKIE, rawCookie)
             name?.let { putString(KEY_ACCOUNT_NAME, it) }
             avatar?.let { putString(KEY_AVATAR_URL, it) }
-            apply()
+            commit()
         }
     }
 
     fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit().clear().commit()
     }
 
     companion object {

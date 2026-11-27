@@ -21,7 +21,6 @@ import com.cubicreates.unboundmusic.data.*
 import com.cubicreates.unboundmusic.ui.components.RecognizedTrackVariant
 import com.cubicreates.unboundmusic.ui.components.ShazamMode
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -180,7 +179,6 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
                         }
                         _recognizedMessage.value = reasonMsg
                         withContext(Dispatchers.Main) {
-                            UnboundToast.show(getApplication(), reasonMsg)
                         }
                     } else {
                         _recognizedMessage.value = "Listening to music... (${_recordingDurationSeconds.value}s)"
@@ -191,7 +189,6 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
                 Log.e(TAG, "Audio recognition error: ${e.message}", e)
                 _recognizedMessage.value = "Could not recognize audio. Try again."
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), "Could not recognize audio. Try again.")
                 }
             } finally {
                 _isListeningShazam.value = false
@@ -266,7 +263,6 @@ class ShazamViewModel(application: Application) : AndroidViewModel(application) 
                 val displayMsg = if (artist.isNotBlank()) "Recognized: $trackTitle - $artist" else "Recognized: $trackTitle"
                 _recognizedMessage.value = displayMsg
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(getApplication(), displayMsg)
                     onTrackRecognized?.invoke(trackTitle, artist)
                 }
                 true

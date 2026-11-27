@@ -115,6 +115,10 @@ fun MainApp(
     val regionalCharts by viewModel.regionalCharts.collectAsStateWithLifecycle()
     val adaptiveQuickPicks by viewModel.adaptiveQuickPicks.collectAsStateWithLifecycle()
     val homeJumpBackTracks by viewModel.homeJumpBackTracks.collectAsStateWithLifecycle()
+    val homeJumpBackMode by viewModel.homeJumpBackMode.collectAsStateWithLifecycle()
+    val homeBannerTitle by viewModel.homeBannerTitle.collectAsStateWithLifecycle()
+    val homeBannerSubtitle by viewModel.homeBannerSubtitle.collectAsStateWithLifecycle()
+    val homeBannerAction by viewModel.homeBannerAction.collectAsStateWithLifecycle()
     val homeMixes by viewModel.homeMixes.collectAsStateWithLifecycle()
     val quickPicksTitle by viewModel.quickPicksTitle.collectAsStateWithLifecycle()
     val quickPicksSubtitle by viewModel.quickPicksSubtitle.collectAsStateWithLifecycle()
@@ -151,6 +155,12 @@ fun MainApp(
     val isLockscreenWallpaperEnabled by viewModel.isLockscreenWallpaperEnabled.collectAsStateWithLifecycle()
     val isVlcAutoScanEnabled by viewModel.isVlcAutoScanEnabled.collectAsStateWithLifecycle()
 
+    val isLlmInstalled by viewModel.isLlmInstalled.collectAsStateWithLifecycle()
+    val isLlmDownloading by viewModel.isLlmDownloading.collectAsStateWithLifecycle()
+    val llmDownloadProgress by viewModel.llmDownloadProgress.collectAsStateWithLifecycle()
+    val isLlmPromptDismissed by viewModel.isLlmPromptDismissed.collectAsStateWithLifecycle()
+    val llmStatusMessage by viewModel.llmStatusMessage.collectAsStateWithLifecycle()
+
     val selectedHomeMood by viewModel.selectedHomeMood.collectAsStateWithLifecycle()
     val moodTracks by viewModel.moodTracks.collectAsStateWithLifecycle()
     val isMoodLoading by viewModel.isMoodLoading.collectAsStateWithLifecycle()
@@ -168,9 +178,7 @@ fun MainApp(
                 context.contentResolver.openOutputStream(uri)?.use { out ->
                     out.write(json.toByteArray(Charsets.UTF_8))
                 }
-                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Backup exported successfully!")
-            } catch (e: Exception) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Export failed: ${e.message}")
+            } catch (_: Exception) {
             }
         }
     }
@@ -186,15 +194,8 @@ fun MainApp(
                 val res = com.cubicreates.unboundmusic.data.BackupRestoreManager.restoreBackupJson(context, json)
                 if (res.success) {
                     viewModel.reloadAfterRestore()
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        context,
-                        "Restored ${res.playlistsRestored} playlists, ${res.favoritesRestored} favorites!"
-                    )
-                } else {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Restore failed: ${res.errorMessage}")
                 }
-            } catch (e: Exception) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(context, "Restore error: ${e.message}")
+            } catch (_: Exception) {
             }
         }
     }
@@ -204,11 +205,6 @@ fun MainApp(
     ) { isGranted ->
         if (isGranted) {
             viewModel.onAudioPermissionGranted()
-        } else {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                context,
-                "Microphone permission is required to identify ambient music."
-            )
         }
     }
 
@@ -327,6 +323,14 @@ fun MainApp(
                                     else if (adaptiveQuickPicks.isNotEmpty()) adaptiveQuickPicks
                                     else if (regionalCharts.isNotEmpty()) regionalCharts
                                     else chartTracks,
+                                jumpBackMode = homeJumpBackMode,
+                                jumpBackBannerTitle = homeBannerTitle,
+                                jumpBackBannerSubtitle = homeBannerSubtitle,
+                                jumpBackBannerAction = homeBannerAction,
+                                onJumpBackBannerActionClick = {
+                                    viewModel.jumpIntoFreshPreferences()
+                                    overlayState.isPlayerExpanded = true
+                                },
                                 homeMixes = homeMixes,
                                 globalChartTracks = chartTracks,
                                 regionalChartTracks = regionalCharts,
@@ -362,6 +366,14 @@ fun MainApp(
                                 recognitionState = homeRecognitionState,
                                 onShazamToggle = { viewModel.startAmbientShazamRecognition(context, MainViewModel.RecognitionSurface.HOME) },
                                 onSingLyricsClick = { viewModel.startHumSearch(MainViewModel.RecognitionSurface.HOME) },
+                                isLlmInstalled = isLlmInstalled,
+                                isLlmDownloading = isLlmDownloading,
+                                llmDownloadProgress = llmDownloadProgress,
+                                isLlmPromptDismissed = isLlmPromptDismissed,
+                                llmStatusMessage = llmStatusMessage,
+                                onDownloadLlmClick = { viewModel.downloadLlmModel() },
+                                onCancelLlmDownloadClick = { viewModel.cancelLlmDownload() },
+                                onDismissLlmPrompt = { viewModel.dismissLlmHomePrompt() },
                                 podcastFeaturedShows = podcastFeaturedShows,
                                 podcastRecentEpisodes = podcastRecentEpisodes,
                                 podcastTopEpisodes = podcastTopEpisodes,
@@ -510,7 +522,14 @@ fun MainApp(
                                 onSleepTimerClick = { overlayState.showSleepTimerFromSettings = true },
                                 onCheckUpdateClick = { viewModel.checkForAppUpdates(manual = true) },
                                 onExportBackupClick = { exportBackupLauncher.launch("unbound_backup_${System.currentTimeMillis()}.json") },
-                                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") }
+                                onRestoreBackupClick = { restoreBackupLauncher.launch("application/json") },
+                                isLlmInstalled = isLlmInstalled,
+                                isLlmDownloading = isLlmDownloading,
+                                llmDownloadProgress = llmDownloadProgress,
+                                llmStatusMessage = llmStatusMessage,
+                                onDownloadLlmClick = { viewModel.downloadLlmModel() },
+                                onCancelLlmDownloadClick = { viewModel.cancelLlmDownload() },
+                                onDeleteLlmClick = { viewModel.deleteLlmModel() }
                             )
                         }
                         NavigationTab.LIBRARY -> {

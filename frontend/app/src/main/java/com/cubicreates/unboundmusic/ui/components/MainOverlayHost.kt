@@ -425,6 +425,11 @@ fun MainOverlayHost(
             playbackSpeed = playbackState.playbackSpeed,
             playbackPitch = playbackState.playbackPitch,
             onSetPlaybackSpeedAndPitch = { speed, pitch -> viewModel.setPlaybackSpeed(speed, pitch) },
+            onAddToPlaylist = {
+                if (currentTrack.title.isNotBlank()) {
+                    viewModel.showAddToPlaylist(currentTrack)
+                }
+            },
             fallbackStatus = fallbackStatus
         )
     }

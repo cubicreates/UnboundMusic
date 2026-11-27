@@ -63,6 +63,7 @@ fun SearchScreen(
     selectedCategory: SearchCategory = SearchCategory.ALL,
     chartTracks: List<TrackItem> = emptyList(),
     searchHistory: List<String> = emptyList(),
+    searchSuggestions: List<String> = emptyList(),
     currentTrackId: String = "",
     isPlaying: Boolean = false,
     isListeningAudio: Boolean = false,
@@ -70,6 +71,7 @@ fun SearchScreen(
     onCategorySelected: (SearchCategory) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit = {},
     onSearchSubmit: (String) -> Unit = {},
+    onRecordHistory: (String) -> Unit = {},
     onClearMusicSearch: () -> Unit = {},
     onSearchHistoryItemRemoved: (String) -> Unit = {},
     onSearchHistoryCleared: () -> Unit = {},
@@ -95,12 +97,14 @@ fun SearchScreen(
     podcastSearchShows: List<PodcastShowDto> = emptyList(),
     selectedPodcastShow: PodcastShowDto? = null,
     podcastSearchHistory: List<String> = emptyList(),
+    podcastSearchSuggestions: List<String> = emptyList(),
     isPodcastLoading: Boolean = false,
     isPodcastSearching: Boolean = false,
     podcastError: String? = null,
     onPodcastFilterSelected: (PodcastSearchFilter) -> Unit = {},
     onPodcastSearchQueryChanged: (String) -> Unit = {},
     onPodcastSearchSubmit: (String) -> Unit = {},
+    onRecordPodcastHistory: (String) -> Unit = {},
     onClearPodcastSearch: () -> Unit = {},
     onPodcastVoiceSearchClick: () -> Unit = {},
     onPodcastSearchHistoryItemRemoved: (String) -> Unit = {},
@@ -209,8 +213,8 @@ fun SearchScreen(
                                 is RecognitionUiState.Listening -> "Listening (${recordingSeconds}s)..."
                                 is RecognitionUiState.Loading -> "Finding matches..."
                                 is RecognitionUiState.Success -> "Matched Songs"
-                                is RecognitionUiState.Empty -> recognitionState.message
-                                is RecognitionUiState.Error -> recognitionState.message
+                                is RecognitionUiState.Empty -> "No Match Found"
+                                is RecognitionUiState.Error -> "Recognition Error"
                                 else -> ""
                             },
                             fontSize = 14.sp,
@@ -248,11 +252,38 @@ fun SearchScreen(
                             onAddToPlaylist = { onAddToPlaylistSingle(track) }
                         )
                     }
+                } else {
+                    item(key = "music_recognition_card") {
+                        ShazamRecognitionCard(
+                            recognitionState = recognitionState,
+                            recordingSeconds = recordingSeconds,
+                            onStopOrMatchNow = onIdentifyAudioClick,
+                            onRetry = onIdentifyAudioClick,
+                            onClear = onClearRecognition
+                        )
+                    }
                 }
             }
 
             val isQueryOrVibeActive = searchQuery.isNotBlank() || vibeState !is VibeSearchUiState.Idle
             if (isQueryOrVibeActive) {
+                if (searchQuery.isNotBlank()) {
+                    item(key = "music_typing_suggestions") {
+                        PreviousSearchesSection(
+                            history = searchHistory,
+                            suggestions = searchSuggestions,
+                            currentQuery = searchQuery,
+                            onQueryClick = { term ->
+                                onSearchQueryChanged(term)
+                                onSearchSubmit(term)
+                            },
+                            onFillQuery = { term -> onSearchQueryChanged(term) },
+                            onRemoveItem = onSearchHistoryItemRemoved,
+                            onClearAll = onSearchHistoryCleared
+                        )
+                    }
+                }
+
                 val displayTracks = when (vibeState) {
                     is VibeSearchUiState.Success -> vibeState.radioTracks.filter { track ->
                         val isAlbum = track.itemType.equals("album", true) || track.browseId.startsWith("MPREb_")
@@ -290,6 +321,9 @@ fun SearchScreen(
                             track = track,
                             isCurrentPlaying = track.id == currentTrackId && isPlaying,
                             onClick = {
+                                if (searchQuery.trim().length >= 2) {
+                                    onRecordHistory(searchQuery.trim())
+                                }
                                 val isAlbum = track.itemType.equals("album", true) || track.browseId.startsWith("MPREb_") || track.id.startsWith("MPREb_")
                                 val isArtist = track.itemType.equals("artist", true) || track.browseId.startsWith("UC") || track.id.startsWith("UC")
                                 val isPlaylist = track.itemType.equals("playlist", true) || track.browseId.startsWith("VL") || track.browseId.startsWith("PL") || track.id.startsWith("VL") || track.id.startsWith("PL")
@@ -314,14 +348,15 @@ fun SearchScreen(
                     }
                 }
             } else {
-                if (searchHistory.isNotEmpty() && selectedCategory == SearchCategory.ALL) {
+                if (searchHistory.isNotEmpty()) {
                     item(key = "recent_music_searches") {
-                        RecentSearchChipsSection(
+                        PreviousSearchesSection(
                             history = searchHistory,
                             onQueryClick = { term ->
                                 onSearchQueryChanged(term)
                                 onSearchSubmit(term)
                             },
+                            onFillQuery = { term -> onSearchQueryChanged(term) },
                             onRemoveItem = onSearchHistoryItemRemoved,
                             onClearAll = onSearchHistoryCleared
                         )
@@ -444,6 +479,21 @@ fun SearchScreen(
                     }
                 }
             } else if (podcastSearchQuery.isNotBlank()) {
+                item(key = "podcast_typing_suggestions") {
+                    PreviousSearchesSection(
+                        history = podcastSearchHistory,
+                        suggestions = podcastSearchSuggestions,
+                        currentQuery = podcastSearchQuery,
+                        onQueryClick = { term ->
+                            onPodcastSearchQueryChanged(term)
+                            onPodcastSearchSubmit(term)
+                        },
+                        onFillQuery = { term -> onPodcastSearchQueryChanged(term) },
+                        onRemoveItem = onPodcastSearchHistoryItemRemoved,
+                        onClearAll = onPodcastSearchHistoryCleared
+                    )
+                }
+
                 val showShows = podcastSearchFilter == PodcastSearchFilter.ALL || podcastSearchFilter == PodcastSearchFilter.SHOWS
                 val showEpisodes = podcastSearchFilter == PodcastSearchFilter.ALL || podcastSearchFilter == PodcastSearchFilter.EPISODES
 
@@ -457,7 +507,12 @@ fun SearchScreen(
                         )
                     }
                     itemsIndexed(podcastSearchShows, key = { idx, show -> "pshow_${show.id}_$idx" }) { _, show ->
-                        PodcastShowRowCard(show = show, onClick = { onPodcastShowClick(show) })
+                        PodcastShowRowCard(show = show, onClick = {
+                            if (podcastSearchQuery.trim().length >= 2) {
+                                onRecordPodcastHistory(podcastSearchQuery.trim())
+                            }
+                            onPodcastShowClick(show)
+                        })
                     }
                 }
 
@@ -474,7 +529,12 @@ fun SearchScreen(
                         PodcastEpisodeRowCard(
                             episode = ep,
                             isCurrentPlaying = ep.id == currentTrackId && isPlaying,
-                            onPlayClick = { onPodcastEpisodePlay(ep) }
+                            onPlayClick = {
+                                if (podcastSearchQuery.trim().length >= 2) {
+                                    onRecordPodcastHistory(podcastSearchQuery.trim())
+                                }
+                                onPodcastEpisodePlay(ep)
+                            }
                         )
                     }
                 }
@@ -494,12 +554,13 @@ fun SearchScreen(
             } else {
                 if (podcastSearchHistory.isNotEmpty()) {
                     item(key = "recent_pod_searches") {
-                        RecentSearchChipsSection(
+                        PreviousSearchesSection(
                             history = podcastSearchHistory,
                             onQueryClick = { term ->
                                 onPodcastSearchQueryChanged(term)
                                 onPodcastSearchSubmit(term)
                             },
+                            onFillQuery = { term -> onPodcastSearchQueryChanged(term) },
                             onRemoveItem = onPodcastSearchHistoryItemRemoved,
                             onClearAll = onPodcastSearchHistoryCleared
                         )

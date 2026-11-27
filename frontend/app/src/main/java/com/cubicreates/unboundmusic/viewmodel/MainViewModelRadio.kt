@@ -332,8 +332,19 @@ fun MainViewModel.fetchGuestAlgorithmicRadio(seedTrack: TrackItem, append: Boole
     guestRadioJob?.cancel()
     guestRadioJob = viewModelScope.launch(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Guest Algorithmic Radio: Building hierarchical affinity queue for '${seedTrack.title}'...")
-            val hierarchicalTracks = buildHierarchicalAffinityQueue(seedTrack)
+            Log.d(TAG, "Guest Algorithmic Radio: Querying backend /api/v1/radio/guest for '${seedTrack.title}'...")
+            val backendQueue = client.getGuestRadio(
+                videoId = seedTrack.id,
+                title = seedTrack.title,
+                artist = seedTrack.artist,
+                album = seedTrack.album,
+                limit = 45
+            )
+            val hierarchicalTracks = if (backendQueue.size >= 5) {
+                backendQueue
+            } else {
+                buildHierarchicalAffinityQueue(seedTrack)
+            }
 
             if (hierarchicalTracks.isNotEmpty()) {
                 withContext(Dispatchers.Main) {

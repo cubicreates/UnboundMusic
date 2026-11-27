@@ -701,9 +701,434 @@ func recursiveExtractTracks(data interface{}, out *[]models.Track) {
 	}
 }
 
-// FetchLikedMusic queries InnerTube for the user's music taste from Watch History, Liked Videos, and Recommendations.
+// FetchLikedMusic queries InnerTube strictly for the user's Liked Music & Liked Videos (without mixing home feed).
 func (c *Client) FetchLikedMusic(ctx context.Context) ([]models.Track, error) {
-	return c.FetchUserTasteAndHistory(ctx)
+	return c.FetchPureLikedTracks(ctx)
+}
+
+// extractContinuationToken walks a YouTube InnerTube browse response to locate nextContinuationData / reloadContinuationData.
+func extractContinuationToken(data interface{}) string {
+	var token string
+	var walk func(val interface{})
+	walk = func(val interface{}) {
+		if token != "" {
+			return
+		}
+		switch v := val.(type) {
+		case map[string]interface{}:
+			if ncd, ok := v["nextContinuationData"].(map[string]interface{}); ok {
+				if c, ok := ncd["continuation"].(string); ok && c != "" {
+					token = c
+					return
+				}
+			}
+			if nc, ok := v["nextRadioContinuationData"].(map[string]interface{}); ok {
+				if c, ok := nc["continuation"].(string); ok && c != "" {
+					token = c
+					return
+				}
+			}
+			for _, child := range v {
+				walk(child)
+				if token != "" {
+					return
+				}
+			}
+		case []interface{}:
+			for _, child := range v {
+				walk(child)
+				if token != "" {
+					return
+				}
+			}
+		}
+	}
+	walk(data)
+	return token
+}
+
+// extractMixedForYouItems extracts personalized Mix / Playlist cards (FEmusic_mixed_for_you / gridRenderer).
+func extractMixedForYouItems(root map[string]interface{}) []MixItem {
+	var mixes []MixItem
+	seen := make(map[string]bool)
+
+	var walk func(val interface{})
+	walk = func(val interface{}) {
+		switch v := val.(type) {
+		case map[string]interface{}:
+			if item, ok := v["musicTwoRowItemRenderer"].(map[string]interface{}); ok {
+				var mix MixItem
+				if nav, ok := item["navigationEndpoint"].(map[string]interface{}); ok {
+					if wp, ok := nav["watchPlaylistEndpoint"].(map[string]interface{}); ok {
+						mix.ID, _ = wp["playlistId"].(string)
+					}
+					if mix.ID == "" {
+						if we, ok := nav["watchEndpoint"].(map[string]interface{}); ok {
+							mix.ID, _ = we["playlistId"].(string)
+						}
+					}
+					if mix.ID == "" {
+						if be, ok := nav["browseEndpoint"].(map[string]interface{}); ok {
+							mix.ID, _ = be["browseId"].(string)
+						}
+					}
+				}
+				if mix.ID == "" {
+					if overlay, ok := item["thumbnailOverlay"].(map[string]interface{}); ok {
+						if mto, ok := overlay["musicItemThumbnailOverlayRenderer"].(map[string]interface{}); ok {
+							if content, ok := mto["content"].(map[string]interface{}); ok {
+								if pb, ok := content["musicPlayButtonRenderer"].(map[string]interface{}); ok {
+									if pnav, ok := pb["playNavigationEndpoint"].(map[string]interface{}); ok {
+										if wp, ok := pnav["watchPlaylistEndpoint"].(map[string]interface{}); ok {
+											mix.ID, _ = wp["playlistId"].(string)
+										} else if we, ok := pnav["watchEndpoint"].(map[string]interface{}); ok {
+											mix.ID, _ = we["playlistId"].(string)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				if titleObj, ok := item["title"].(map[string]interface{}); ok {
+					if runs, ok := titleObj["runs"].([]interface{}); ok && len(runs) > 0 {
+						if r0, ok := runs[0].(map[string]interface{}); ok {
+							mix.Title, _ = r0["text"].(string)
+						}
+					} else if s, ok := titleObj["simpleText"].(string); ok {
+						mix.Title = s
+					}
+				}
+				if subObj, ok := item["subtitle"].(map[string]interface{}); ok {
+					if runs, ok := subObj["runs"].([]interface{}); ok && len(runs) > 0 {
+						var sb strings.Builder
+						for _, r := range runs {
+							if rm, ok := r.(map[string]interface{}); ok {
+								if txt, ok := rm["text"].(string); ok {
+									sb.WriteString(txt)
+								}
+							}
+						}
+						mix.Subtitle = strings.TrimSpace(sb.String())
+					} else if s, ok := subObj["simpleText"].(string); ok {
+						mix.Subtitle = s
+					}
+				}
+				if thumbObj, ok := item["thumbnailRenderer"].(map[string]interface{}); ok {
+					if mtr, ok := thumbObj["musicThumbnailRenderer"].(map[string]interface{}); ok {
+						if inner, ok := mtr["thumbnail"].(map[string]interface{}); ok {
+							if thumbs, ok := inner["thumbnails"].([]interface{}); ok && len(thumbs) > 0 {
+								last, _ := thumbs[len(thumbs)-1].(map[string]interface{})
+								if rawURL, ok := last["url"].(string); ok {
+									mix.ThumbnailURL = thumbRegex.ReplaceAllString(rawURL, "=w800-h800")
+								}
+							}
+						}
+					}
+				}
+				mix.Title = strings.TrimSpace(mix.Title)
+				mix.ID = strings.TrimSpace(mix.ID)
+				if mix.ID != "" && mix.Title != "" && !seen[mix.ID] {
+					seen[mix.ID] = true
+					if mix.Subtitle == "" {
+						mix.Subtitle = "Made for you • YouTube Music"
+					}
+					mixes = append(mixes, mix)
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []interface{}:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+	walk(root)
+	return mixes
+}
+
+// FetchMixedForYou queries FEmusic_mixed_for_you (matching SimpMusic's getMixedForYou) for the user's real personalized YouTube Music mixes.
+func (c *Client) FetchMixedForYou(ctx context.Context) ([]MixItem, error) {
+	if !c.HasCredentials() {
+		return nil, nil
+	}
+	authCtx := WithForceAuth(ctx)
+	body := map[string]interface{}{
+		"context":  c.buildContext(ConfigWebRemix),
+		"browseId": "FEmusic_mixed_for_you",
+	}
+	respBytes, err := c.post(authCtx, "browse", body, ConfigWebRemix)
+	if err != nil {
+		return nil, err
+	}
+	var root map[string]interface{}
+	if err := json.Unmarshal(respBytes, &root); err != nil {
+		return nil, err
+	}
+	return extractMixedForYouItems(root), nil
+}
+
+// FetchPureLikedTracks queries true liked-music/video collections (FEmusic_liked_videos, VLLM with params "wAEB", VLLL)
+// with SimpMusic-style continuation pagination.
+func (c *Client) FetchPureLikedTracks(ctx context.Context) ([]models.Track, error) {
+	if !c.HasCredentials() {
+		return nil, nil
+	}
+
+	authCtx := WithForceAuth(ctx)
+	var allTracks []models.Track
+
+	type browseTarget struct {
+		browseID string
+		params   string
+		cfg      ClientConfig
+	}
+	var targets []browseTarget
+	if c.GetCredentials() != "" {
+		targets = []browseTarget{
+			{"FEmusic_liked_videos", "", ConfigWebRemix},
+			{"VLLM", "wAEB", ConfigWebRemix},
+			{"VLLL", "wAEB", ConfigWeb},
+			{"VLLL", "wAEB", ConfigTVHTML5},
+		}
+	} else {
+		targets = []browseTarget{
+			{"VLLL", "wAEB", ConfigTVHTML5},
+			{"VLLM", "wAEB", ConfigTVHTML5},
+		}
+	}
+
+	for _, target := range targets {
+		body := map[string]interface{}{
+			"context":  c.buildContext(target.cfg),
+			"browseId": target.browseID,
+		}
+		if target.params != "" {
+			body["params"] = target.params
+		}
+		respBytes, err := c.post(authCtx, "browse", body, target.cfg)
+		if err != nil {
+			continue
+		}
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err != nil {
+			continue
+		}
+		recursiveExtractTracks(root, &allTracks)
+
+		// Follow SimpMusic-style continuations (up to 3 pages) so liked tracks load cleanly without truncating
+		continuation := extractContinuationToken(root)
+		for page := 0; page < 3 && continuation != "" && len(allTracks) < 200; page++ {
+			contBody := map[string]interface{}{
+				"context":      c.buildContext(target.cfg),
+				"continuation": continuation,
+			}
+			contBytes, cErr := c.post(authCtx, "browse", contBody, target.cfg)
+			if cErr != nil {
+				break
+			}
+			var contRoot map[string]interface{}
+			if json.Unmarshal(contBytes, &contRoot) != nil {
+				break
+			}
+			beforeCount := len(allTracks)
+			recursiveExtractTracks(contRoot, &allTracks)
+			if len(allTracks) == beforeCount {
+				break
+			}
+			nextCont := extractContinuationToken(contRoot)
+			if nextCont == continuation {
+				break
+			}
+			continuation = nextCont
+		}
+
+		if len(allTracks) >= 40 {
+			break
+		}
+	}
+
+	filtered := gatekeeper.FilterMusicTracks(allTracks)
+	seen := make(map[string]bool)
+	unique := make([]models.Track, 0, len(filtered))
+	for _, t := range filtered {
+		if IsValidYouTubeVideoID(t.ID) && !seen[t.ID] {
+			seen[t.ID] = true
+			unique = append(unique, t)
+		}
+	}
+	return unique, nil
+}
+
+// FetchWatchHistory queries YouTube Music (FEmusic_history) and YouTube (FEhistory) for the user's
+// watch history and detects whether the user has paused or blocked watch history on their Google account.
+func (c *Client) FetchWatchHistory(ctx context.Context) ([]models.Track, bool, error) {
+	if !c.HasCredentials() {
+		return nil, false, nil
+	}
+
+	authCtx := WithForceAuth(ctx)
+	var allTracks []models.Track
+	historyPaused := false
+
+	type browseTarget struct {
+		browseID string
+		cfg      ClientConfig
+	}
+	var targets []browseTarget
+	if c.GetCredentials() != "" {
+		targets = []browseTarget{
+			{"FEmusic_history", ConfigWebRemix},
+			{"FEhistory", ConfigWeb},
+			{"FEhistory", ConfigTVHTML5},
+		}
+	} else {
+		targets = []browseTarget{
+			{"FEhistory", ConfigTVHTML5},
+		}
+	}
+
+	for _, target := range targets {
+		body := map[string]interface{}{
+			"context":  c.buildContext(target.cfg),
+			"browseId": target.browseID,
+		}
+		respBytes, err := c.post(authCtx, "browse", body, target.cfg)
+		if err != nil {
+			continue
+		}
+
+		lowerBody := strings.ToLower(string(respBytes))
+		if strings.Contains(lowerBody, "watch history is paused") ||
+			strings.Contains(lowerBody, "history is paused") ||
+			strings.Contains(lowerBody, "watch history is off") ||
+			strings.Contains(lowerBody, "turn on watch history") ||
+			strings.Contains(lowerBody, "paused your watch history") {
+			historyPaused = true
+		}
+
+		var root map[string]interface{}
+		if err := json.Unmarshal(respBytes, &root); err == nil {
+			recursiveExtractTracks(root, &allTracks)
+			if len(allTracks) >= 30 {
+				break
+			}
+		}
+	}
+
+	filtered := gatekeeper.FilterMusicTracks(allTracks)
+	seen := make(map[string]bool)
+	unique := make([]models.Track, 0, len(filtered))
+	for _, t := range filtered {
+		if IsValidYouTubeVideoID(t.ID) && !seen[t.ID] {
+			seen[t.ID] = true
+			unique = append(unique, t)
+		}
+	}
+	return unique, historyPaused, nil
+}
+
+// FetchAccountSearchHistory retrieves the signed-in user's YouTube Music search history suggestions.
+func (c *Client) FetchAccountSearchHistory(ctx context.Context, input string) ([]string, error) {
+	if !c.HasCredentials() {
+		return nil, nil
+	}
+	cfg := ConfigWebRemix
+	if c.GetCredentials() == "" {
+		cfg = ConfigTVHTML5
+	}
+	body := map[string]interface{}{
+		"context": c.buildContext(cfg),
+		"input":   input,
+	}
+	respBytes, err := c.post(WithForceAuth(ctx), "music/get_search_suggestions", body, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	var root map[string]interface{}
+	if err := json.Unmarshal(respBytes, &root); err != nil {
+		return nil, err
+	}
+
+	includeSuggestions := strings.TrimSpace(input) != ""
+	var out []string
+	seen := make(map[string]bool)
+
+	extractQuery := func(renderer map[string]interface{}) {
+		if q, ok := renderer["searchEndpoint"].(map[string]interface{}); ok {
+			if se, ok := q["searchEndpoint"].(map[string]interface{}); ok {
+				q = se
+			}
+			if qs, ok := q["query"].(string); ok && strings.TrimSpace(qs) != "" {
+				k := strings.ToLower(strings.TrimSpace(qs))
+				if !seen[k] {
+					seen[k] = true
+					out = append(out, strings.TrimSpace(qs))
+				}
+				return
+			}
+		}
+		if nav, ok := renderer["navigationEndpoint"].(map[string]interface{}); ok {
+			if se, ok := nav["searchEndpoint"].(map[string]interface{}); ok {
+				if qs, ok := se["query"].(string); ok && strings.TrimSpace(qs) != "" {
+					k := strings.ToLower(strings.TrimSpace(qs))
+					if !seen[k] {
+						seen[k] = true
+						out = append(out, strings.TrimSpace(qs))
+					}
+					return
+				}
+			}
+		}
+		if sugObj, ok := renderer["suggestion"].(map[string]interface{}); ok {
+			if runs, ok := sugObj["runs"].([]interface{}); ok {
+				var sb strings.Builder
+				for _, r := range runs {
+					if rm, ok := r.(map[string]interface{}); ok {
+						if txt, ok := rm["text"].(string); ok {
+							sb.WriteString(txt)
+						}
+					}
+				}
+				qs := strings.TrimSpace(sb.String())
+				if qs != "" {
+					k := strings.ToLower(qs)
+					if !seen[k] {
+						seen[k] = true
+						out = append(out, qs)
+					}
+				}
+			}
+		}
+	}
+
+	var walk func(val interface{})
+	walk = func(val interface{}) {
+		switch v := val.(type) {
+		case map[string]interface{}:
+			if h, ok := v["historySuggestionRenderer"].(map[string]interface{}); ok {
+				extractQuery(h)
+			}
+			if includeSuggestions {
+				if s, ok := v["searchSuggestionRenderer"].(map[string]interface{}); ok {
+					extractQuery(s)
+				}
+			}
+			for _, child := range v {
+				walk(child)
+			}
+		case []interface{}:
+			for _, child := range v {
+				walk(child)
+			}
+		}
+	}
+
+	walk(root)
+	return out, nil
 }
 
 // FetchUserTasteAndHistory extracts music tracks directly from the user's authentic YouTube activity.
@@ -1023,6 +1448,7 @@ func (c *Client) mutateTrackLike(ctx context.Context, videoID, endpoint string) 
 
 	authCtx := WithForceAuth(ctx)
 	var lastErr error
+	succeeded := false
 	for _, cfg := range candidates {
 		body := map[string]interface{}{
 			"context": c.buildContext(cfg),
@@ -1031,10 +1457,13 @@ func (c *Client) mutateTrackLike(ctx context.Context, videoID, endpoint string) 
 			},
 		}
 		if _, err := c.post(authCtx, endpoint, body, cfg); err == nil {
-			return nil
+			succeeded = true
 		} else {
 			lastErr = err
 		}
+	}
+	if succeeded {
+		return nil
 	}
 	return lastErr
 }
@@ -1047,19 +1476,64 @@ type HomeShelf struct {
 	Tracks   []models.Track `json:"tracks"`
 }
 
+// HomePreferenceParam maps a user-friendly mood/preference name to SimpMusic's official FEmusic_home params token.
+func HomePreferenceParam(moodOrParam string) string {
+	trimmed := strings.TrimSpace(moodOrParam)
+	if trimmed == "" || strings.EqualFold(trimmed, "all") {
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "ggM8") {
+		return trimmed
+	}
+	switch strings.ToLower(trimmed) {
+	case "relax":
+		return "ggM8SgQIBxADSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "sleep":
+		return "ggM8SgQIBxABSgQIBRADSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "energize":
+		return "ggM8SgQIBxABSgQIBRABSgQICRADSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "sad":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChADSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "romance":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRADSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "feel good", "feelgood", "feel_good":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBADSgQIBBABSgQIDhABSgQIAxABSgQIBhAB"
+	case "workout":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBADSgQIDhABSgQIAxABSgQIBhAB"
+	case "party":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhADSgQIAxABSgQIBhAB"
+	case "commute":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxADSgQIBhAB"
+	case "focus":
+		return "ggM8SgQIBxABSgQIBRABSgQICRABSgQIChABSgQIDRABSgQICBABSgQIBBABSgQIDhABSgQIAxABSgQIBhAD"
+	default:
+		return ""
+	}
+}
+
 // FetchPersonalizedHomeShelves queries InnerTube FEmusic_home using authenticated WebRemix credentials
 // and parses the real carousel and music shelves into structured HomeShelf objects.
 func (c *Client) FetchPersonalizedHomeShelves(ctx context.Context) ([]HomeShelf, error) {
+	return c.FetchPersonalizedHomeShelvesWithParams(ctx, "")
+}
+
+// FetchPersonalizedHomeShelvesWithParams queries InnerTube FEmusic_home (with optional mood/preference params and continuation),
+// matching SimpMusic's HomeRepositoryImpl preference-sync flow.
+func (c *Client) FetchPersonalizedHomeShelvesWithParams(ctx context.Context, homeParams string) ([]HomeShelf, error) {
 	if !c.HasCredentials() {
 		return nil, fmt.Errorf("unauthenticated: no session credentials set")
 	}
 
+	authCtx := WithForceAuth(ctx)
 	body := map[string]interface{}{
 		"context":  c.buildContext(ConfigWebRemix),
 		"browseId": "FEmusic_home",
 	}
+	if p := strings.TrimSpace(homeParams); p != "" {
+		body["params"] = p
+	}
 
-	respBytes, err := c.post(ctx, "browse", body, ConfigWebRemix)
+	respBytes, err := c.post(authCtx, "browse", body, ConfigWebRemix)
 	if err != nil {
 		return nil, err
 	}
@@ -1069,7 +1543,29 @@ func (c *Client) FetchPersonalizedHomeShelves(ctx context.Context) ([]HomeShelf,
 		return nil, err
 	}
 
-	return parseHomeShelvesFromJSON(root), nil
+	shelves := parseHomeShelvesFromJSON(root)
+
+	// Follow first continuation page if FEmusic_home returned fewer than 4 shelves
+	if len(shelves) < 4 {
+		if cont := extractContinuationToken(root); cont != "" {
+			contBody := map[string]interface{}{
+				"context":      c.buildContext(ConfigWebRemix),
+				"continuation": cont,
+			}
+			if contBytes, cErr := c.post(authCtx, "browse", contBody, ConfigWebRemix); cErr == nil {
+				var contRoot map[string]interface{}
+				if json.Unmarshal(contBytes, &contRoot) == nil {
+					moreShelves := parseHomeShelvesFromJSON(contRoot)
+					for _, ms := range moreShelves {
+						ms.ID = fmt.Sprintf("ytm_carousel_%d", len(shelves)+1)
+						shelves = append(shelves, ms)
+					}
+				}
+			}
+		}
+	}
+
+	return shelves, nil
 }
 
 // parseHomeShelvesFromJSON extracts carousel shelves and list shelves from FEmusic_home browse response.

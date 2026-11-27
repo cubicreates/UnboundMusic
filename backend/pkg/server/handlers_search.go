@@ -3,8 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
 )
@@ -56,6 +59,27 @@ func (s *Server) handleMusicSearch(w http.ResponseWriter, r *http.Request) {
 	if filter == "" {
 		filter = "all"
 	}
+	if r.URL.Query().Get("record") == "1" {
+		s.recordPlaybackSearchSafe("music", query)
+	}
+
+	cacheKey := fmt.Sprintf("search:v1:music:%s:%s", filter, strings.ToLower(query))
+	if s.repo != nil {
+		if cachedBytes, ok := s.repo.GetCachedJSON(r.Context(), cacheKey); ok {
+			var cachedTracks []models.Track
+			if err := json.Unmarshal(cachedBytes, &cachedTracks); err == nil && len(cachedTracks) > 0 {
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"query":  query,
+					"domain": "music",
+					"filter": filter,
+					"cached": true,
+					"count":  len(cachedTracks),
+					"tracks": cachedTracks,
+				})
+				return
+			}
+		}
+	}
 
 	tracks, err := s.ytClient.SearchMusic(r.Context(), query, filter)
 	if err != nil {
@@ -67,12 +91,18 @@ func (s *Server) handleMusicSearch(w http.ResponseWriter, r *http.Request) {
 		for _, t := range tracks {
 			_ = s.repo.SaveTrack(context.Background(), &t)
 		}
+		if s.repo != nil && len(tracks) > 0 {
+			if encoded, mErr := json.Marshal(tracks); mErr == nil {
+				s.repo.SetCachedJSON(context.Background(), cacheKey, encoded, 30*time.Minute)
+			}
+		}
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"query":  query,
 		"domain": "music",
 		"filter": filter,
+		"cached": false,
 		"count":  len(tracks),
 		"tracks": tracks,
 	})
@@ -229,22 +259,58 @@ func (s *Server) handleUnifiedSearch(w http.ResponseWriter, r *http.Request) {
 	if filter == "" {
 		filter = "all"
 	}
+	if r.URL.Query().Get("record") == "1" {
+		s.recordPlaybackSearchSafe(domain, query)
+	}
 
 	if domain == "podcasts" || domain == "podcast" {
+		cacheKey := fmt.Sprintf("search:v1:podcasts:%s:%s", filter, strings.ToLower(query))
+		if s.repo != nil {
+			if cachedBytes, ok := s.repo.GetCachedJSON(r.Context(), cacheKey); ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(cachedBytes)
+				return
+			}
+		}
 		episodes, shows, err := s.podcastEng.SearchPodcastsWithFilter(r.Context(), query, filter)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		payload := map[string]interface{}{
 			"domain":   "podcasts",
 			"query":    query,
 			"filter":   filter,
 			"episodes": episodes,
 			"shows":    shows,
 			"count":    len(episodes),
-		})
+		}
+		if s.repo != nil && (len(episodes) > 0 || len(shows) > 0) {
+			if encoded, mErr := json.Marshal(payload); mErr == nil {
+				s.repo.SetCachedJSON(context.Background(), cacheKey, encoded, 30*time.Minute)
+			}
+		}
+		writeJSON(w, http.StatusOK, payload)
 		return
+	}
+
+	musicCacheKey := fmt.Sprintf("search:v1:unified_music:%s:%s", filter, strings.ToLower(query))
+	if s.repo != nil {
+		if cachedBytes, ok := s.repo.GetCachedJSON(r.Context(), musicCacheKey); ok {
+			var cachedTracks []models.Track
+			if err := json.Unmarshal(cachedBytes, &cachedTracks); err == nil && len(cachedTracks) > 0 {
+				writeJSON(w, http.StatusOK, map[string]interface{}{
+					"domain": "music",
+					"query":  query,
+					"filter": filter,
+					"cached": true,
+					"count":  len(cachedTracks),
+					"tracks": cachedTracks,
+				})
+				return
+			}
+		}
 	}
 
 	// Music domain: strictly filter out podcasts & enrich sparse results on backend
@@ -282,13 +348,138 @@ func (s *Server) handleUnifiedSearch(w http.ResponseWriter, r *http.Request) {
 		for _, t := range results {
 			_ = s.repo.SaveTrack(context.Background(), &t)
 		}
+		if s.repo != nil && len(results) > 0 {
+			if encoded, mErr := json.Marshal(results); mErr == nil {
+				s.repo.SetCachedJSON(context.Background(), musicCacheKey, encoded, 30*time.Minute)
+			}
+		}
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"domain": "music",
 		"query":  query,
 		"filter": filter,
+		"cached": false,
 		"count":  len(results),
 		"tracks": results,
+	})
+}
+
+// handleSearchCascade executes the 4-stage intelligent search cascade.
+// Route: GET /api/v1/search/cascade?q=...
+func (s *Server) handleSearchCascade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+	result, err := s.ytClient.SearchCascade(r.Context(), q)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleSearchHistory manages persistent SQLite search history ("Previous Searches") per domain.
+// Route: GET|POST|DELETE /api/v1/search/history
+func (s *Server) handleSearchHistory(w http.ResponseWriter, r *http.Request) {
+	if s.repo == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"history": []string{}, "count": 0})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		domain := r.URL.Query().Get("domain")
+		prefix := r.URL.Query().Get("q")
+		limit := 20
+		if lStr := r.URL.Query().Get("limit"); lStr != "" {
+			if parsed, err := strconv.Atoi(lStr); err == nil && parsed > 0 && parsed <= 50 {
+				limit = parsed
+			}
+		}
+		history, err := s.repo.GetSearchHistory(r.Context(), domain, prefix, limit)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"domain":  domain,
+			"history": history,
+			"count":   len(history),
+		})
+	case http.MethodPost:
+		var req struct {
+			Domain string `json:"domain"`
+			Query  string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Query) == "" {
+			writeError(w, http.StatusBadRequest, "query is required")
+			return
+		}
+		if err := s.repo.RecordSearchQuery(r.Context(), req.Domain, req.Query); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		history, _ := s.repo.GetSearchHistory(r.Context(), req.Domain, "", 20)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status":  "recorded",
+			"history": history,
+			"count":   len(history),
+		})
+	case http.MethodDelete:
+		domain := r.URL.Query().Get("domain")
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if query != "" {
+			_ = s.repo.DeleteSearchHistoryItem(r.Context(), domain, query)
+		} else {
+			_ = s.repo.ClearSearchHistory(r.Context(), domain)
+		}
+		history, _ := s.repo.GetSearchHistory(r.Context(), domain, "", 20)
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"status":  "deleted",
+			"history": history,
+			"count":   len(history),
+		})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleSearchHistoryDelete deletes a single item or clears all search history for a domain.
+// Route: POST /api/v1/search/history/delete
+func (s *Server) handleSearchHistoryDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.repo == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"history": []string{}, "count": 0})
+		return
+	}
+	var req struct {
+		Domain   string `json:"domain"`
+		Query    string `json:"query"`
+		ClearAll bool   `json:"clear_all"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.ClearAll || strings.TrimSpace(req.Query) == "" {
+		_ = s.repo.ClearSearchHistory(r.Context(), req.Domain)
+	} else {
+		_ = s.repo.DeleteSearchHistoryItem(r.Context(), req.Domain, req.Query)
+	}
+	history, _ := s.repo.GetSearchHistory(r.Context(), req.Domain, "", 20)
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "ok",
+		"history": history,
+		"count":   len(history),
 	})
 }

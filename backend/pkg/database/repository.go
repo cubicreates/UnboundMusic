@@ -723,6 +723,15 @@ func (r *Repository) ClearSyncedData(ctx context.Context) error {
 	return err2
 }
 
+// DeleteSyncedTrack removes a single unliked track from synced_tracks.
+func (r *Repository) DeleteSyncedTrack(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	_, err := r.db.conn.ExecContext(ctx, `DELETE FROM synced_tracks WHERE id = ?;`, id)
+	return err
+}
+
 // SearchTracksFTS performs high-performance full-text search with BM25 ranking across local tracks.
 func (r *Repository) SearchTracksFTS(ctx context.Context, query string, limit int) ([]*models.LocalTrack, error) {
 	cleanQuery := strings.TrimSpace(query)

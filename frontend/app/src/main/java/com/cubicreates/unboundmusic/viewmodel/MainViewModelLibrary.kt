@@ -19,7 +19,6 @@ import com.cubicreates.unboundmusic.data.MediaStoreAudioBridge
 import com.cubicreates.unboundmusic.data.PlaybackStateStore
 import com.cubicreates.unboundmusic.data.SmartPlaylistType
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -378,11 +377,6 @@ fun MainViewModel.identifyTrack(track: TrackItem) {
         try {
             val targetPath = resolveLocalFilePath(track)
             withContext(Dispatchers.Main) {
-                UnboundToast.show(
-                    getApplication(),
-                    "Identifying '${track.title}'...",
-                    isLong = false
-                )
             }
 
             val result = client.identifyTrackDetailed(targetPath)
@@ -408,30 +402,15 @@ fun MainViewModel.identifyTrack(track: TrackItem) {
                         identified.method.contains("voice", ignoreCase = true) -> "Media Parser"
                         else -> "Smart Heuristic"
                     }
-                    UnboundToast.show(
-                        getApplication(),
-                        "Graduated to Music via $methodBadge (${(identified.confidence * 100).toInt()}%): '${updatedTrack.artist} - ${updatedTrack.title}'",
-                        isLong = true
-                    )
                 }
             } else {
                 val errDetail = result.errorMessage ?: "HTTP ${result.statusCode}: No match found"
                 withContext(Dispatchers.Main) {
-                    UnboundToast.show(
-                        getApplication(),
-                        "Identification diagnostic: Could not identify track ($errDetail)",
-                        isLong = true
-                    )
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to identify track ${track.title}: ${e.message}")
             withContext(Dispatchers.Main) {
-                UnboundToast.show(
-                    getApplication(),
-                    "Identification failed: ${e.message}",
-                    isLong = true
-                )
             }
         } finally {
             _isIdentifyingTrack.value = null
@@ -453,12 +432,10 @@ fun MainViewModel.batchIdentifyUnknownTracks() {
         }
         if (candidates.isEmpty()) {
             withContext(Dispatchers.Main) {
-                UnboundToast.show(getApplication(), "All audio tracks are already identified!", isLong = false)
             }
             return@launch
         }
         withContext(Dispatchers.Main) {
-            UnboundToast.show(getApplication(), "Identifying ${candidates.size} untagged tracks...", isLong = false)
         }
         var identifiedCount = 0
         var errorCount = 0
@@ -492,7 +469,6 @@ fun MainViewModel.batchIdentifyUnknownTracks() {
             } else {
                 "Diagnostic: 0/${candidates.size} identified. Reason: $lastError"
             }
-            UnboundToast.show(getApplication(), msg, isLong = true)
         }
     }
 }
@@ -540,7 +516,6 @@ fun MainViewModel.createCustomPlaylist(
         client.createPlaylist(title, description, coverUrl, initialTracks, created.id)
         loadCustomPlaylists()
     }
-    UnboundToast.show(getApplication(), "Created playlist '${created.title}'", isLong = false)
     return created
 }
 
@@ -552,7 +527,6 @@ fun MainViewModel.updateCustomPlaylist(playlistId: String, title: String, descri
         withContext(Dispatchers.Main) {
             if (updated != null) {
                 _activeCustomPlaylist.value = updated
-                UnboundToast.show(getApplication(), "Playlist updated", isLong = false)
             }
         }
     }
@@ -568,7 +542,6 @@ fun MainViewModel.deleteCustomPlaylist(playlistId: String) {
                 if (_activeCustomPlaylist.value?.id == playlistId) {
                     _activeCustomPlaylist.value = null
                 }
-                UnboundToast.show(getApplication(), "Playlist deleted", isLong = false)
             }
         }
     }
@@ -585,7 +558,6 @@ fun MainViewModel.addTrackToCustomPlaylist(playlistId: String, track: TrackItem)
                     _activeCustomPlaylist.value = updated
                 }
                 val msg = if (added) "Added '${track.title}' to '${updated.title}'" else "'${track.title}' is already in '${updated.title}'"
-                UnboundToast.show(getApplication(), msg, isLong = false)
             }
             _trackToAddToPlaylist.value = null
         }
@@ -602,7 +574,6 @@ fun MainViewModel.removeTrackFromCustomPlaylist(playlistId: String, trackIndex: 
                 if (_activeCustomPlaylist.value?.id == playlistId) {
                     _activeCustomPlaylist.value = updated
                 }
-                UnboundToast.show(getApplication(), "Removed track from playlist", isLong = false)
             }
         }
     }

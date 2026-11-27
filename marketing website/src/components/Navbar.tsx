@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Download, Menu, Sparkles, Terminal, X } from "lucide-react";
@@ -13,11 +14,16 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [openPath, setOpenPath] = useState<string | null>(null);
+  const mobileOpen = openPath === pathname;
 
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
+  function toggleMobileMenu() {
+    setOpenPath((prev) => (prev === pathname ? null : pathname));
+  }
+
+  function closeMobileMenu() {
+    setOpenPath(null);
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-unbound-outline/70 bg-[#0C0E10]/90 backdrop-blur-xl">
@@ -25,9 +31,11 @@ export function Navbar() {
         {/* Left: Brand Identity */}
         <Link href="/" className="group flex shrink-0 items-center gap-2.5 justify-self-start">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-unbound-outline bg-unbound-surfaceLow p-1 transition-colors group-hover:border-unbound-primary/60">
-            <img
+            <Image
               src="/assets/logo.png"
               alt="Unbound Music Logo"
+              width={28}
+              height={28}
               className="h-full w-full object-contain"
             />
           </div>
@@ -73,7 +81,7 @@ export function Navbar() {
         {/* Right: Mobile Hamburger Button / Desktop Spacer */}
         <button
           type="button"
-          onClick={() => setMobileOpen((prev) => !prev)}
+          onClick={toggleMobileMenu}
           aria-expanded={mobileOpen}
           aria-label="Toggle navigation menu"
           className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-unbound-outline bg-unbound-surfaceLow text-unbound-onSurface transition-colors hover:border-unbound-primary/60 md:hidden"
@@ -89,7 +97,7 @@ export function Navbar() {
         <>
           <div
             className="fixed inset-x-0 bottom-0 top-16 z-40 bg-black/65 backdrop-blur-sm md:hidden"
-            onClick={() => setMobileOpen(false)}
+            onClick={closeMobileMenu}
           />
           <nav
             aria-label="Mobile Navigation"
@@ -107,7 +115,7 @@ export function Navbar() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMobileOpen(false)}
+                    onClick={closeMobileMenu}
                     className={`flex min-h-[48px] w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium transition-colors ${
                       isActive
                         ? "bg-unbound-primary font-semibold text-unbound-onPrimary"

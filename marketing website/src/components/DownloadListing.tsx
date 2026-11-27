@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import {
   CheckCircle2,
   Download,
@@ -75,9 +76,11 @@ export function DownloadListing() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           {/* App Identity (Horizontal Play Store Alignment on Mobile too) */}
           <div className="flex items-center gap-4 sm:gap-6">
-            <img
+            <Image
               src="/assets/logo-solid.png"
               alt="Unbound Music App Icon"
+              width={112}
+              height={112}
               className="h-20 w-20 shrink-0 rounded-2xl border border-unbound-outline bg-unbound-oled object-cover shadow-[0_12px_36px_rgba(0,229,255,0.2)] sm:h-28 sm:w-28 sm:rounded-3xl"
             />
             <div className="min-w-0">
@@ -161,9 +164,11 @@ export function DownloadListing() {
               onClick={() => setActiveShot(shot)}
               className="group shrink-0 snap-start overflow-hidden rounded-2xl border border-unbound-outline bg-unbound-surfaceLow p-2 text-left transition-all hover:border-unbound-primary/60 sm:p-2.5"
             >
-              <img
+              <Image
                 src={shot.src}
                 alt={shot.title}
+                width={shot.src.includes("banner") ? 540 : 180}
+                height={360}
                 className={`rounded-xl object-cover ${
                   shot.src.includes("banner")
                     ? "h-[260px] w-[82vw] max-w-[440px] sm:h-[360px] sm:w-[540px] sm:max-w-none"
@@ -383,10 +388,12 @@ export function DownloadListing() {
             >
               <X className="h-4 w-4" />
             </button>
-            <img
+            <Image
               src={activeShot.src}
               alt={activeShot.title}
-              className="mx-auto max-h-[72vh] rounded-2xl object-contain"
+              width={activeShot.src.includes("banner") ? 1200 : 540}
+              height={960}
+              className="mx-auto max-h-[72vh] w-auto rounded-2xl object-contain"
             />
             <div className="mt-3 text-center">
               <p className="text-sm font-bold text-unbound-onSurface">{activeShot.title}</p>

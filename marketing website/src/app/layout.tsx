@@ -17,6 +17,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://unboundmusic.vercel.app"
+  ),
   title: "Unbound Music — Pure Sound, Zero Ads, Zero Subscriptions",
   description:
     "Stream millions of tracks & podcasts, listen offline with zero wasted mobile data, match sound to 4,000+ headphones, and sing along with live lyrics—free forever on Android.",

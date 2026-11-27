@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ShieldCheck, Radio } from "lucide-react";
 
@@ -7,9 +8,11 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
         <div className="grid gap-8 text-center md:grid-cols-3 md:items-center md:text-left">
           <div className="flex flex-col items-center gap-3 sm:flex-row md:items-center">
-            <img
+            <Image
               src="/assets/logo.png"
               alt="Unbound Music"
+              width={40}
+              height={40}
               className="h-10 w-10 rounded-xl border border-unbound-outline bg-unbound-surfaceLow p-1.5 object-contain"
             />
             <div>

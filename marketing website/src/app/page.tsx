@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -81,7 +82,7 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-4 pb-12 pt-10 sm:px-6 sm:pb-16 sm:pt-16 lg:px-8 lg:pt-20">
         <div className="mx-auto max-w-3xl text-center">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-unbound-outline bg-unbound-surfaceLow px-3.5 py-1.5 text-[11px] font-medium text-unbound-onPrimaryContainer shadow-sm sm:mb-6 sm:px-4 sm:text-xs">
-            <img src="/assets/logo.png" alt="Unbound" className="h-4 w-4 object-contain" />
+            <Image src="/assets/logo.png" alt="Unbound" width={16} height={16} className="h-4 w-4 object-contain" />
             <span>100% Free • Zero Ads • Built for Music Lovers</span>
           </div>
 
@@ -137,10 +138,12 @@ export default function HomePage() {
             {/* Left Phone: Home Screen */}
             <div className="w-[72vw] max-w-[260px] shrink-0 snap-center md:mx-auto md:w-[270px] md:-mr-4 md:translate-y-4 md:-rotate-3">
               <div className="rounded-[2.2rem] border border-unbound-outline bg-unbound-oled p-2 shadow-[0_24px_60px_rgba(0,0,0,0.75)] sm:p-2.5">
-                <img
+                <Image
                   src="/assets/home-screen-demo.png"
                   alt="Unbound Music Home Screen with Personalized Mixes and Podcasts"
-                  className="w-full rounded-[1.7rem] object-cover"
+                  width={360}
+                  height={780}
+                  className="h-auto w-full rounded-[1.7rem] object-cover"
                 />
               </div>
             </div>
@@ -148,10 +151,13 @@ export default function HomePage() {
             {/* Center Phone (Hero Focus): Music Player */}
             <div className="relative z-10 w-[75vw] max-w-[280px] shrink-0 snap-center md:mx-auto md:w-[300px] md:max-w-[300px]">
               <div className="rounded-[2.4rem] border-2 border-unbound-primary/50 bg-unbound-oled p-2 shadow-[0_30px_80px_rgba(0,229,255,0.22)] sm:p-2.5">
-                <img
+                <Image
                   src="/assets/music-player-demo.png"
                   alt="Unbound Music Now Playing Screen"
-                  className="w-full rounded-[1.85rem] object-cover"
+                  width={360}
+                  height={780}
+                  priority
+                  className="h-auto w-full rounded-[1.85rem] object-cover"
                 />
               </div>
             </div>
@@ -159,10 +165,12 @@ export default function HomePage() {
             {/* Right Phone: Search Screen */}
             <div className="w-[72vw] max-w-[260px] shrink-0 snap-center md:mx-auto md:w-[270px] md:-ml-4 md:translate-y-4 md:rotate-3">
               <div className="rounded-[2.2rem] border border-unbound-outline bg-unbound-oled p-2 shadow-[0_24px_60px_rgba(0,0,0,0.75)] sm:p-2.5">
-                <img
+                <Image
                   src="/assets/search-screen-demo.png"
                   alt="Unbound Music Search, Moods, and Song Recognition"
-                  className="w-full rounded-[1.7rem] object-cover"
+                  width={360}
+                  height={780}
+                  className="h-auto w-full rounded-[1.7rem] object-cover"
                 />
               </div>
             </div>
@@ -177,10 +185,12 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         <div className="overflow-hidden rounded-3xl border border-unbound-outline bg-unbound-surfaceLow shadow-[0_24px_70px_rgba(0,0,0,0.6)]">
           <div className="relative">
-            <img
+            <Image
               src="/assets/banner.png"
               alt="Unbound Music Brand Showcase"
-              className="min-h-[150px] w-full object-cover"
+              width={1600}
+              height={640}
+              className="min-h-[150px] h-auto w-full object-cover"
             />
           </div>
           <div className="grid grid-cols-2 divide-x divide-y divide-unbound-outlineVariant border-t border-unbound-outline bg-unbound-surfaceLowest sm:grid-cols-4 sm:divide-y-0">
@@ -241,10 +251,12 @@ export default function HomePage() {
 
           <div className="flex justify-center">
             <div className="relative w-full max-w-[260px] rounded-[2.4rem] border border-unbound-outline bg-unbound-oled p-2.5 shadow-[0_24px_70px_rgba(0,229,255,0.12)] sm:max-w-[310px] sm:p-3">
-              <img
+              <Image
                 src="/assets/home-screen-demo.png"
                 alt="Unbound Music Home Feed Demo"
-                className="w-full rounded-[1.85rem]"
+                width={360}
+                height={780}
+                className="h-auto w-full rounded-[1.85rem]"
               />
             </div>
           </div>
@@ -254,10 +266,12 @@ export default function HomePage() {
         <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12">
           <div className="order-2 flex justify-center lg:order-1">
             <div className="relative w-full max-w-[260px] rounded-[2.4rem] border border-unbound-primary/40 bg-unbound-oled p-2.5 shadow-[0_24px_70px_rgba(125,255,162,0.12)] sm:max-w-[310px] sm:p-3">
-              <img
+              <Image
                 src="/assets/music-player-demo.png"
                 alt="Unbound Music Player Demo"
-                className="w-full rounded-[1.85rem]"
+                width={360}
+                height={780}
+                className="h-auto w-full rounded-[1.85rem]"
               />
             </div>
           </div>
@@ -343,10 +357,12 @@ export default function HomePage() {
 
           <div className="flex justify-center">
             <div className="relative w-full max-w-[260px] rounded-[2.4rem] border border-unbound-outline bg-unbound-oled p-2.5 shadow-[0_24px_70px_rgba(139,108,255,0.15)] sm:max-w-[310px] sm:p-3">
-              <img
+              <Image
                 src="/assets/search-screen-demo.png"
                 alt="Unbound Music Search & Song Recognition Demo"
-                className="w-full rounded-[1.85rem]"
+                width={360}
+                height={780}
+                className="h-auto w-full rounded-[1.85rem]"
               />
             </div>
           </div>
@@ -393,9 +409,11 @@ export default function HomePage() {
         <div className="relative overflow-hidden rounded-3xl border border-unbound-primary/35 bg-gradient-to-br from-unbound-surface via-unbound-surfaceLow to-unbound-surfaceLowest p-6 shadow-[0_24px_80px_rgba(0,229,255,0.12)] sm:p-12">
           <div className="flex flex-col items-center justify-between gap-7 lg:flex-row lg:gap-8">
             <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:gap-6 sm:text-left">
-              <img
+              <Image
                 src="/assets/logo-solid.png"
                 alt="Unbound Music App Icon"
+                width={80}
+                height={80}
                 className="h-20 w-20 rounded-2xl border border-unbound-outline shadow-lg"
               />
               <div>

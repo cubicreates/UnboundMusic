@@ -10,8 +10,10 @@ package ytmusic
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -94,6 +96,9 @@ func (c *Client) GetStreamInfoWithQuality(ctx context.Context, videoID string, q
 
 		info, err := parsePlayerResponseWithQuality(videoID, respBytes, quality)
 		if err == nil && info != nil && info.StreamURL != "" {
+			if pbURL, wtURL := extractPlaybackTrackingFromBytes(respBytes); pbURL != "" || wtURL != "" {
+				c.SetPlaybackTracking(videoID, pbURL, wtURL)
+			}
 			return info, nil
 		}
 		if err != nil {
@@ -132,6 +137,9 @@ func (c *Client) GetStreamInfoWithQuality(ctx context.Context, videoID string, q
 
 			info, err := parsePlayerResponseWithQuality(videoID, respBytes, quality)
 			if err == nil && info != nil && info.StreamURL != "" {
+				if pbURL, wtURL := extractPlaybackTrackingFromBytes(respBytes); pbURL != "" || wtURL != "" {
+					c.SetPlaybackTracking(videoID, pbURL, wtURL)
+				}
 				return info, nil
 			}
 			if err != nil {
@@ -295,4 +303,154 @@ func parsePlayerResponseWithQuality(videoID string, data []byte, quality string)
 		ExpiresAt:     expiresAt,
 		AudioChannels: channels,
 	}, nil
+}
+
+func extractPlaybackTrackingFromBytes(data []byte) (string, string) {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", ""
+	}
+	return extractPlaybackTracking(raw)
+}
+
+func extractPlaybackTracking(raw map[string]any) (string, string) {
+	pt, ok := raw["playbackTracking"].(map[string]any)
+	if !ok {
+		return "", ""
+	}
+	var playbackURL, watchtimeURL string
+	if pbMap, ok := pt["videostatsPlaybackUrl"].(map[string]any); ok {
+		playbackURL, _ = pbMap["baseUrl"].(string)
+	}
+	if wtMap, ok := pt["videostatsWatchtimeUrl"].(map[string]any); ok {
+		watchtimeURL, _ = wtMap["baseUrl"].(string)
+	}
+	return playbackURL, watchtimeURL
+}
+
+func generateCPN() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		now := time.Now().UnixNano()
+		for i := range buf {
+			buf[i] = charset[int((now>>uint(i%8))&0x3F)]
+		}
+		return string(buf)
+	}
+	for i := range buf {
+		buf[i] = charset[int(buf[i])%len(charset)]
+	}
+	return string(buf)
+}
+
+// ReportPlaybackView pings YouTube's official videostatsPlaybackUrl and videostatsWatchtimeUrl
+// endpoints so both Guest and Signed-In plays count toward creator views and watchtime.
+func (c *Client) ReportPlaybackView(ctx context.Context, videoID string, listenedSec int) error {
+	if !IsValidYouTubeVideoID(videoID) {
+		return nil
+	}
+
+	_ = c.EnsureVisitorData(ctx)
+
+	tracking, ok := c.GetPlaybackTracking(videoID)
+	if !ok || (tracking.PlaybackURL == "" && tracking.WatchtimeURL == "") || time.Since(tracking.UpdatedAt) > 5*time.Hour {
+		sigTimestamp := int(time.Now().Unix() / 86400)
+		var pb PlaybackContext
+		pb.ContentPlaybackContext.HTML5Preference = "HTML5_PREF_WANTS"
+		pb.ContentPlaybackContext.SignatureTimestamp = sigTimestamp
+
+		var sid *ServiceIntegrityDimensions
+		if poToken := c.GetPoToken(); poToken != "" {
+			sid = &ServiceIntegrityDimensions{PoToken: poToken}
+		}
+
+		for _, cfg := range []ClientConfig{ConfigAndroid, ConfigIOS} {
+			body := PlayerRequestBody{
+				Context:                    c.buildContext(cfg),
+				VideoID:                    videoID,
+				PlaybackContext:            pb,
+				ContentCheckOk:             true,
+				RacyCheckOk:                true,
+				ServiceIntegrityDimensions: sid,
+			}
+			reqCtx := ctx
+			if c.HasCredentials() {
+				reqCtx = WithForceAuth(ctx)
+			}
+			respBytes, err := c.post(reqCtx, "player", body, cfg)
+			if err != nil {
+				continue
+			}
+			pbURL, wtURL := extractPlaybackTrackingFromBytes(respBytes)
+			if pbURL != "" || wtURL != "" {
+				c.SetPlaybackTracking(videoID, pbURL, wtURL)
+				tracking = PlaybackTrackingURLs{
+					PlaybackURL:  pbURL,
+					WatchtimeURL: wtURL,
+					UpdatedAt:    time.Now(),
+				}
+				break
+			}
+		}
+	}
+
+	if tracking.PlaybackURL == "" && tracking.WatchtimeURL == "" {
+		return fmt.Errorf("no playbackTracking URLs available for %s", videoID)
+	}
+
+	sec := listenedSec
+	if sec <= 0 {
+		sec = 15
+	}
+	secStr := strconv.Itoa(sec)
+	cpn := generateCPN()
+
+	cfg := ConfigAndroid
+	hasTokenOnly := c.GetAccessToken() != "" && c.GetCredentials() == ""
+	if c.GetCredentials() != "" {
+		cfg = ConfigWebRemix
+	} else if hasTokenOnly {
+		cfg = ConfigTVHTML5
+	}
+
+	buildStatsURL := func(rawBase string, includeWatchtime bool) string {
+		u, err := url.Parse(rawBase)
+		if err != nil {
+			return ""
+		}
+		if hasTokenOnly && strings.Contains(u.Host, "music.youtube.com") {
+			u.Host = "www.youtube.com"
+		}
+		q := u.Query()
+		q.Set("ver", "2")
+		q.Set("cpn", cpn)
+		q.Set("cmt", secStr)
+		if includeWatchtime {
+			q.Set("st", "0")
+			q.Set("et", secStr)
+		} else {
+			q.Set("fmt", "251")
+			q.Set("rt", secStr)
+		}
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
+
+	var firstErr error
+	if tracking.PlaybackURL != "" {
+		if target := buildStatsURL(tracking.PlaybackURL, false); target != "" {
+			if _, err := c.get(ctx, target, cfg); err != nil {
+				firstErr = err
+			}
+		}
+	}
+	if tracking.WatchtimeURL != "" {
+		if target := buildStatsURL(tracking.WatchtimeURL, true); target != "" {
+			if _, err := c.get(ctx, target, cfg); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
 }

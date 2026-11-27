@@ -19,6 +19,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +33,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,11 +47,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -65,8 +65,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -77,6 +79,9 @@ import com.cubicreates.unboundmusic.ui.theme.OnSurfaceVariant
 import com.cubicreates.unboundmusic.ui.theme.SurfaceGlassHighest
 import com.cubicreates.unboundmusic.ui.theme.UnboundBackground
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
+import com.cubicreates.unboundmusic.ui.theme.UnboundSecondary
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
+import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
 
 // Full OAuth / ServiceLogin URL following SimpMusic's proven authentication pattern:
 private const val LOG_IN_URL =
@@ -111,7 +116,8 @@ private fun mergeCookieStrings(vararg cookieStrings: String?): String {
 @Composable
 fun YouTubeLoginSheet(
     onDismiss: () -> Unit,
-    onCookieExtracted: (String) -> Unit
+    onCookieExtracted: (String) -> Unit,
+    onAccountAuthenticated: ((cookie: String, accountName: String, avatarUrl: String) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var isLoading by remember { mutableStateOf(true) }
@@ -121,18 +127,94 @@ fun YouTubeLoginSheet(
     var showManualCookieDialog by remember { mutableStateOf(false) }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
+    fun finishExtraction(mergedCookie: String, accountName: String = "", avatarUrl: String = "") {
+        if (hasExtracted) return
+        hasExtracted = true
+        if (onAccountAuthenticated != null) {
+            onAccountAuthenticated(mergedCookie, accountName, avatarUrl)
+        } else {
+            onCookieExtracted(mergedCookie)
+        }
+        onDismiss()
+    }
+
     fun doExtractCookies() {
         if (hasExtracted) return
         val cookieManager = CookieManager.getInstance()
-        val ytmCookie = cookieManager.getCookie("https://music.youtube.com") ?: ""
-        val ytCookie = cookieManager.getCookie("https://youtube.com") ?: ""
-        val googleCookie = cookieManager.getCookie("https://accounts.google.com") ?: ""
-        val merged = mergeCookieStrings(ytmCookie, ytCookie, googleCookie)
+        cookieManager.flush()
+        val ytmCookie = cookieManager.getCookie("https://music.youtube.com/") ?: ""
+        val wwwYtCookie = cookieManager.getCookie("https://www.youtube.com/") ?: ""
+        val ytCookie = cookieManager.getCookie("https://youtube.com/") ?: ""
+        // Keep music.youtube.com cookies highest priority so account/domain tokens from
+        // www.youtube.com or accounts.google.com never overwrite YouTube Music's active session.
+        var merged = mergeCookieStrings(ytCookie, wwwYtCookie, ytmCookie)
+        if (!merged.contains("SAPISID=") &&
+            !merged.contains("__Secure-1PAPISID=") &&
+            !merged.contains("__Secure-3PAPISID=")
+        ) {
+            val googleCookie = cookieManager.getCookie("https://accounts.google.com/") ?: ""
+            merged = mergeCookieStrings(googleCookie, ytCookie, wwwYtCookie, ytmCookie)
+        }
 
-        if (merged.contains("SAPISID=") || merged.contains("__Secure-3PAPISID=") || merged.contains("SID=")) {
-            hasExtracted = true
-            onCookieExtracted(merged)
-            onDismiss()
+        if (merged.contains("SAPISID=") ||
+            merged.contains("__Secure-1PAPISID=") ||
+            merged.contains("__Secure-3PAPISID=") ||
+            merged.contains("SID=")
+        ) {
+            val wv = webViewInstance
+            if (wv != null && onAccountAuthenticated != null) {
+                var handled = false
+                val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                val fallbackRunnable = Runnable {
+                    if (!handled) {
+                        handled = true
+                        finishExtraction(merged)
+                    }
+                }
+                fallbackHandler.postDelayed(fallbackRunnable, 650L)
+
+                val jsScript = """
+                    (function() {
+                        try {
+                            var img = document.querySelector('ytmusic-settings-button img, #avatar-btn img, yt-img-shadow#img img');
+                            var avatar = img ? (img.src || '') : '';
+                            var btn = document.querySelector('ytmusic-settings-button, #avatar-btn');
+                            var label = '';
+                            if (btn) {
+                                label = btn.getAttribute('aria-label') || '';
+                            }
+                            if (!label && img && img.alt) label = img.alt;
+                            if (label && /^(account|open account|profile|menu|settings)/i.test(label.trim())) label = '';
+                            return JSON.stringify({ name: (label || '').trim(), avatar: (avatar || '').trim() });
+                        } catch (e) {
+                            return '{}';
+                        }
+                    })();
+                """.trimIndent()
+
+                wv.evaluateJavascript(jsScript) { rawJson ->
+                    if (handled) return@evaluateJavascript
+                    handled = true
+                    fallbackHandler.removeCallbacks(fallbackRunnable)
+                    var extractedName = ""
+                    var extractedAvatar = ""
+                    try {
+                        val cleaned = rawJson?.trim()?.let {
+                            if (it.startsWith("\"") && it.endsWith("\"")) {
+                                org.json.JSONTokener(it).nextValue().toString()
+                            } else {
+                                it
+                            }
+                        } ?: "{}"
+                        val obj = org.json.JSONObject(cleaned)
+                        extractedName = obj.optString("name", "").trim()
+                        extractedAvatar = obj.optString("avatar", "").trim()
+                    } catch (_: Throwable) {}
+                    finishExtraction(merged, extractedName, extractedAvatar)
+                }
+            } else {
+                finishExtraction(merged)
+            }
         }
     }
 
@@ -152,9 +234,12 @@ fun YouTubeLoginSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        dragHandle = null,
         containerColor = UnboundBackground,
         contentColor = OnSurface
     ) {
+        val isAuthenticatedDomain = currentUrl.contains("music.youtube.com")
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -162,104 +247,111 @@ fun YouTubeLoginSheet(
                 .background(UnboundBackground)
                 .navigationBarsPadding()
         ) {
-            // Acrylic Header Bar with Unbound Styling
+            // Spacious Header Bar (zero overlapping circles)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 16.dp)
+                ) {
                     Text(
                         text = "Sign in to YouTube Music",
                         color = OnSurface,
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (currentUrl.contains("music.youtube.com")) {
-                            "Authenticated! Finalizing session sync..."
+                        text = if (isAuthenticatedDomain) {
+                            "Account authenticated"
                         } else {
-                            "Sign in with Google to sync liked songs & playlists"
+                            "Sign in with Google to sync library"
                         },
-                        color = if (currentUrl.contains("music.youtube.com")) Color(0xFF00FF66) else OnSurfaceVariant,
-                        fontSize = 11.sp
+                        color = if (isAuthenticatedDomain) UnboundSecondary else OnSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                // Explicit manual sync button when on YouTube Music domain
-                if (currentUrl.contains("music.youtube.com")) {
-                    Button(
-                        onClick = { doExtractCookies() },
-                        colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = "Sync",
-                            tint = OnPrimary,
-                            modifier = Modifier.size(16.dp).padding(end = 4.dp)
-                        )
-                        Text("Sync", color = OnPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                    Spacer(modifier = Modifier.width(6.dp))
-                }
-
-                // Direct Cookie Paste Fallback Button
-                IconButton(
-                    onClick = { showManualCookieDialog = true },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceGlassHighest)
-                        .border(1.dp, BorderGlass, CircleShape)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Key,
+                    HeaderCircleButton(
+                        icon = Icons.Default.Key,
                         contentDescription = "Paste Cookie",
-                        tint = OnSurface,
-                        modifier = Modifier.size(18.dp)
+                        onClick = { showManualCookieDialog = true }
                     )
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Reload Page Button
-                IconButton(
-                    onClick = { webViewInstance?.reload() },
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceGlassHighest)
-                        .border(1.dp, BorderGlass, CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
+                    HeaderCircleButton(
+                        icon = Icons.Default.Refresh,
                         contentDescription = "Reload",
-                        tint = OnSurface,
-                        modifier = Modifier.size(18.dp)
+                        onClick = { webViewInstance?.reload() }
+                    )
+                    HeaderCircleButton(
+                        icon = Icons.Default.Close,
+                        contentDescription = "Close",
+                        onClick = onDismiss
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Close Button
-                IconButton(
-                    onClick = onDismiss,
+            // Dedicated Sync Banner once redirected to YouTube Music
+            if (isAuthenticatedDomain) {
+                Surface(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceGlassHighest)
-                        .border(1.dp, BorderGlass, CircleShape)
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 10.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = UnboundSurfaceContainer,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, UnboundPrimary.copy(alpha = 0.30f))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close",
-                        tint = OnSurface,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = "Authenticated! Finalizing session sync...",
+                            color = UnboundSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { doExtractCookies() },
+                            colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary),
+                            shape = RoundedCornerShape(50),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Sync",
+                                tint = OnPrimary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Sync",
+                                color = OnPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
             }
 
@@ -332,6 +424,7 @@ fun YouTubeLoginSheet(
                                     // Intercept cookies the instant navigation reaches music.youtube.com
                                     if (url != null && (url.startsWith("https://music.youtube.com") || url.contains("music.youtube.com"))) {
                                         doExtractCookies()
+                                        view?.postDelayed({ doExtractCookies() }, 600L)
                                     }
                                 }
                             }
@@ -441,4 +534,28 @@ private fun ManualCookiePasteDialog(
         containerColor = SurfaceGlassHighest,
         shape = RoundedCornerShape(16.dp)
     )
+}
+
+@Composable
+private fun HeaderCircleButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(UnboundSurfaceContainerHigh)
+            .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = OnSurface,
+            modifier = Modifier.size(18.dp)
+        )
+    }
 }

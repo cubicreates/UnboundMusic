@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import { CURRENT_APP_VERSION } from "@/data/version";
 
-const APK_URL = "/download/apk";
+const APK_URL =
+  "https://github.com/cubicreates/UnboundMusic/releases/download/UnboundMusic_V10271126/unboundmusic_V10271126.apk";
 
 const screenshots = [
   {

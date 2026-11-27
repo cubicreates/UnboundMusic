@@ -204,7 +204,6 @@ func (s *Syncer) ConnectAccount(ctx context.Context, rawCookie string) error {
 		_ = s.repo.SaveCredential(ctx, "yt_avatar_url", avatarURL)
 	}
 
-	// Trigger library fetch if ytClient is active
 	if s.ytClient != nil {
 		tracks, err := s.ytClient.FetchLikedMusic(ctx)
 		if err == nil && len(tracks) > 0 {
@@ -220,6 +219,8 @@ func (s *Syncer) ConnectAccount(ctx context.Context, rawCookie string) error {
 			}
 		}
 	}
+
+	go s.syncLocalFavoritesToYouTube(context.Background())
 
 	return nil
 }
@@ -324,7 +325,37 @@ func (s *Syncer) ConnectOAuthAccount(ctx context.Context, accessToken, refreshTo
 		}
 	}
 
+	go s.syncLocalFavoritesToYouTube(context.Background())
+
 	return nil
+}
+
+// syncLocalFavoritesToYouTube pushes locally favorited 11-char YouTube tracks to the signed-in YouTube account.
+func (s *Syncer) syncLocalFavoritesToYouTube(ctx context.Context) {
+	if s.repo == nil || s.ytClient == nil || !s.ytClient.HasCredentials() {
+		return
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	favs, err := s.repo.GetFavorites(syncCtx)
+	if err != nil || len(favs) == 0 {
+		return
+	}
+
+	existing := make(map[string]bool)
+	s.mu.RLock()
+	for _, t := range s.userLibrary.LikedTracks {
+		existing[t.ID] = true
+	}
+	s.mu.RUnlock()
+
+	for _, fav := range favs {
+		if !ytmusic.IsValidYouTubeVideoID(fav.TrackID) || existing[fav.TrackID] {
+			continue
+		}
+		_ = s.ytClient.LikeTrack(syncCtx, fav.TrackID)
+	}
 }
 
 // DisconnectAccount clears session credentials and purges synced library caches.

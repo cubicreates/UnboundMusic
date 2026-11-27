@@ -359,11 +359,6 @@ fun MainViewModel.fetchGuestAlgorithmicRadio(seedTrack: TrackItem, append: Boole
                         serviceConnection.setQueue(updatedQueue)
                         if (!append) {
                             val vibeLabel = seedTrack.artist.ifBlank { "Algorithmic" }
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "Radio: Shifted to $vibeLabel vibe (${updatedQueue.size} tracks)",
-                                isLong = false
-                            )
                         }
                         Log.i(TAG, "Guest Algorithmic Radio: Shifted queue to ${updatedQueue.size} tracks for '${seedTrack.title}'")
                     }
@@ -482,7 +477,6 @@ fun MainViewModel.startRadio(seedTrack: TrackItem, onStarted: (() -> Unit)? = nu
             val fullQueue = listOf(seedTrack) + radioQueue
             withContext(Dispatchers.Main) {
                 playTrackWithQueue(seedTrack, fullQueue)
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Radio: ${seedTrack.title}")
                 onStarted?.invoke()
             }
         } catch (e: Exception) {

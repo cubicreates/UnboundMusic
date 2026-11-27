@@ -407,31 +407,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val info = AppUpdateInfo.fromJson(res.second)
                     if (info != null && info.hasUpdate && info.latestVersion.isNotBlank()) {
                         _availableUpdate.value = info
-                    } else if (manual) {
-                        withContext(Dispatchers.Main) {
-                            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                getApplication(),
-                                "Unbound Music is up to date (v$currentVer)"
-                            )
-                        }
-                    }
-                } else if (manual) {
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Unbound Music is up to date"
-                        )
                     }
                 }
-            } catch (e: Exception) {
-                if (manual) {
-                    withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Update check: ${e.message}"
-                        )
-                    }
-                }
+            } catch (_: Exception) {
             } finally {
                 _isCheckingUpdate.value = false
             }
@@ -550,6 +528,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val deviceAuthError: StateFlow<String?> = _deviceAuthError.asStateFlow()
 
     internal var deviceAuthJob: Job? = null
+    internal val accountSessionEpoch = java.util.concurrent.atomic.AtomicLong(0L)
 
     internal val _cascadeSearchResponse = MutableStateFlow<CascadeSearchResponse?>(null)
     val cascadeSearchResponse: StateFlow<CascadeSearchResponse?> = _cascadeSearchResponse.asStateFlow()
@@ -624,6 +603,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     internal val _homeJumpBackTracks = MutableStateFlow<List<TrackItem>>(emptyList())
     val homeJumpBackTracks: StateFlow<List<TrackItem>> = _homeJumpBackTracks.asStateFlow()
 
+    internal val _homeJumpBackMode = MutableStateFlow("guest")
+    val homeJumpBackMode: StateFlow<String> = _homeJumpBackMode.asStateFlow()
+
+    internal val _homeBannerTitle = MutableStateFlow("")
+    val homeBannerTitle: StateFlow<String> = _homeBannerTitle.asStateFlow()
+
+    internal val _homeBannerSubtitle = MutableStateFlow("")
+    val homeBannerSubtitle: StateFlow<String> = _homeBannerSubtitle.asStateFlow()
+
+    internal val _homeBannerAction = MutableStateFlow("")
+    val homeBannerAction: StateFlow<String> = _homeBannerAction.asStateFlow()
+
     internal val _homeMixes = MutableStateFlow<List<HomeMixDto>>(emptyList())
     val homeMixes: StateFlow<List<HomeMixDto>> = _homeMixes.asStateFlow()
 
@@ -659,6 +650,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     internal val _unboundFolderPrompt = MutableStateFlow<UnboundFolderPromptState?>(null)
     val unboundFolderPrompt: StateFlow<UnboundFolderPromptState?> = _unboundFolderPrompt.asStateFlow()
+
+    internal val _isLlmInstalled = MutableStateFlow(false)
+    val isLlmInstalled: StateFlow<Boolean> = _isLlmInstalled.asStateFlow()
+
+    internal val _isLlmDownloading = MutableStateFlow(false)
+    val isLlmDownloading: StateFlow<Boolean> = _isLlmDownloading.asStateFlow()
+
+    internal val _llmDownloadProgress = MutableStateFlow(0f)
+    val llmDownloadProgress: StateFlow<Float> = _llmDownloadProgress.asStateFlow()
+
+    internal val _isLlmPromptDismissed = MutableStateFlow(
+        PlaybackStateStore.isLlmPromptDismissed(application)
+    )
+    val isLlmPromptDismissed: StateFlow<Boolean> = _isLlmPromptDismissed.asStateFlow()
+
+    internal val _llmStatusMessage = MutableStateFlow<String?>(null)
+    val llmStatusMessage: StateFlow<String?> = _llmStatusMessage.asStateFlow()
+
+    private var llmDownloadJob: Job? = null
 
     internal var lastSavedStateTick = 0L
     internal var lastMagicRadioTriggerTime = 0L
@@ -709,11 +719,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 if (prev.title.isNotBlank() && activeTrackMaxPositionMs >= 1_000L) {
                                     val completed = prev.durationMs > 0L && activeTrackMaxPositionMs >= (prev.durationMs * 85L) / 100L
                                     logPlaybackTelemetry(prev, activeTrackMaxPositionMs, prev.durationMs, completed, nextTrackId = track.id)
+                                    if (activeTrackMaxPositionMs >= 10_000L) {
+                                        logPlaybackEvent(prev, (activeTrackMaxPositionMs / 1000L).toInt())
+                                    }
                                 }
                                 activeTrackMaxPositionMs = 0L
                                 _currentTrack.value = track
                                 _isFavorite.value = try {
-                                    PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title)
+                                    PlaybackStateStore.isFavoriteTrack(getApplication(), track.id, track.title) ||
+                                        _syncedYouTubeTracks.value.any { it.id == track.id && track.id.isNotBlank() }
                                 } catch (_: Throwable) { false }
                                 loadLyricsForTrack(track)
                                 launch(Dispatchers.IO) {
@@ -733,11 +747,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         fetchGuestAlgorithmicRadio(track, append = true)
                                     }
                                 }
-                            } else if (state.isPlaying && state.currentPositionMs >= 10_000L) {
+                            } else if (state.isPlaying && state.currentPositionMs >= 2_000L) {
                                 val trackKey = track.id.ifBlank { "${track.title}_${track.artist}" }
                                 if (trackKey.isNotBlank() && lastViewLoggedTrackKey != trackKey) {
                                     lastViewLoggedTrackKey = trackKey
-                                    logPlaybackEvent(track, (state.currentPositionMs / 1000L).toInt().coerceAtLeast(10))
+                                    logPlaybackEvent(track, (state.currentPositionMs / 1000L).toInt().coerceAtLeast(5))
                                 }
                             }
                         }
@@ -898,6 +912,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Unpack assets and directories safely
                 try {
                     StorageInitializer.initialize(getApplication())
+                    refreshLlmStatus()
                 } catch (e: Exception) {
                     Log.w(TAG, "StorageInitializer error: ${e.message}")
                 }
@@ -939,15 +954,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initializeColdStart(userCountry, userLanguage)
                     loadHomeFeed()
                     refreshLibrary()
+                    val startupAccountEpoch = accountSessionEpoch.get()
                     val sessionStore = SessionStore.getInstance(getApplication())
                     if (sessionStore.hasActiveSession && !sessionStore.cookie.isNullOrBlank()) {
                         try {
-                            client.syncAccount(sessionStore.cookie!!)
+                            if (accountSessionEpoch.get() == startupAccountEpoch) {
+                                client.syncAccount(sessionStore.cookie!!)
+                            }
                         } catch (e: Exception) {
                             Log.w(TAG, "Session re-sync on startup note: ${e.message}")
                         }
                     }
-                    checkAccountStatus()
+                    if (accountSessionEpoch.get() == startupAccountEpoch) {
+                        checkAccountStatus()
+                    }
                     loadAppSettings()
                     loadCustomEqPresets()
                     loadMoodsAndGenres(userCountry, userLanguage)
@@ -962,6 +982,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun completeStartup() {
         _isAppReady.value = true
+    }
+
+    fun refreshLlmStatus() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val installed = StorageInitializer.isAiModelInstalled(getApplication())
+            val dismissed = PlaybackStateStore.isLlmPromptDismissed(getApplication())
+            _isLlmInstalled.value = installed
+            _isLlmPromptDismissed.value = dismissed
+        }
+    }
+
+    fun dismissLlmHomePrompt() {
+        PlaybackStateStore.setLlmPromptDismissed(getApplication(), true)
+        _isLlmPromptDismissed.value = true
+    }
+
+    fun downloadLlmModel() {
+        if (_isLlmDownloading.value) return
+        llmDownloadJob?.cancel()
+        llmDownloadJob = viewModelScope.launch(Dispatchers.IO) {
+            _isLlmDownloading.value = true
+            _llmDownloadProgress.value = 0f
+            _llmStatusMessage.value = null
+            try {
+                val success = StorageInitializer.downloadAndInstallModel(getApplication()) { progress ->
+                    _llmDownloadProgress.value = progress.coerceIn(0f, 1f)
+                }
+                val installed = success && StorageInitializer.isAiModelInstalled(getApplication())
+                _isLlmInstalled.value = installed
+                if (installed) {
+                    _llmStatusMessage.value = null
+                } else {
+                    _llmStatusMessage.value = "Download failed • Check internet & retry"
+                }
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                _llmStatusMessage.value = null
+                _llmDownloadProgress.value = 0f
+            } catch (e: Exception) {
+                _llmStatusMessage.value = "Download error: ${e.message ?: "Unknown error"}"
+            } finally {
+                _isLlmDownloading.value = false
+                llmDownloadJob = null
+            }
+        }
+    }
+
+    fun cancelLlmDownload() {
+        if (!_isLlmDownloading.value && llmDownloadJob == null) return
+        StorageInitializer.cancelActiveDownload()
+        llmDownloadJob?.cancel()
+        llmDownloadJob = null
+        _isLlmDownloading.value = false
+        _llmDownloadProgress.value = 0f
+        _llmStatusMessage.value = null
+    }
+
+    fun deleteLlmModel() {
+        if (_isLlmDownloading.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            StorageInitializer.deleteAiModel(getApplication())
+            _isLlmInstalled.value = false
+            _llmDownloadProgress.value = 0f
+            _llmStatusMessage.value = null
+        }
     }
 
     override fun onCleared() {

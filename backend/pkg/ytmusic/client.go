@@ -51,9 +51,11 @@ type ClientContext struct {
 
 // PlaybackTrackingURLs stores Innertube videostats reporting endpoints for a video.
 type PlaybackTrackingURLs struct {
-	PlaybackURL  string
-	WatchtimeURL string
-	UpdatedAt    time.Time
+	PlaybackURL   string
+	WatchtimeURL  string
+	AtrURL        string
+	Authenticated bool
+	UpdatedAt     time.Time
 }
 
 const maxTrackingCacheEntries = 256
@@ -66,6 +68,8 @@ type Client struct {
 	mu            sync.RWMutex
 	cookieStr     string
 	accessToken   string
+	pageID        string
+	dataSyncID    string
 	visitorData   string
 	poToken       string
 	trackingMu    sync.RWMutex
@@ -110,9 +114,9 @@ func IsValidYouTubeVideoID(id string) bool {
 	return true
 }
 
-// SetPlaybackTracking caches videostats tracking URLs for a resolved YouTube video ID.
-func (c *Client) SetPlaybackTracking(videoID, playbackURL, watchtimeURL string) {
-	if !IsValidYouTubeVideoID(videoID) || (playbackURL == "" && watchtimeURL == "") {
+// SetPlaybackTrackingWithAtr caches videostats + atr tracking URLs for a resolved YouTube video ID.
+func (c *Client) SetPlaybackTrackingWithAtr(videoID, playbackURL, watchtimeURL, atrURL string, authenticated bool) {
+	if !IsValidYouTubeVideoID(videoID) || (playbackURL == "" && watchtimeURL == "" && atrURL == "") {
 		return
 	}
 	c.trackingMu.Lock()
@@ -139,10 +143,17 @@ func (c *Client) SetPlaybackTracking(videoID, playbackURL, watchtimeURL string) 
 		}
 	}
 	c.trackingCache[videoID] = PlaybackTrackingURLs{
-		PlaybackURL:  playbackURL,
-		WatchtimeURL: watchtimeURL,
-		UpdatedAt:    time.Now(),
+		PlaybackURL:   playbackURL,
+		WatchtimeURL:  watchtimeURL,
+		AtrURL:        atrURL,
+		Authenticated: authenticated,
+		UpdatedAt:     time.Now(),
 	}
+}
+
+// SetPlaybackTracking caches videostats tracking URLs for a resolved YouTube video ID.
+func (c *Client) SetPlaybackTracking(videoID, playbackURL, watchtimeURL string, authenticated bool) {
+	c.SetPlaybackTrackingWithAtr(videoID, playbackURL, watchtimeURL, "", authenticated)
 }
 
 // GetPlaybackTracking retrieves cached videostats tracking URLs for a video ID.
@@ -202,7 +213,99 @@ func (c *Client) GetVisitorData() string {
 	return c.visitorData
 }
 
-// EnsureVisitorData ensures the client has a valid guest visitorData token, bootstrapping via /browse if necessary.
+// SetPageID configures the X-Goog-Pageid header for YouTube Brand / Multi-Account channels.
+func (c *Client) SetPageID(pageID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pageID = strings.TrimSpace(pageID)
+}
+
+// GetPageID returns the active YouTube pageId (X-Goog-Pageid).
+func (c *Client) GetPageID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.pageID
+}
+
+// SetDataSyncID configures the account datasyncId token returned by getAccountSwitcherEndpoint.
+func (c *Client) SetDataSyncID(dataSyncID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.dataSyncID = strings.TrimSpace(dataSyncID)
+}
+
+// GetDataSyncID returns the active datasyncId token.
+func (c *Client) GetDataSyncID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.dataSyncID
+}
+
+// FetchVisitorDataFromSWJS retrieves YouTube Music's canonical visitorData token from /sw.js_data,
+// matching SimpMusic's session initialization pattern.
+func (c *Client) FetchVisitorDataFromSWJS(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://music.youtube.com/sw.js_data", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", UserAgentWebRemix)
+	req.Header.Set("Origin", "https://music.youtube.com")
+	req.Header.Set("Referer", "https://music.youtube.com/")
+
+	c.mu.RLock()
+	rawCookie := c.cookieStr
+	c.mu.RUnlock()
+	if rawCookie != "" {
+		req.Header.Set("Cookie", rawCookie)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("sw.js_data status %d", resp.StatusCode)
+	}
+
+	rawBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	trimmed := strings.TrimSpace(string(rawBytes))
+	trimmed = strings.TrimPrefix(trimmed, ")]}'")
+	trimmed = strings.TrimSpace(trimmed)
+
+	var arr []any
+	if err := json.Unmarshal([]byte(trimmed), &arr); err != nil {
+		return "", err
+	}
+	vd := findVisitorDataString(arr)
+	if vd == "" {
+		return "", fmt.Errorf("visitorData not found in sw.js_data")
+	}
+	c.SetVisitorData(vd)
+	return vd, nil
+}
+
+func findVisitorDataString(val any) string {
+	switch v := val.(type) {
+	case string:
+		if strings.HasPrefix(v, "Cgt") && len(v) >= 12 {
+			return v
+		}
+	case []any:
+		for _, child := range v {
+			if found := findVisitorDataString(child); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
+}
+
+// EnsureVisitorData ensures the client has a valid visitorData token, bootstrapping via /sw.js_data or /browse if necessary.
 func (c *Client) EnsureVisitorData(ctx context.Context) error {
 	c.mu.RLock()
 	if c.visitorData != "" {
@@ -210,6 +313,10 @@ func (c *Client) EnsureVisitorData(ctx context.Context) error {
 		return nil
 	}
 	c.mu.RUnlock()
+
+	if _, err := c.FetchVisitorDataFromSWJS(ctx); err == nil {
+		return nil
+	}
 
 	body := map[string]any{
 		"context":  c.buildContext(ConfigAndroid),
@@ -445,6 +552,7 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 		c.mu.RLock()
 		rawCookie := c.cookieStr
 		token := c.accessToken
+		pageID := c.pageID
 		c.mu.RUnlock()
 
 		// YouTube Music (music.youtube.com) rejects Google TV Bearer tokens.
@@ -455,13 +563,10 @@ func (c *Client) post(ctx context.Context, endpoint string, body any, cfg Client
 			req.Header.Set("Cookie", rawCookie)
 			req.Header.Set("X-Goog-Authuser", "0")
 			req.Header.Set("X-Goog-Api-Format-Version", "1")
-			cookies := ParseCookies(rawCookie)
-			sapisid := cookies["SAPISID"]
-			if sapisid == "" {
-				sapisid = cookies["__Secure-3PAPISID"]
+			if pageID != "" {
+				req.Header.Set("X-Goog-Pageid", pageID)
 			}
-			if sapisid != "" {
-				authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
+			if authHeader := BuildCookieAuthorizationHeader(rawCookie, origin); authHeader != "" {
 				req.Header.Set("Authorization", authHeader)
 			}
 		}
@@ -550,6 +655,7 @@ func (c *Client) get(ctx context.Context, targetURL string, cfg ClientConfig) ([
 	c.mu.RLock()
 	rawCookie := c.cookieStr
 	token := c.accessToken
+	pageID := c.pageID
 	vd := c.visitorData
 	c.mu.RUnlock()
 
@@ -563,13 +669,10 @@ func (c *Client) get(ctx context.Context, targetURL string, cfg ClientConfig) ([
 		req.Header.Set("Cookie", rawCookie)
 		req.Header.Set("X-Goog-Authuser", "0")
 		req.Header.Set("X-Goog-Api-Format-Version", "1")
-		cookies := ParseCookies(rawCookie)
-		sapisid := cookies["SAPISID"]
-		if sapisid == "" {
-			sapisid = cookies["__Secure-3PAPISID"]
+		if pageID != "" {
+			req.Header.Set("X-Goog-Pageid", pageID)
 		}
-		if sapisid != "" {
-			authHeader, _ := GenerateSAPISIDHash(sapisid, origin)
+		if authHeader := BuildCookieAuthorizationHeader(rawCookie, origin); authHeader != "" {
 			req.Header.Set("Authorization", authHeader)
 		}
 	}

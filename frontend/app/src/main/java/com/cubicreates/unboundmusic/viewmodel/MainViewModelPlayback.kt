@@ -64,9 +64,7 @@ fun MainViewModel.playTrack(track: TrackItem, preserveQueue: Boolean = false) {
     }
 
     if (offlineMatch != null) {
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing offline downloaded version (0 MB data)", isLong = false)
     } else {
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Loading '${track.title}'...", isLong = false)
     }
 
     // If an explicit album/playlist requested queue preservation, retain it
@@ -105,14 +103,12 @@ fun MainViewModel.playTrack(track: TrackItem, preserveQueue: Boolean = false) {
                 serviceConnection.playTrack(resolvedTrack, streamUrl)
             } else {
                 Log.w(TAG, "Direct stream resolution empty for ${targetTrack.title}, using localhost proxy stream")
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream empty for '${targetTrack.title}', falling back to proxy")
                 val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
                     "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
                 } else targetTrack.streamUrl
                 if (fallbackUrl.isNotBlank()) {
                     serviceConnection.playTrack(targetTrack.copy(streamUrl = fallbackUrl), fallbackUrl)
                 } else {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Error: No fallback URL for '${targetTrack.title}'")
                 }
             }
 
@@ -122,7 +118,6 @@ fun MainViewModel.playTrack(track: TrackItem, preserveQueue: Boolean = false) {
 
         } catch (e: Exception) {
             Log.e(TAG, "Error playing track: ${e.message}")
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Play Track Exception:\n${e.message}")
             val fallbackUrl = if (targetTrack.id.isNotBlank() && targetTrack.id.length == 11 && !targetTrack.id.startsWith("local:")) {
                 "http://127.0.0.1:45731/api/v1/proxy/stream?id=${targetTrack.id}"
             } else targetTrack.streamUrl
@@ -208,7 +203,6 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
         track.streamUrl.startsWith("content://") ||
         (track.streamUrl.contains("127.0.0.1") && track.streamUrl.contains("/proxy/stream")) ||
         (track.streamUrl.startsWith("http") && track.streamUrl.contains("googlevideo.com"))) {
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Playing direct URL for '${track.title}'", isLong = false)
         return track.streamUrl
     }
 
@@ -216,17 +210,11 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
     val offlineMatch = findMatchingOfflineTrack(track)
     if (offlineMatch != null && offlineMatch.streamUrl.isNotBlank()) {
         Log.i(TAG, "Zero-Data Match: Redirecting search track '${track.title}' to offline '${offlineMatch.title}' -> ${offlineMatch.streamUrl}")
-        com.cubicreates.unboundmusic.util.UnboundToast.show(
-            getApplication(),
-            "Playing offline downloaded version (0 MB data)",
-            isLong = false
-        )
         return offlineMatch.streamUrl
     }
 
     // Try resolving via Go daemon (zero-data interception + YouTube stream resolution)
     _streamDebugMessage.value = "Resolving stream for ${track.title}..."
-    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolving '${track.title}' (ID: ${track.id})...", isLong = false)
     for (attempt in 1..5) {
         try {
             val (code, resp) = client.getStream(
@@ -253,17 +241,14 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
                 if (finalUrl.isNotBlank()) {
                     Log.i(TAG, "Stream resolved (attempt $attempt): type=$streamType for '${track.title}' -> $finalUrl")
                     _streamDebugMessage.value = "Stream ready: $streamType ($finalUrl)"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Stream Ready: $streamType", isLong = false)
                     return finalUrl
                 }
             } else {
                 Log.w(TAG, "Daemon stream resolution error attempt $attempt: code=$code, resp=$resp")
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Daemon error (try $attempt/5): code=$code\n$resp")
             }
         } catch (e: Exception) {
             Log.w(TAG, "Stream resolution attempt $attempt failed: ${e.message}")
             _streamDebugMessage.value = "Attempt $attempt failed: ${e.message}"
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolution try $attempt failed: ${e.message}")
         }
         if (attempt < 5) {
             delay(400)
@@ -274,7 +259,6 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
     if (track.title.isNotBlank()) {
         try {
             _streamDebugMessage.value = "Direct stream not ready; searching for '${track.title}'"
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Direct stream failed. Searching YouTube for '${track.title}'...")
             val searchQuery = "${track.title} ${track.artist}".trim()
             val (searchCode, searchResp) = client.search(searchQuery)
             if (searchCode in 200..299 && searchResp.isNotBlank()) {
@@ -293,20 +277,17 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
                             if (target.isNotBlank()) {
                                 Log.i(TAG, "Stream resolved via search fallback for '${track.title}' -> $target")
                                 _streamDebugMessage.value = "Stream resolved via search match for '${track.title}'"
-                                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Resolved via YouTube search!", isLong = false)
                                 return target
                             }
                         }
                         // Direct localhost proxy fallback for matched video ID
                         _streamDebugMessage.value = "Using proxy fallback for match ID $matchId"
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using proxy for matched ID $matchId")
                         return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$matchId"
                     }
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Search fallback resolution failed: ${e.message}")
-            com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Search fallback failed: ${e.message}")
         }
     }
 
@@ -314,7 +295,6 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
     if (track.id.isNotBlank() && track.id.length == 11 && !track.id.startsWith("local:")) {
         Log.i(TAG, "Stream resolved via localhost proxy fallback for '${track.title}' (${track.id})")
         _streamDebugMessage.value = "Using localhost proxy stream for '${track.title}'"
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Using engine proxy stream for '${track.title}'")
         return "http://127.0.0.1:45731/api/v1/proxy/stream?id=${track.id}"
     }
 
@@ -323,14 +303,12 @@ internal suspend fun MainViewModel.resolveStreamUrl(track: TrackItem): String {
         val query = if (track.artist.isNotBlank()) "${track.title} ${track.artist}" else track.title
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         Log.i(TAG, "Stream resolved via query proxy fallback for '$query'")
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Falling back to engine query proxy for '${track.title}'")
         return "http://127.0.0.1:45731/api/v1/proxy/stream?id=$encodedQuery"
     }
 
     // Fallback: return existing stream URL if valid, otherwise empty string
     val fallback = track.streamUrl
     if (fallback.isBlank()) {
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "FATAL: No stream URL could be found for '${track.title}'. Daemon may be offline.")
     }
     return if (fallback.startsWith("http://") || fallback.startsWith("https://") || fallback.startsWith("file://") || fallback.startsWith("content://")) {
         fallback
@@ -405,11 +383,22 @@ fun MainViewModel.toggleFavorite() {
     if (willBeFav && _autoDownloadLikedSongs.value) {
         startTrackDownload(trackToSave)
     }
+    if (_isYouTubeConnected.value && trackToSave.id.isNotBlank() && !trackToSave.id.startsWith("local:")) {
+        if (willBeFav) {
+            if (_syncedYouTubeTracks.value.none { it.id == trackToSave.id }) {
+                _syncedYouTubeTracks.value = listOf(trackToSave) + _syncedYouTubeTracks.value
+                _youtubeCount.value = _syncedYouTubeTracks.value.size
+            }
+        } else {
+            _syncedYouTubeTracks.value = _syncedYouTubeTracks.value.filterNot { it.id == trackToSave.id }
+            _youtubeCount.value = _syncedYouTubeTracks.value.size
+        }
+    }
     viewModelScope.launch(Dispatchers.IO) {
         try {
             if (trackToSave.id.isNotBlank() || trackToSave.title.isNotBlank()) {
                 client.toggleFavorite(trackToSave)
-                client.toggleTrackLike(trackToSave.id, willBeFav)
+                client.toggleTrackLike(trackToSave.id, willBeFav, trackToSave)
                 if (willBeFav && trackToSave.artist.isNotBlank()) {
                     client.recordTasteEvent(
                         trackId = trackToSave.id.ifBlank { trackToSave.title },
@@ -425,7 +414,7 @@ fun MainViewModel.toggleFavorite() {
                     }
                 }
             }
-            loadSyncedYouTubeTracks()
+            loadSyncedYouTubeTracks(silent = true)
             refreshFavoritesList()
         } catch (e: Exception) {
             Log.w(TAG, "Track like toggle error: ${e.message}")
@@ -436,7 +425,9 @@ fun MainViewModel.toggleFavorite() {
 fun MainViewModel.toggleTrackFavorite(track: TrackItem) {
     val effectiveId = if (track.id.isNotBlank()) track.id else track.streamUrl
     if (effectiveId.isBlank() && track.title.isBlank()) return
-    val willBeFav = !PlaybackStateStore.isFavoriteTrack(getApplication(), effectiveId, track.title)
+    val isCurrentlyFav = PlaybackStateStore.isFavoriteTrack(getApplication(), effectiveId, track.title) ||
+        (_isYouTubeConnected.value && _syncedYouTubeTracks.value.any { it.id == effectiveId && effectiveId.isNotBlank() })
+    val willBeFav = !isCurrentlyFav
     val trackToSave = if (track.id.isBlank()) track.copy(id = effectiveId) else track
     if (willBeFav) {
         PlaybackStateStore.saveFavoriteTrack(getApplication(), trackToSave)
@@ -452,13 +443,24 @@ fun MainViewModel.toggleTrackFavorite(track: TrackItem) {
             (it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true))
         }
     }
+    if (_isYouTubeConnected.value && trackToSave.id.isNotBlank() && !trackToSave.id.startsWith("local:")) {
+        if (willBeFav) {
+            if (_syncedYouTubeTracks.value.none { it.id == trackToSave.id }) {
+                _syncedYouTubeTracks.value = listOf(trackToSave) + _syncedYouTubeTracks.value
+                _youtubeCount.value = _syncedYouTubeTracks.value.size
+            }
+        } else {
+            _syncedYouTubeTracks.value = _syncedYouTubeTracks.value.filterNot { it.id == trackToSave.id }
+            _youtubeCount.value = _syncedYouTubeTracks.value.size
+        }
+    }
     if (track.id == _currentTrack.value.id || track.streamUrl == _currentTrack.value.streamUrl || track.title == _currentTrack.value.title) {
         _isFavorite.value = willBeFav
     }
     viewModelScope.launch(Dispatchers.IO) {
         try {
             client.toggleFavorite(trackToSave)
-            client.toggleTrackLike(trackToSave.id, willBeFav)
+            client.toggleTrackLike(trackToSave.id, willBeFav, trackToSave)
             if (willBeFav && trackToSave.artist.isNotBlank()) {
                 client.recordTasteEvent(
                     trackId = trackToSave.id.ifBlank { trackToSave.title },
@@ -473,7 +475,7 @@ fun MainViewModel.toggleTrackFavorite(track: TrackItem) {
                     refreshHomeFeed()
                 }
             }
-            loadSyncedYouTubeTracks()
+            loadSyncedYouTubeTracks(silent = true)
             refreshFavoritesList()
         } catch (e: Exception) {
             Log.d(TAG, "Track like toggle error: ${e.message}")

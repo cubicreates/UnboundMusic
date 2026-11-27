@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             lastKnownAllFilesGranted = true
             mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
+            com.cubicreates.unboundmusic.service.LockscreenArtworkManager.captureOriginalWallpaperOnLaunch(applicationContext)
         }
     }
 
@@ -97,25 +98,10 @@ class MainActivity : ComponentActivity() {
     }
 
     fun launchHumSearch() {
-        val intents = listOf(
-            Intent("com.google.android.googlequicksearchbox.MUSIC_SEARCH"),
-            Intent("com.google.android.googlequicksearchbox.action.RECOGNIZE_MUSIC"),
-            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Hum, sing, or whistle a tune")
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            }
-        )
-        for (intent in intents) {
-            try {
-                humSearchLauncher.launch(intent)
-                return
-            } catch (_: Exception) {}
-        }
         try {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Hum or sing a tune...")
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Sing or speak lyrics, song title, or artist...")
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             }
             humSearchLauncher.launch(intent)
@@ -158,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 com.cubicreates.unboundmusic.service.UnboundStorageManager.deployUnboundStorage(this@MainActivity)
             }
             mainViewModel.triggerVlcDifferentialStorageScan(silent = false)
+            com.cubicreates.unboundmusic.service.LockscreenArtworkManager.captureOriginalWallpaperOnLaunch(applicationContext)
         }
         promptBatteryOptimizationIfNeeded()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
@@ -387,6 +374,7 @@ class MainActivity : ComponentActivity() {
         }
         try {
             DaemonManager.getInstance(this).startDaemonAuto(force = false)
+            com.cubicreates.unboundmusic.service.LockscreenArtworkManager.captureOriginalWallpaperOnLaunch(applicationContext)
         } catch (e: Throwable) {
             android.util.Log.w("MainActivity", "Daemon auto-start onResume note: ${e.message}")
         }
@@ -395,7 +383,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            if (!com.cubicreates.unboundmusic.data.PlaybackStateStore.isPlaying(this)) {
+            if (!isChangingConfigurations && !com.cubicreates.unboundmusic.data.PlaybackStateStore.isPlaying(this)) {
                 com.cubicreates.unboundmusic.service.LockscreenArtworkManager.restoreOriginalLockscreenArtwork(this, synchronous = true)
             }
         } catch (_: Throwable) {}

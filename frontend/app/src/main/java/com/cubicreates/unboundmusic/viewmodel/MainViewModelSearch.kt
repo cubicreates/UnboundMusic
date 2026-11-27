@@ -175,9 +175,30 @@ internal fun MainViewModel.loadSearchHistory() {
     try {
         val prefs = getApplication<Application>().getSharedPreferences("unbound_search_history", android.content.Context.MODE_PRIVATE)
         val raw = prefs.getString("queries", null)
-        if (!raw.isNullOrBlank()) {
-            val list = raw.split("||||").filter { it.isNotBlank() }
-            _searchHistory.value = list
+        val localList = if (!raw.isNullOrBlank()) {
+            raw.split("||||").filter { it.isNotBlank() }
+        } else {
+            emptyList()
+        }
+        if (localList.isNotEmpty()) {
+            _searchHistory.value = localList
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remoteBefore = client.getSearchHistory(domain = "music", limit = 30)
+                if (remoteBefore.isEmpty() && localList.isNotEmpty()) {
+                    localList.asReversed().forEach { q ->
+                        client.recordSearchHistory(q, domain = "music")
+                    }
+                }
+                val synced = client.getSearchHistory(domain = "music", limit = 30)
+                if (synced.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        _searchHistory.value = synced
+                    }
+                    saveSearchHistory(synced)
+                }
+            } catch (_: Exception) {}
         }
     } catch (e: Exception) {
         Log.e(TAG, "Failed loading search history: ${e.message}")
@@ -186,25 +207,40 @@ internal fun MainViewModel.loadSearchHistory() {
 
 fun MainViewModel.addSearchHistory(query: String) {
     val trimmed = query.trim()
-    if (trimmed.isBlank()) return
+    if (trimmed.length < 2) return
     val current = _searchHistory.value.toMutableList()
-    current.remove(trimmed)
+    current.removeAll { it.equals(trimmed, ignoreCase = true) }
     current.add(0, trimmed)
     val capped = current.take(30)
     _searchHistory.value = capped
     saveSearchHistory(capped)
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.recordSearchHistory(trimmed, domain = "music")
+        } catch (_: Exception) {}
+    }
 }
 
 fun MainViewModel.removeSearchHistoryItem(query: String) {
     val current = _searchHistory.value.toMutableList()
-    current.remove(query)
+    current.removeAll { it.equals(query, ignoreCase = true) }
     _searchHistory.value = current
     saveSearchHistory(current)
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.deleteSearchHistory(query = query, domain = "music", clearAll = false)
+        } catch (_: Exception) {}
+    }
 }
 
 fun MainViewModel.clearSearchHistory() {
     _searchHistory.value = emptyList()
     saveSearchHistory(emptyList())
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            client.deleteSearchHistory(domain = "music", clearAll = true)
+        } catch (_: Exception) {}
+    }
 }
 
 internal fun MainViewModel.saveSearchHistory(list: List<String>) {
@@ -403,7 +439,8 @@ fun MainViewModel.submitUnifiedHomeSearch(query: String) {
     val trimmed = query.trim()
     if (trimmed.isBlank()) return
 
-    _musicRecognitionState.value = RecognitionUiState.Idle
+    addSearchHistory(trimmed)
+    _homeRecognitionState.value = RecognitionUiState.Idle
     val aiInstalled = com.cubicreates.unboundmusic.service.StorageInitializer.isAiModelInstalled(getApplication())
 
     if (aiInstalled) {
@@ -463,9 +500,9 @@ fun MainViewModel.submitUnifiedHomeSearch(query: String) {
 fun MainViewModel.clearUnifiedHomeResults() {
     _homeSearchState.value = HomeSearchUiState.Idle
     _homeVibeState.value = VibeSearchUiState.Idle
-    _musicRecognitionState.value = RecognitionUiState.Idle
+    _homeRecognitionState.value = RecognitionUiState.Idle
     _recognizedMessage.value = null
-    if (_isListeningShazam.value) {
+    if (_isListeningShazam.value && _activeShazamSurface.value == MainViewModel.RecognitionSurface.HOME) {
         com.cubicreates.unboundmusic.audio.AmbientAudioRecorder.stopRecording()
         _isListeningShazam.value = false
     }
@@ -477,6 +514,7 @@ fun MainViewModel.clearUnifiedHomeResults() {
 fun MainViewModel.submitSearchVibeQuery(query: String) {
     val trimmed = query.trim()
     if (trimmed.isBlank()) return
+    addSearchHistory("#$trimmed")
     val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
     val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
     viewModelScope.launch(Dispatchers.IO) {

@@ -99,9 +99,14 @@ func (s *Server) handleTrackLike(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type trackLikeReq struct {
-		VideoID string `json:"video_id"`
-		TrackID string `json:"track_id"`
-		Like    bool   `json:"like"`
+		VideoID    string `json:"video_id"`
+		TrackID    string `json:"track_id"`
+		Like       bool   `json:"like"`
+		Title      string `json:"title"`
+		Artist     string `json:"artist"`
+		Album      string `json:"album"`
+		DurationMs int64  `json:"duration_ms"`
+		CoverURL   string `json:"cover_url"`
 	}
 	var req trackLikeReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -148,6 +153,24 @@ func (s *Server) handleTrackLike(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[Like] YouTube like mutation failed for %s (like=%v): %v", vid, req.Like, err)
 		writeError(w, http.StatusBadGateway, "YouTube like sync failed: "+err.Error())
 		return
+	}
+
+	if s.accountSync != nil && s.accountSync.GetStatus().Connected {
+		if req.Like {
+			s.accountSync.AddLikedTrack(models.Track{
+				ID:           vid,
+				Title:        req.Title,
+				Artist:       req.Artist,
+				Album:        req.Album,
+				DurationMs:   req.DurationMs,
+				ThumbnailURL: req.CoverURL,
+			})
+		} else {
+			s.accountSync.RemoveLikedTrack(r.Context(), vid)
+		}
+	}
+	if s.algoEngine != nil {
+		s.algoEngine.InvalidateCache()
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

@@ -48,11 +48,6 @@ fun MainViewModel.startTrackDownload(track: TrackItem) {
     _downloadTasks.value = _downloadTasks.value + (taskId to optimisticTask)
 
     // 2. User feedback: In-app Toast + Android System Notification
-    com.cubicreates.unboundmusic.util.UnboundToast.show(
-        getApplication(),
-        "Downloading '${track.title}' to Unbound/Downloads (MP3)...",
-        isLong = false
-    )
     downloadNotificationHelper.notifyDownloadStarted(taskId, track.title, track.artist)
 
     viewModelScope.launch(Dispatchers.IO) {
@@ -86,20 +81,12 @@ fun MainViewModel.startTrackDownload(track: TrackItem) {
                 Log.e(TAG, "startTrackDownload failed HTTP $code: $resp")
                 downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, "Download rejected ($code)")
                 withContext(Dispatchers.Main) {
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Download failed for '${track.title}' ($code)"
-                    )
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "startTrackDownload failed: ${e.message}")
             downloadNotificationHelper.notifyDownloadFailed(taskId, track.title, track.artist, e.message ?: "Network error")
             withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                    getApplication(),
-                    "Download failed: ${e.message}"
-                )
             }
         }
     }
@@ -138,11 +125,6 @@ fun MainViewModel.cancelTrackDownload(videoId: String, title: String = "") {
         _downloadTasks.value = current
     }
 
-    com.cubicreates.unboundmusic.util.UnboundToast.show(
-        getApplication(),
-        "Download cancelled",
-        isLong = false
-    )
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
@@ -255,11 +237,6 @@ fun MainViewModel.startDownloadPollingLoop() {
                                     task.artist
                                 )
                                 withContext(Dispatchers.Main) {
-                                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                                        getApplication(),
-                                        "Downloaded '${task.title}' as MP3 to Unbound/Downloads!",
-                                        isLong = false
-                                    )
                                 }
                                 if (task.localPath.isNotBlank()) {
                                     try {
@@ -440,13 +417,11 @@ fun MainViewModel.clearCacheAndStorage(onResult: (String) -> Unit = {}) {
             updateStorageMetrics()
             withContext(Dispatchers.Main) {
                 val msg = String.format("Freed %.1f MB cache! Offline downloads preserved.", totalFreedMB)
-                com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
                 onResult(msg)
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 val errMsg = "Cache clean error: ${e.message}"
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
                 onResult(errMsg)
             }
         }
@@ -483,20 +458,17 @@ fun MainViewModel.exportDownloadsToPublicStorage(onResult: (String) -> Unit = {}
                 }
                 withContext(Dispatchers.Main) {
                     val msg = "Exported ${pathsToScan.size} tracks to device media library!"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
                     onResult(msg)
                 }
             } else {
                 withContext(Dispatchers.Main) {
                     val msg = "No downloaded tracks to export."
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(context, msg, isLong = false)
                     onResult(msg)
                 }
             }
         } catch (e: Exception) {
             withContext(Dispatchers.Main) {
                 val errMsg = "Export error: ${e.message}"
-                com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), errMsg, isLong = false)
                 onResult(errMsg)
             }
         }
@@ -506,15 +478,9 @@ fun MainViewModel.exportDownloadsToPublicStorage(onResult: (String) -> Unit = {}
 fun MainViewModel.downloadMissingAlbumTracks(status: AlbumCompletionStatus) {
     val missing = status.missingTracks
     if (missing.isEmpty()) {
-        com.cubicreates.unboundmusic.util.UnboundToast.show(getApplication(), "Album is already complete!", isLong = false)
         return
     }
     for (track in missing) {
         startTrackDownload(track)
     }
-    com.cubicreates.unboundmusic.util.UnboundToast.show(
-        getApplication(),
-        "Downloading ${missing.size} remaining tracks from '${status.albumTitle}'",
-        isLong = true
-    )
 }

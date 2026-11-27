@@ -23,6 +23,7 @@ import (
 
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/models"
+	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
 // TestServerStatusEndpoint validates that /api/v1/status returns valid JSON and health state.
@@ -1048,5 +1049,107 @@ func TestLockscreenWallpaperBackupSQLiteEndpoints(t *testing.T) {
 		t.Fatalf("empty POST clobbered stored backup")
 	}
 }
+
+// TestSignedInAuthProfileAndHomeBannerModes verifies FirstPartyAuth multi-hash headers,
+// non-placeholder Google account hints, and signed-in /api/v1/explore/home fallback banner modes.
+func TestSignedInAuthProfileAndHomeBannerModes(t *testing.T) {
+	// 1. Multi-hash cookie authorization header
+	authHeader := ytmusic.BuildCookieAuthorizationHeader(
+		"SAPISID=abc; __Secure-1PAPISID=def; __Secure-3PAPISID=ghi",
+		"https://music.youtube.com",
+	)
+	if !strings.Contains(authHeader, "SAPISIDHASH ") ||
+		!strings.Contains(authHeader, "SAPISID1PHASH ") ||
+		!strings.Contains(authHeader, "SAPISID3PHASH ") {
+		t.Fatalf("expected all 3 SAPISID hashes in header, got %q", authHeader)
+	}
+
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_signedin.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 2. Sync with WebView-extracted profile hints
+	syncBody := `{"cookie":"SAPISID=test_sapisid; SID=test_sid","account_name":"Ada Lovelace","avatar_url":"https://lh3.googleusercontent.com/a/ada=s352"}`
+	reqSync := httptest.NewRequest(http.MethodPost, "/api/v1/account/sync", strings.NewReader(syncBody))
+	wSync := httptest.NewRecorder()
+	srv.ServeHTTP(wSync, reqSync)
+	if wSync.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/account/sync, got %d: %s", wSync.Code, wSync.Body.String())
+	}
+	var syncResp map[string]any
+	_ = json.NewDecoder(wSync.Body).Decode(&syncResp)
+	if syncResp["account_name"] != "Ada Lovelace" {
+		t.Fatalf("expected account_name 'Ada Lovelace', got %v", syncResp["account_name"])
+	}
+	if syncResp["avatar_url"] != "https://lh3.googleusercontent.com/a/ada=s352" {
+		t.Fatalf("expected avatar_url preserved, got %v", syncResp["avatar_url"])
+	}
+
+	// 3. Seed a synced liked track -> /api/v1/explore/home should report liked_fallback banner when no watch history exists
+	srv.accountSync.AddLikedTrack(models.Track{
+		ID:     "dQw4w9WgXcQ",
+		Title:  "Liked Anthem",
+		Artist: "Test Artist",
+	})
+	wHome := httptest.NewRecorder()
+	srv.ServeHTTP(wHome, httptest.NewRequest(http.MethodGet, "/api/v1/explore/home?gl=US", nil))
+	if wHome.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/explore/home, got %d", wHome.Code)
+	}
+	var homeResp map[string]any
+	_ = json.NewDecoder(wHome.Body).Decode(&homeResp)
+	if homeResp["jump_back_mode"] != "liked_fallback" {
+		t.Fatalf("expected jump_back_mode='liked_fallback', got %v", homeResp["jump_back_mode"])
+	}
+	if bannerTitle, _ := homeResp["jump_back_banner_title"].(string); bannerTitle == "" {
+		t.Fatalf("expected non-empty jump_back_banner_title in liked_fallback mode")
+	}
+
+	// 4. Disconnect must completely clear credentials, synced tracks, and revert home & status to guest mode
+	reqDisc := httptest.NewRequest(http.MethodPost, "/api/v1/account/disconnect", strings.NewReader(`{}`))
+	wDisc := httptest.NewRecorder()
+	srv.ServeHTTP(wDisc, reqDisc)
+	if wDisc.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/account/disconnect, got %d: %s", wDisc.Code, wDisc.Body.String())
+	}
+
+	wStatusAfter := httptest.NewRecorder()
+	srv.ServeHTTP(wStatusAfter, httptest.NewRequest(http.MethodGet, "/api/v1/account/status", nil))
+	if wStatusAfter.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/account/status after disconnect, got %d", wStatusAfter.Code)
+	}
+	var statusAfter map[string]any
+	_ = json.NewDecoder(wStatusAfter.Body).Decode(&statusAfter)
+	if connected, _ := statusAfter["connected"].(bool); connected {
+		t.Fatalf("expected connected=false after disconnect, got %v", statusAfter)
+	}
+	if count, _ := statusAfter["synced_tracks_count"].(float64); int(count) != 0 {
+		t.Fatalf("expected synced_tracks_count=0 after disconnect, got %v", statusAfter["synced_tracks_count"])
+	}
+
+	wHomeAfter := httptest.NewRecorder()
+	srv.ServeHTTP(wHomeAfter, httptest.NewRequest(http.MethodGet, "/api/v1/explore/home?gl=US", nil))
+	if wHomeAfter.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/explore/home after disconnect, got %d", wHomeAfter.Code)
+	}
+	var homeAfter map[string]any
+	_ = json.NewDecoder(wHomeAfter.Body).Decode(&homeAfter)
+	if loggedIn, _ := homeAfter["is_logged_in"].(bool); loggedIn {
+		t.Fatalf("expected is_logged_in=false after disconnect, got %v", homeAfter)
+	}
+	if homeAfter["jump_back_mode"] != "guest" {
+		t.Fatalf("expected jump_back_mode='guest' after disconnect, got %v", homeAfter["jump_back_mode"])
+	}
+}
+
 
 

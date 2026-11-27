@@ -346,21 +346,11 @@ fun MainViewModel.submitHomeVibeQuery(query: String, autoPlay: Boolean = false) 
                     val first = songsOnly.first()
                     playTrackWithQueue(first, songsOnly)
                     val moodTag = res.vibeResult.moodTags.firstOrNull() ?: res.vibeResult.targetGenres.firstOrNull() ?: "Vibe"
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        getApplication(),
-                        "Tuning into $moodTag: ${first.title}",
-                        isLong = true
-                    )
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "submitHomeVibeQuery error: ${e.message}", e)
             withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                    getApplication(),
-                    "Vibe Search: ${e.message ?: "Failed"}",
-                    isLong = true
-                )
                 _homeVibeState.value = VibeSearchUiState.Error(e.message ?: "Search failed")
             }
         }
@@ -446,11 +436,6 @@ fun MainViewModel.submitUnifiedHomeSearch(query: String) {
     if (aiInstalled) {
         _homeSearchState.value = HomeSearchUiState.Idle
         _homeVibeState.value = VibeSearchUiState.Loading
-        com.cubicreates.unboundmusic.util.UnboundToast.show(
-            getApplication(),
-            "AI detected — using AI search",
-            isLong = false
-        )
         val country = com.cubicreates.unboundmusic.util.GeoLocationProvider.getCountryCode(getApplication())
         val lang = com.cubicreates.unboundmusic.util.GeoLocationProvider.getLanguageCode()
         viewModelScope.launch(Dispatchers.IO) {

@@ -25,7 +25,7 @@ import com.cubicreates.unboundmusic.data.MixDto
 import com.cubicreates.unboundmusic.data.RecognitionUiState
 import com.cubicreates.unboundmusic.data.VibeSearchUiState
 import com.cubicreates.unboundmusic.ui.components.TrackItem
-import com.cubicreates.unboundmusic.ui.components.defaultTopTracks
+import com.cubicreates.unboundmusic.ui.components.UnboundEmptyStateCard
 import com.cubicreates.unboundmusic.ui.home.components.CompactJumpGridSection
 import com.cubicreates.unboundmusic.ui.home.components.CompactMediaItem
 import com.cubicreates.unboundmusic.ui.home.components.CuratedDeckCardData
@@ -45,7 +45,7 @@ fun MusicScreen(
     modifier: Modifier = Modifier,
     selectedSection: HomeSection = HomeSection.MUSIC,
     onSectionSelected: (HomeSection) -> Unit = {},
-    jumpBackTracks: List<TrackItem> = defaultTopTracks,
+    jumpBackTracks: List<TrackItem> = emptyList(),
     homeMixes: List<HomeMixDto> = emptyList(),
     globalChartTracks: List<TrackItem> = emptyList(),
     regionalChartTracks: List<TrackItem> = emptyList(),
@@ -95,7 +95,7 @@ fun MusicScreen(
     val safeJumpBackTracks = remember(jumpBackTracks, regionalChartTracks, globalChartTracks) {
         jumpBackTracks.ifEmpty {
             (regionalChartTracks + globalChartTracks).distinctBy { it.id.ifBlank { it.title } }
-        }.ifEmpty { defaultTopTracks }
+        }
     }
 
     val jumpBackItems = remember(safeJumpBackTracks) {
@@ -296,6 +296,14 @@ fun MusicScreen(
                             onTrackSelect(found, rotatedQueue)
                         }
                     }
+                )
+            }
+        } else {
+            item(key = "home_feed_empty") {
+                UnboundEmptyStateCard(
+                    title = "No feed tracks loaded yet",
+                    subtitle = "Tap Refresh above or search for a song, artist, or #vibe.",
+                    compact = true
                 )
             }
         }

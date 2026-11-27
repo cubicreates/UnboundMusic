@@ -40,7 +40,6 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/fallback"
 	"github.com/cubicreates/unbound-engine/pkg/gatekeeper"
 	"github.com/cubicreates/unbound-engine/pkg/genius"
-	"github.com/cubicreates/unbound-engine/pkg/importer"
 	"github.com/cubicreates/unbound-engine/pkg/lastfm"
 	"github.com/cubicreates/unbound-engine/pkg/lyrics"
 	"github.com/cubicreates/unbound-engine/pkg/models"
@@ -101,7 +100,6 @@ type Server struct {
 	roomHub      *rooms.Hub
 	shazamClient *shazam.Client
 	analyticsEng *analytics.Engine
-	importer     *importer.Importer
 	lastfmClient *lastfm.Scrobbler
 	podcastEng   *podcasts.Engine
 	canvasClient *canvas.Client
@@ -177,7 +175,6 @@ func NewServer(cfg Config) (*Server, error) {
 	roomsHub := rooms.NewHub()
 	shazamCli := shazam.NewClient()
 	analyticsEngine := analytics.NewEngine()
-	playlistImporter := importer.NewImporter()
 	scrobbler := lastfm.NewScrobbler("", "")
 	podcastEngine := podcasts.NewEngine(ytClient)
 	podcastEngine.SetRepository(repo)
@@ -225,7 +222,6 @@ func NewServer(cfg Config) (*Server, error) {
 		roomHub:      roomsHub,
 		shazamClient: shazamCli,
 		analyticsEng: analyticsEngine,
-		importer:     playlistImporter,
 		lastfmClient: scrobbler,
 		podcastEng:   podcastEngine,
 		canvasClient: canvasCli,
@@ -256,6 +252,8 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/events", s.handleEvents)
 	mux.HandleFunc("/api/v1/system/unpack-payload", s.handleUnpackPayload)
+	mux.HandleFunc("/api/v1/system/wallpaper/backup", s.handleWallpaperBackup)
+	mux.HandleFunc("/api/v1/system/wallpaper/backup/ids", s.handleWallpaperBackupIDs)
 
 	// --- 2. Playback, Streaming & Multi-Stage Fallback ---
 	mux.HandleFunc("/api/v1/stream", s.handleStream)
@@ -267,6 +265,9 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/search/music", s.handleMusicSearch)
 	mux.HandleFunc("/api/v1/search/podcasts", s.handlePodcastSearch)
 	mux.HandleFunc("/api/v1/search/unified", s.handleUnifiedSearch)
+	mux.HandleFunc("/api/v1/search/cascade", s.handleSearchCascade)
+	mux.HandleFunc("/api/v1/search/history", s.handleSearchHistory)
+	mux.HandleFunc("/api/v1/search/history/delete", s.handleSearchHistoryDelete)
 	mux.HandleFunc("/api/v1/search/vibe", s.handleVibeSearch)
 	mux.HandleFunc("/api/v1/ai/query", s.handleAIQuery)
 	mux.HandleFunc("/api/v1/ai/mood", s.handleAIMood)
@@ -287,6 +288,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/recommend", s.handleRecommend)
 	mux.HandleFunc("/api/v1/radio/magic", s.handleRadioMagic)
 	mux.HandleFunc("/api/v1/radio/next", s.handleRadioNext)
+	mux.HandleFunc("/api/v1/radio/guest", s.handleGuestRadio)
 	mux.HandleFunc("/api/v1/feed/smart", s.handleSmartFeed)
 
 	// --- 7. Shazam & Fingerprint Recognition ---
@@ -322,13 +324,18 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/peers", s.handlePeers)
 	mux.HandleFunc("/api/v1/discord/presence", s.handleDiscordPresence)
 	mux.HandleFunc("/api/v1/sponsorblock", s.handleSponsorBlock)
+	mux.HandleFunc("/api/v1/track/skip_segments", s.handleTrackSkipSegments)
 	mux.HandleFunc("/api/v1/ryd/votes", s.handleRydVotes)
 	mux.HandleFunc("/api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("/api/v1/rooms/join", s.handleRoomJoin)
 	mux.HandleFunc("/api/v1/rooms/sync", s.handleRoomSync)
 	mux.HandleFunc("/api/v1/analytics/log", s.handleAnalyticsLog)
 	mux.HandleFunc("/api/v1/analytics/recap", s.handleAnalyticsRecap)
-	mux.HandleFunc("/api/v1/import/spotify", s.handleImportSpotify)
+	mux.HandleFunc("/api/v1/analytics/taste_event", s.handleRecordTasteEvent)
+	mux.HandleFunc("/api/v1/taste/profile", s.handleGetTasteProfile)
+	mux.HandleFunc("/api/v1/settings", s.handleSettings)
+	mux.HandleFunc("/api/v1/eq/presets", s.handleEqPresets)
+	mux.HandleFunc("/api/v1/storage/purge_cache", s.handlePurgeCache)
 	mux.HandleFunc("/api/v1/lastfm/nowplaying", s.handleLastfmNowPlaying)
 	mux.HandleFunc("/api/v1/lastfm/scrobble", s.handleLastfmScrobble)
 	mux.HandleFunc("/api/v1/podcasts/browse", s.handlePodcastBrowse)
@@ -347,6 +354,9 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/account/device/start", s.handleAccountDeviceStart)
 	mux.HandleFunc("/api/v1/account/device/poll", s.handleAccountDevicePoll)
 	mux.HandleFunc("/api/v1/explore/moods", s.handleExploreMoods)
+	mux.HandleFunc("/api/v1/explore/mood/radio", s.handleExploreMoodRadio)
+	mux.HandleFunc("/api/v1/explore/moods_genres", s.handleExploreMoodsGenres)
+	mux.HandleFunc("/api/v1/explore/genre_detail", s.handleExploreGenreDetail)
 	mux.HandleFunc("/api/v1/explore/charts", s.handleExploreCharts)
 	mux.HandleFunc("/api/v1/explore/home", s.handleExploreHome)
 	mux.HandleFunc("/api/v1/artist/profile", s.handleArtistProfile)
@@ -360,6 +370,7 @@ func NewServer(cfg Config) (*Server, error) {
 	mux.HandleFunc("/api/v1/playlists/", s.handlePlaylistsRouter)
 	mux.HandleFunc("/api/v1/favorites", s.handleFavoritesRouter)
 	mux.HandleFunc("/api/v1/favorites/", s.handleFavoritesRouter)
+	mux.HandleFunc("/api/v1/track/like", s.handleTrackLike)
 
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf("127.0.0.1:%d", cfg.Port),
@@ -835,6 +846,15 @@ func (s *Server) handleAnalyticsLog(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = s.algoEngine.IngestPlaybackEvent(r.Context(), track, int(ev.DurationSec), int(ev.ListenedSec))
 	}
+	if s.ytClient != nil && ytmusic.IsValidYouTubeVideoID(ev.TrackID) {
+		trackID := ev.TrackID
+		listenedSec := int(ev.ListenedSec)
+		go func() {
+			bgCtx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+			defer cancel()
+			_ = s.ytClient.ReportPlaybackView(bgCtx, trackID, listenedSec)
+		}()
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "RECORDED"})
 }
 
@@ -842,27 +862,6 @@ func (s *Server) handleAnalyticsLog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAnalyticsRecap(w http.ResponseWriter, r *http.Request) {
 	recap := s.analyticsEng.GenerateRecap()
 	writeJSON(w, http.StatusOK, recap)
-}
-
-// handleImportSpotify imports tracks from a public Spotify playlist link.
-func (s *Server) handleImportSpotify(w http.ResponseWriter, r *http.Request) {
-	type ImportReq struct {
-		URL string `json:"url"`
-	}
-
-	var req ImportReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-		writeError(w, http.StatusBadRequest, "valid 'url' field is required")
-		return
-	}
-
-	pl, err := s.importer.ImportSpotifyPlaylist(r.Context(), req.URL)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, pl)
 }
 
 // handleAudioNormalize computes EBU R128 / ReplayGain volume leveling.
@@ -1151,11 +1150,19 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build Jump Back In list (User History + Account Sync if logged in; Public YouTube + Charts if guest)
+	// Build Jump Back In list (User History + Account Sync if logged in; Guest Taste/Favorites/Public YouTube + Charts if guest)
+	bannedArtists := make(map[string]bool)
+	if s.repo != nil {
+		bannedArtists = s.repo.GetBannedArtists()
+	}
+
 	jumpBackIn := make([]models.TrackItem, 0, 48)
 	seenJump := make(map[string]bool)
 	appendJumpItem := func(it models.TrackItem) {
 		if it.ID == "" || strings.TrimSpace(it.Title) == "" || !ytmusic.IsSingleSongTrack(it.Title) {
+			return
+		}
+		if bannedArtists[strings.ToLower(strings.TrimSpace(it.Artist))] {
 			return
 		}
 		upperID := strings.ToUpper(it.ID)
@@ -1216,8 +1223,11 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 			appendJumpItem(t)
 		}
 	} else {
-		// Guest user: recent playback (if any) + public YouTube home/feed + regional & global singles
+		// Guest user: non-fast-skipped recent plays + Guest favorites + top positive-affinity artist enrichment + public feed + charts
 		for _, ev := range recentEvents {
+			if ev.DurationSec > 20 && ev.ListenedSec > 0 && ev.ListenedSec < 15 && ev.CompletedRatio < 0.25 {
+				continue
+			}
 			if ev.TrackID != "" && ev.Title != "" {
 				appendJumpItem(models.TrackItem{
 					ID:         ev.TrackID,
@@ -1227,6 +1237,43 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 					DurationMs: int64(ev.DurationSec) * 1000,
 					Source:     "youtube",
 				})
+			}
+		}
+		if s.repo != nil {
+			if favs, err := s.repo.GetFavorites(ctx); err == nil {
+				for _, f := range favs {
+					if ytmusic.IsValidYouTubeVideoID(f.TrackID) {
+						appendJumpItem(models.TrackItem{
+							ID:         f.TrackID,
+							Title:      f.Title,
+							Artist:     f.Artist,
+							Album:      f.Album,
+							DurationMs: f.DurationMs,
+							Thumbnail:  f.CoverURL,
+							Source:     "youtube",
+						})
+					}
+				}
+			}
+			if topAff, err := s.repo.GetTopAffinityArtists(3); err == nil && s.ytClient != nil {
+				addedFromAff := 0
+				for _, aff := range topAff {
+					if aff.DecayedScore <= 0 || aff.ArtistName == "" || addedFromAff >= 6 {
+						continue
+					}
+					if artTracks, err := s.ytClient.SearchMusic(ctx, aff.ArtistName, "songs"); err == nil {
+						for _, t := range artTracks {
+							if addedFromAff >= 6 {
+								break
+							}
+							before := len(jumpBackIn)
+							appendJumpItem(toTrackItem(t))
+							if len(jumpBackIn) > before {
+								addedFromAff++
+							}
+						}
+					}
+				}
 			}
 		}
 		for _, t := range publicFeed {

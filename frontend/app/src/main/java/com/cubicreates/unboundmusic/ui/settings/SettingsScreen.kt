@@ -39,14 +39,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CleaningServices
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileDownload
@@ -60,12 +57,8 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
@@ -93,7 +86,6 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.cubicreates.unboundmusic.data.AudioQuality
 import com.cubicreates.unboundmusic.ui.home.components.MediaFeedScaffold
-import com.cubicreates.unboundmusic.ui.theme.AppThemePreset
 import com.cubicreates.unboundmusic.ui.theme.BorderGlass
 import com.cubicreates.unboundmusic.ui.theme.OnPrimary
 import com.cubicreates.unboundmusic.ui.theme.OnSurface
@@ -112,18 +104,15 @@ fun SettingsScreen(
     isYouTubeConnected: Boolean = false,
     accountName: String = "Local User",
     userAvatarUrl: String? = null,
-    currentTheme: AppThemePreset = AppThemePreset.STUDIO_DARK,
     cachePurgeStatus: String? = null,
     downloadedTracksCount: Int = 0,
     downloadsSizeMB: Double = 0.0,
     cacheSizeMB: Double = 0.0,
     localTracksCount: Int = 0,
-    onThemeSelected: (AppThemePreset) -> Unit = {},
     onClose: () -> Unit = {},
     onEqualizerClick: () -> Unit = {},
     onAutoEqClick: () -> Unit = {},
     onSleepTimerClick: () -> Unit = {},
-    onSpotifyImportSubmit: (String) -> Unit = {},
     onYouTubeSyncClick: () -> Unit = {},
     onYouTubeResyncClick: () -> Unit = {},
     onDisconnectYouTubeClick: () -> Unit = {},
@@ -154,7 +143,6 @@ fun SettingsScreen(
     var showStreamingQualityDialog by remember { mutableStateOf(false) }
     var showDownloadQualityDialog by remember { mutableStateOf(false) }
     var showUninstallConfirmDialog by remember { mutableStateOf(false) }
-    var showSpotifyImportDialog by remember { mutableStateOf(false) }
 
     BackHandler(enabled = enableBackHandler) {
         onClose()
@@ -226,7 +214,6 @@ fun SettingsScreen(
                     accountName = accountName,
                     userAvatarUrl = userAvatarUrl,
                     streamingQuality = streamingQuality,
-                    currentTheme = currentTheme,
                     onConnectOrDisconnect = {
                         if (isYouTubeConnected) onDisconnectYouTubeClick() else onYouTubeSyncClick()
                     }
@@ -290,30 +277,7 @@ fun SettingsScreen(
                 }
             }
 
-            // ==================== 4. Appearance ====================
-            item(key = "profile_appearance_section") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
-                        Text(
-                            text = "Appearance",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface
-                        )
-                        Text(
-                            text = "Choose your preferred accent color & style",
-                            fontSize = 12.sp,
-                            color = OnSurfaceVariant
-                        )
-                    }
-                    AppearanceThemeGrid(
-                        currentTheme = currentTheme,
-                        onThemeSelected = onThemeSelected
-                    )
-                }
-            }
-
-            // ==================== 5. Playback & Playlists ====================
+            // ==================== 4. Playback & Playlists ====================
             item(key = "profile_playback_section") {
                 SettingsSectionBlock(title = "Playback & Playlists") {
                     SettingsGroupCard {
@@ -380,15 +344,6 @@ fun SettingsScreen(
                             onButtonClick = {
                                 if (isYouTubeConnected) onYouTubeResyncClick() else onYouTubeSyncClick()
                             }
-                        )
-                        SettingsRowDivider()
-                        SettingsActionButtonRow(
-                            icon = Icons.AutoMirrored.Filled.QueueMusic,
-                            title = "Import Spotify Playlists",
-                            subtitle = "Transfer playlists & favorites via link",
-                            buttonText = "Import",
-                            isPrimaryButton = true,
-                            onButtonClick = { showSpotifyImportDialog = true }
                         )
                         SettingsRowDivider()
                         SettingsBadgeRow(
@@ -497,16 +452,6 @@ fun SettingsScreen(
             )
         }
 
-        if (showSpotifyImportDialog) {
-            SpotifyImportDialog(
-                onImport = { url ->
-                    showSpotifyImportDialog = false
-                    onSpotifyImportSubmit(url)
-                },
-                onDismiss = { showSpotifyImportDialog = false }
-            )
-        }
-
         if (showUninstallConfirmDialog) {
             AlertDialog(
                 onDismissRequest = { showUninstallConfirmDialog = false },
@@ -557,7 +502,6 @@ private fun IdentityHeroCard(
     accountName: String,
     userAvatarUrl: String?,
     streamingQuality: AudioQuality,
-    currentTheme: AppThemePreset,
     onConnectOrDisconnect: () -> Unit
 ) {
     val displayName = if (isYouTubeConnected && accountName.isNotBlank() && accountName != "Local User") {
@@ -566,12 +510,6 @@ private fun IdentityHeroCard(
         "Guest Listener"
     }
     val statusDotColor = if (isYouTubeConnected) UnboundSecondary else Color(0xFFFFC594)
-    val themeShortName = when (currentTheme) {
-        AppThemePreset.STUDIO_DARK -> "Obsidian"
-        AppThemePreset.NEON_VIOLET -> "Violet"
-        AppThemePreset.MATRIX_TERMINAL -> "Matrix"
-        AppThemePreset.MATERIAL_YOU -> "Dynamic"
-    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -724,7 +662,7 @@ private fun IdentityHeroCard(
                     }
                 }
 
-                // 3-column dynamic status strip
+                // 2-column dynamic status strip
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -737,11 +675,6 @@ private fun IdentityHeroCard(
                     HeroStatusChip(
                         icon = Icons.Default.Headphones,
                         text = "${streamingQuality.title.substringBefore(" ")} Audio",
-                        modifier = Modifier.weight(1f)
-                    )
-                    HeroStatusChip(
-                        icon = Icons.Default.DarkMode,
-                        text = themeShortName,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -1194,83 +1127,6 @@ private fun SettingsDestructiveRow(
 }
 
 @Composable
-private fun AppearanceThemeGrid(
-    currentTheme: AppThemePreset,
-    onThemeSelected: (AppThemePreset) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        AppThemePreset.entries.forEach { preset ->
-            val isSelected = currentTheme == preset
-            val label = when (preset) {
-                AppThemePreset.STUDIO_DARK -> "Obsidian"
-                AppThemePreset.NEON_VIOLET -> "Violet"
-                AppThemePreset.MATRIX_TERMINAL -> "Matrix"
-                AppThemePreset.MATERIAL_YOU -> "Dynamic"
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (isSelected) UnboundSurfaceContainerHigh else UnboundSurfaceContainerLow)
-                    .then(
-                        if (isSelected) {
-                            Modifier.border(
-                                width = 1.dp,
-                                color = preset.previewPrimary.copy(alpha = 0.45f),
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
-                    .clickable { onThemeSelected(preset) }
-                    .padding(vertical = 12.dp, horizontal = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(UnboundSurfaceContainerLowest),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .background(preset.previewPrimary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = UnboundSurfaceContainerLowest,
-                                modifier = Modifier.size(11.dp)
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = label,
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) preset.previewPrimary else OnSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun AppFooterSection(
     localTracksCount: Int,
     onCheckUpdateClick: () -> Unit
@@ -1403,67 +1259,4 @@ private fun QualitySelectionDialog(
             }
         }
     }
-}
-
-@Composable
-private fun SpotifyImportDialog(
-    onImport: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var urlInput by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = UnboundSurfaceContainerHigh,
-        title = {
-            Text(
-                text = "Import Spotify Playlist",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = OnSurface
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Paste a public Spotify playlist URL to import its tracks into your local playlists.",
-                    fontSize = 13.sp,
-                    color = OnSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = urlInput,
-                    onValueChange = { urlInput = it },
-                    placeholder = {
-                        Text(
-                            "https://open.spotify.com/playlist/...",
-                            color = OnSurfaceVariant.copy(alpha = 0.6f),
-                            fontSize = 13.sp
-                        )
-                    },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = UnboundPrimary,
-                        unfocusedBorderColor = BorderGlass,
-                        focusedTextColor = OnSurface,
-                        unfocusedTextColor = OnSurface
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onImport(urlInput) },
-                enabled = urlInput.contains("spotify.com/playlist/"),
-                colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary)
-            ) {
-                Text("Import", color = OnPrimary, fontWeight = FontWeight.SemiBold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = OnSurfaceVariant)
-            }
-        }
-    )
 }

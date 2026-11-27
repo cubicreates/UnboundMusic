@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/cubicreates/unbound-engine/pkg/models"
@@ -343,4 +344,35 @@ func (r *Repository) GetTasteDiversityScore() (float64, error) {
 	}
 
 	return math.Round(score*10.0) / 10.0, nil
+}
+
+// GetBannedArtists returns a lowercased set of artist_id and artist_name values currently under an active fast-skip ban.
+func (r *Repository) GetBannedArtists() map[string]bool {
+	banned := make(map[string]bool)
+	if r == nil || r.db == nil || r.db.conn == nil {
+		return banned
+	}
+	now := time.Now().Unix()
+	rows, err := r.db.conn.Query(`
+		SELECT artist_id, artist_name
+		FROM artist_affinity
+		WHERE is_banned = 1 AND ban_until_timestamp > ?;
+	`, now)
+	if err != nil {
+		return banned
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err == nil {
+			if k := strings.ToLower(strings.TrimSpace(id)); k != "" {
+				banned[k] = true
+			}
+			if k := strings.ToLower(strings.TrimSpace(name)); k != "" {
+				banned[k] = true
+			}
+		}
+	}
+	return banned
 }

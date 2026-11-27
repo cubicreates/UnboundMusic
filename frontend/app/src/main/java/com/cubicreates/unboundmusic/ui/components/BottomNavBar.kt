@@ -75,7 +75,13 @@ fun UnboundBottomNavBar(
     userAvatarUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
-    val userInitial = accountName?.trim()?.firstOrNull()?.uppercase() ?: if (isLoggedIn) "U" else "G"
+    val userInitial = if (isLoggedIn && !com.cubicreates.unboundmusic.viewmodel.isPlaceholderAccountName(accountName)) {
+        accountName!!.trim().firstOrNull()?.uppercase() ?: "Y"
+    } else if (isLoggedIn) {
+        "Y"
+    } else {
+        "G"
+    }
     val hasDownloads = activeDownloadsCount > 0
     Box(
         modifier = modifier

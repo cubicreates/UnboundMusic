@@ -239,5 +239,27 @@ CREATE TABLE IF NOT EXISTS user_favorites (
     favorited_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_favorites_time ON user_favorites(favorited_at DESC);
+
+CREATE TABLE IF NOT EXISTS search_history (
+    query_norm TEXT NOT NULL,
+    domain TEXT NOT NULL DEFAULT 'music',
+    display_query TEXT NOT NULL,
+    search_count INTEGER NOT NULL DEFAULT 1,
+    last_searched_at INTEGER NOT NULL,
+    PRIMARY KEY (query_norm, domain)
+);
+CREATE INDEX IF NOT EXISTS idx_search_history_domain_time ON search_history(domain, last_searched_at DESC);
+
+CREATE TABLE IF NOT EXISTS lockscreen_wallpaper_backup (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    image_blob BLOB NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'image/png',
+    source_flag TEXT NOT NULL DEFAULT 'lock',
+    lock_wallpaper_id INTEGER NOT NULL DEFAULT -1,
+    system_wallpaper_id INTEGER NOT NULL DEFAULT -1,
+    sha256_hex TEXT NOT NULL DEFAULT '',
+    byte_size INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
+);
 `
 

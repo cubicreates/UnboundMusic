@@ -838,3 +838,215 @@ func TestStorageLibraryEndpoint(t *testing.T) {
 	}
 }
 
+// TestTrackLikeAndFavoritesEndpoints verifies /api/v1/track/like and /api/v1/favorites/toggle in guest & local modes.
+func TestTrackLikeAndFavoritesEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_likes.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Toggle local favorite
+	favReq := httptest.NewRequest(http.MethodPost, "/api/v1/favorites/toggle", strings.NewReader(`{"track_id":"dQw4w9WgXcQ","title":"Test Song","artist":"Test Artist"}`))
+	favW := httptest.NewRecorder()
+	srv.ServeHTTP(favW, favReq)
+	if favW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/favorites/toggle, got %d: %s", favW.Code, favW.Body.String())
+	}
+
+	// 2. Guest YouTube ID like -> acknowledges guest_local without 404/error
+	likeReq := httptest.NewRequest(http.MethodPost, "/api/v1/track/like", strings.NewReader(`{"video_id":"dQw4w9WgXcQ","like":true}`))
+	likeW := httptest.NewRecorder()
+	srv.ServeHTTP(likeW, likeReq)
+	if likeW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/track/like, got %d: %s", likeW.Code, likeW.Body.String())
+	}
+	var likeResp map[string]any
+	if err := json.NewDecoder(likeW.Body).Decode(&likeResp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if likeResp["status"] != "guest_local" {
+		t.Errorf("expected guest_local status, got %v", likeResp["status"])
+	}
+
+	// 3. Local-only track ID -> local_only
+	localReq := httptest.NewRequest(http.MethodPost, "/api/v1/track/like", strings.NewReader(`{"video_id":"local:123","like":true}`))
+	localW := httptest.NewRecorder()
+	srv.ServeHTTP(localW, localReq)
+	if localW.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for local track like, got %d", localW.Code)
+	}
+	var localResp map[string]any
+	_ = json.NewDecoder(localW.Body).Decode(&localResp)
+	if localResp["status"] != "local_only" {
+		t.Errorf("expected local_only status, got %v", localResp["status"])
+	}
+
+	// 4. Empty video_id -> 400 Bad Request
+	badReq := httptest.NewRequest(http.MethodPost, "/api/v1/track/like", strings.NewReader(`{"like":true}`))
+	badW := httptest.NewRecorder()
+	srv.ServeHTTP(badW, badReq)
+	if badW.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request for empty video_id, got %d", badW.Code)
+	}
+}
+
+// TestGuestTasteAndSearchHistoryEndpoints verifies Guest taste telemetry, profile, radio, and search history routes.
+func TestGuestTasteAndSearchHistoryEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_guest.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Record positive taste event + Markov transition
+	tasteBody := `{"track_id":"dQw4w9WgXcQ","next_track_id":"9bZkp7q19f0","title":"Test Hit","artist_name":"Guest Artist","duration_ms":200000,"listened_ms":190000}`
+	reqTaste := httptest.NewRequest(http.MethodPost, "/api/v1/analytics/taste_event", strings.NewReader(tasteBody))
+	wTaste := httptest.NewRecorder()
+	srv.ServeHTTP(wTaste, reqTaste)
+	if wTaste.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/analytics/taste_event, got %d: %s", wTaste.Code, wTaste.Body.String())
+	}
+
+	// 2. Query /api/v1/taste/profile
+	reqProf := httptest.NewRequest(http.MethodGet, "/api/v1/taste/profile?limit=5", nil)
+	wProf := httptest.NewRecorder()
+	srv.ServeHTTP(wProf, reqProf)
+	if wProf.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from /api/v1/taste/profile, got %d", wProf.Code)
+	}
+	if !strings.Contains(wProf.Body.String(), "Guest Artist") {
+		t.Errorf("expected Guest Artist in taste profile, got %s", wProf.Body.String())
+	}
+
+	// 3. Record, query, and delete search history
+	reqHistPost := httptest.NewRequest(http.MethodPost, "/api/v1/search/history", strings.NewReader(`{"domain":"music","query":"Synthwave"}`))
+	wHistPost := httptest.NewRecorder()
+	srv.ServeHTTP(wHistPost, reqHistPost)
+	if wHistPost.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from POST /api/v1/search/history, got %d", wHistPost.Code)
+	}
+
+	reqHistGet := httptest.NewRequest(http.MethodGet, "/api/v1/search/history?domain=music&q=synth", nil)
+	wHistGet := httptest.NewRecorder()
+	srv.ServeHTTP(wHistGet, reqHistGet)
+	if wHistGet.Code != http.StatusOK || !strings.Contains(wHistGet.Body.String(), "Synthwave") {
+		t.Fatalf("expected Synthwave in GET /api/v1/search/history, got %d: %s", wHistGet.Code, wHistGet.Body.String())
+	}
+
+	reqHistDel := httptest.NewRequest(http.MethodPost, "/api/v1/search/history/delete", strings.NewReader(`{"domain":"music","query":"Synthwave"}`))
+	wHistDel := httptest.NewRecorder()
+	srv.ServeHTTP(wHistDel, reqHistDel)
+	if wHistDel.Code != http.StatusOK || strings.Contains(wHistDel.Body.String(), "Synthwave") {
+		t.Fatalf("expected Synthwave removed after delete, got %d: %s", wHistDel.Code, wHistDel.Body.String())
+	}
+}
+
+// TestLockscreenWallpaperBackupSQLiteEndpoints verifies SQLite storage, retrieval, ID tracking, and empty-body protection.
+func TestLockscreenWallpaperBackupSQLiteEndpoints(t *testing.T) {
+	tempDir := t.TempDir()
+	cfg := Config{
+		Port:           0,
+		DatabasePath:   filepath.Join(tempDir, "test_wallpaper.db"),
+		LibraryRoot:    tempDir,
+		AppStorageRoot: tempDir,
+	}
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+	defer srv.Shutdown(context.Background())
+
+	// 1. Initial metadata shows has_backup == false; binary GET returns 404
+	wMeta0 := httptest.NewRecorder()
+	srv.ServeHTTP(wMeta0, httptest.NewRequest(http.MethodGet, "/api/v1/system/wallpaper/backup?meta=1", nil))
+	if wMeta0.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from meta=1, got %d", wMeta0.Code)
+	}
+	var meta0 map[string]any
+	if err := json.NewDecoder(wMeta0.Body).Decode(&meta0); err != nil {
+		t.Fatalf("decode meta0: %v", err)
+	}
+	if has, _ := meta0["has_backup"].(bool); has {
+		t.Fatalf("expected has_backup=false initially, got true")
+	}
+
+	wGet0 := httptest.NewRecorder()
+	srv.ServeHTTP(wGet0, httptest.NewRequest(http.MethodGet, "/api/v1/system/wallpaper/backup", nil))
+	if wGet0.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when no backup exists, got %d", wGet0.Code)
+	}
+
+	// 2. Store raw PNG bytes for a shared Home+Lock custom wallpaper
+	pngPayload := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, []byte("CUSTOM_WALLPAPER_DATA_12345")...)
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/system/wallpaper/backup?source_flag=system_shared&lock_id=-1&system_id=42", strings.NewReader(string(pngPayload)))
+	reqPost.Header.Set("Content-Type", "image/png")
+	wPost := httptest.NewRecorder()
+	srv.ServeHTTP(wPost, reqPost)
+	if wPost.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from POST backup, got %d: %s", wPost.Code, wPost.Body.String())
+	}
+	var postMeta map[string]any
+	_ = json.NewDecoder(wPost.Body).Decode(&postMeta)
+	if has, _ := postMeta["has_backup"].(bool); !has {
+		t.Fatalf("expected has_backup=true after POST, got %v", postMeta)
+	}
+	if int(postMeta["byte_size"].(float64)) != len(pngPayload) {
+		t.Fatalf("expected byte_size=%d, got %v", len(pngPayload), postMeta["byte_size"])
+	}
+
+	// 3. GET binary returns exact bytes and headers
+	wGet1 := httptest.NewRecorder()
+	srv.ServeHTTP(wGet1, httptest.NewRequest(http.MethodGet, "/api/v1/system/wallpaper/backup", nil))
+	if wGet1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET backup, got %d", wGet1.Code)
+	}
+	if wGet1.Header().Get("X-Wallpaper-Source") != "system_shared" || wGet1.Header().Get("X-System-Wallpaper-Id") != "42" {
+		t.Fatalf("unexpected headers: source=%q sysId=%q", wGet1.Header().Get("X-Wallpaper-Source"), wGet1.Header().Get("X-System-Wallpaper-Id"))
+	}
+	if wGet1.Body.String() != string(pngPayload) {
+		t.Fatalf("retrieved wallpaper bytes mismatch")
+	}
+
+	// 4. Update IDs after restore and verify image blob persists for future restores
+	reqIDs := httptest.NewRequest(http.MethodPost, "/api/v1/system/wallpaper/backup/ids", strings.NewReader(`{"lock_wallpaper_id":99,"system_wallpaper_id":42}`))
+	wIDs := httptest.NewRecorder()
+	srv.ServeHTTP(wIDs, reqIDs)
+	if wIDs.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from POST backup/ids, got %d: %s", wIDs.Code, wIDs.Body.String())
+	}
+
+	wGet2 := httptest.NewRecorder()
+	srv.ServeHTTP(wGet2, httptest.NewRequest(http.MethodGet, "/api/v1/system/wallpaper/backup", nil))
+	if wGet2.Code != http.StatusOK || wGet2.Header().Get("X-Lock-Wallpaper-Id") != "99" || wGet2.Body.String() != string(pngPayload) {
+		t.Fatalf("expected persistent blob with updated lock_id=99, got code=%d lockId=%q", wGet2.Code, wGet2.Header().Get("X-Lock-Wallpaper-Id"))
+	}
+
+	// 5. Empty POST returns 400 and does NOT clobber stored backup
+	wEmpty := httptest.NewRecorder()
+	srv.ServeHTTP(wEmpty, httptest.NewRequest(http.MethodPost, "/api/v1/system/wallpaper/backup", strings.NewReader("")))
+	if wEmpty.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on empty POST, got %d", wEmpty.Code)
+	}
+	wGet3 := httptest.NewRecorder()
+	srv.ServeHTTP(wGet3, httptest.NewRequest(http.MethodGet, "/api/v1/system/wallpaper/backup", nil))
+	if wGet3.Code != http.StatusOK || wGet3.Body.String() != string(pngPayload) {
+		t.Fatalf("empty POST clobbered stored backup")
+	}
+}
+
+

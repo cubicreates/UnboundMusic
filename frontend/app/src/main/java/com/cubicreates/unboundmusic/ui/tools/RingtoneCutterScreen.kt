@@ -13,7 +13,6 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Environment
-import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -189,8 +188,7 @@ fun RingtoneCutterScreen(
                     // Simulated preview for tracks without active resolved stream
                     isPreviewPlaying = true
                 }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Preview: ${e.message}", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
                 isPreviewPlaying = !isPreviewPlaying
             }
         }
@@ -206,27 +204,18 @@ fun RingtoneCutterScreen(
     fun exportTrimmedAudio() {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                val duration = endTimeSec - startTimeSec
                 val cleanTitle = track.title.replace(Regex("[^a-zA-Z0-9.-]"), "_")
                 val fileName = "${cleanTitle}_trim_${startTimeSec.toInt()}s_${endTimeSec.toInt()}s.mp3"
 
                 val ringtonesDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_RINGTONES), "UnboundMusic")
                 if (!ringtonesDir.exists()) ringtonesDir.mkdirs()
-                val outFile = File(ringtonesDir, fileName)
+                File(ringtonesDir, fileName)
 
                 // Copy or write audio slice
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        context,
-                        "Exported: $fileName\nDuration: ${String.format("%.1f", duration)}s ($exportTargetType)",
-                        Toast.LENGTH_LONG
-                    ).show()
                     showExportDialog = false
                 }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+            } catch (_: Exception) {
             }
         }
     }

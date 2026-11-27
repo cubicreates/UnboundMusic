@@ -613,20 +613,11 @@ class UnboundPlaybackService : MediaSessionService() {
                 append("URI: $uriSnippet")
             }
             Log.e(TAG, fullReport)
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                applicationContext,
-                fullReport,
-                isLong = true
-            )
             return
         }
         lastFailedMediaId = mediaId
 
         if (mediaId.isBlank() || mediaId.startsWith("local:") || mediaId.startsWith("file://") || mediaId.startsWith("content://")) {
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                applicationContext,
-                "Playback Error ($errCode):\n$errMsg\nCannot stream local track: $mediaId"
-            )
             return
         }
 
@@ -700,11 +691,6 @@ class UnboundPlaybackService : MediaSessionService() {
                         }
                         append("-> Falling back to $fallbackTargetDesc")
                     }
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        applicationContext,
-                        notice,
-                        isLong = false
-                    )
                     val uri = Uri.parse(fallbackUrl)
                     val newItem = currentItem.buildUpon()
                         .setUri(uri)
@@ -736,11 +722,6 @@ class UnboundPlaybackService : MediaSessionService() {
                         }
                     }
                     Log.e(TAG, fullReport)
-                    com.cubicreates.unboundmusic.util.UnboundToast.show(
-                        applicationContext,
-                        fullReport,
-                        isLong = true
-                    )
                 }
             }
         }

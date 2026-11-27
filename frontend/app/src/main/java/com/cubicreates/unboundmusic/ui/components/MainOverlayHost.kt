@@ -462,6 +462,9 @@ fun MainOverlayHost(
             onDismiss = { overlayState.showYouTubeLoginSheet = false },
             onCookieExtracted = { cookie ->
                 viewModel.syncYouTubeAccount(cookie)
+            },
+            onAccountAuthenticated = { cookie, name, avatar ->
+                viewModel.syncYouTubeAccount(cookie, name, avatar)
             }
         )
     }
@@ -589,75 +592,5 @@ fun MainOverlayHost(
             updateInfo = info,
             onDismiss = { viewModel.dismissUpdateDialog() }
         )
-    }
-
-    // Persistent Diagnostic Toast HUD Banner Overlay
-    val diagnosticMessage by com.cubicreates.unboundmusic.util.UnboundToast.lastDiagnostic.collectAsStateWithLifecycle()
-    diagnosticMessage?.let { msg ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 40.dp, start = 12.dp, end = 12.dp),
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Surface(
-                color = if (msg.contains("Error", ignoreCase = true) ||
-                    msg.contains("Fail", ignoreCase = true) ||
-                    msg.contains("FATAL", ignoreCase = true) ||
-                    msg.contains("Exception", ignoreCase = true)) {
-                    Color(0xFF8B0000)
-                } else if (msg.contains("Fallback", ignoreCase = true) || msg.contains("Retrying", ignoreCase = true)) {
-                    Color(0xFFB45309)
-                } else {
-                    Color(0xFF1E293B)
-                },
-                shape = RoundedCornerShape(12.dp),
-                shadowElevation = 10.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 520.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Text(
-                            text = if (msg.contains("Error", ignoreCase = true) || msg.contains("Fail", ignoreCase = true)) {
-                                "DIAGNOSTIC ERROR REPORT (FULL DETAILS)"
-                            } else {
-                                "DIAGNOSTIC STATUS"
-                            },
-                            color = Color.White.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        SelectionContainer {
-                            Text(
-                                text = msg,
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = { com.cubicreates.unboundmusic.util.UnboundToast.clear() },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Dismiss",
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-        }
     }
 }

@@ -333,7 +333,7 @@ fun MainViewModel.setLockscreenWallpaperEnabled(enabled: Boolean) {
         com.cubicreates.unboundmusic.service.LockscreenArtworkManager.clearLockscreenArtwork(getApplication())
     } else {
         val track = _currentTrack.value
-        if (track.id.isNotBlank() && track.title.isNotBlank()) {
+        if (isPlaying.value && track.id.isNotBlank() && track.title.isNotBlank()) {
             com.cubicreates.unboundmusic.service.LockscreenArtworkManager.updateLockscreenArtwork(getApplication(), track)
         }
     }

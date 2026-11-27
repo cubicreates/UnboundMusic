@@ -11,6 +11,7 @@ package algorithm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +52,16 @@ func NewEngine(repo *database.Repository, ytClient *ytmusic.Client) *Engine {
 		repo:     repo,
 		ytClient: ytClient,
 	}
+}
+
+// InvalidateCache clears the cached smart feed so the next home fetch reflects updated taste/history.
+func (e *Engine) InvalidateCache() {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	e.feedCache = nil
+	e.mu.Unlock()
 }
 
 // IngestPlaybackEvent records a playback session to update the user's affinity profile.
@@ -122,13 +133,24 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 		}
 	}
 
-	// 2. Retrieve recent local playback events from SQLite to enrich feed
+	// 2. Retrieve recent local playback events, banned artists, and favorites from SQLite
 	var events []models.PlaybackEvent
+	bannedArtists := make(map[string]bool)
+	var favs []models.UserFavorite
+	var topAffinity []models.ArtistAffinity
 	if e.repo != nil {
 		events, _ = e.repo.GetRecentPlaybackEvents(ctx, 30)
+		bannedArtists = e.repo.GetBannedArtists()
+		favs, _ = e.repo.GetFavorites(ctx)
+		topAffinity, _ = e.repo.GetTopAffinityArtists(3)
 	}
 
-	if len(events) == 0 {
+	isBannedArtist := func(artist string) bool {
+		k := strings.ToLower(strings.TrimSpace(artist))
+		return k != "" && bannedArtists[k]
+	}
+
+	if len(events) == 0 && len(favs) == 0 && len(topAffinity) == 0 {
 		res := &SmartFeedResponse{
 			HasPersonalization: len(shelves) > 0,
 			Shelves:            shelves,
@@ -140,7 +162,7 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 		return res, nil
 	}
 
-	// 3. Identify top completed track and top artist from local history
+	// 3. Identify top completed track and top artist from local history (excluding fast-skips and banned artists)
 	artistCounts := make(map[string]int)
 	var lastPlayed *models.PlaybackEvent
 	var favoriteTrack *models.PlaybackEvent
@@ -148,6 +170,13 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 	seenTrackIDs := make(map[string]bool)
 
 	for _, ev := range events {
+		if isBannedArtist(ev.Artist) {
+			continue
+		}
+		// Ignore < 15s fast-skips for positive "Listen Again" shelves
+		if ev.DurationSec > 20 && ev.ListenedSec > 0 && ev.ListenedSec < 15 && ev.CompletedRatio < 0.25 {
+			continue
+		}
 		eventCopy := ev
 		if !seenTrackIDs[ev.TrackID] {
 			seenTrackIDs[ev.TrackID] = true
@@ -177,20 +206,52 @@ func (e *Engine) GenerateSmartFeed(ctx context.Context) (*SmartFeedResponse, err
 		}
 	}
 
+	// Fold in Guest favorites so liked tracks also seed recommendations immediately
+	for _, f := range favs {
+		if isBannedArtist(f.Artist) || seenTrackIDs[f.TrackID] || !ytmusic.IsValidYouTubeVideoID(f.TrackID) {
+			continue
+		}
+		seenTrackIDs[f.TrackID] = true
+		listenAgainTracks = append(listenAgainTracks, models.Track{
+			ID:           f.TrackID,
+			Title:        f.Title,
+			Artist:       f.Artist,
+			Album:        f.Album,
+			DurationMs:   f.DurationMs,
+			ThumbnailURL: f.CoverURL,
+		})
+		if favoriteTrack == nil {
+			favoriteTrack = &models.PlaybackEvent{
+				TrackID: f.TrackID,
+				Title:   f.Title,
+				Artist:  f.Artist,
+				Album:   f.Album,
+			}
+		}
+	}
+
 	if favoriteTrack == nil {
 		favoriteTrack = lastPlayed
 	}
 
-	// Find top artist
+	// Find top artist (prefer positive decayed affinity, then play count)
 	topArtist := ""
-	maxCount := 0
-	for art, cnt := range artistCounts {
-		if cnt > maxCount && art != "" && art != "YouTube Artist" {
-			maxCount = cnt
-			topArtist = art
+	for _, aff := range topAffinity {
+		if aff.DecayedScore > 0 && !isBannedArtist(aff.ArtistName) && aff.ArtistName != "" && aff.ArtistName != "YouTube Artist" {
+			topArtist = aff.ArtistName
+			break
 		}
 	}
-	if topArtist == "" && lastPlayed != nil {
+	if topArtist == "" {
+		maxCount := 0
+		for art, cnt := range artistCounts {
+			if cnt > maxCount && art != "" && art != "YouTube Artist" && !isBannedArtist(art) {
+				maxCount = cnt
+				topArtist = art
+			}
+		}
+	}
+	if topArtist == "" && lastPlayed != nil && !isBannedArtist(lastPlayed.Artist) {
 		topArtist = lastPlayed.Artist
 	}
 

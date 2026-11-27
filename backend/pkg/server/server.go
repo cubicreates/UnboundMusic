@@ -1093,6 +1093,10 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 	if lang == "" {
 		lang = "en"
 	}
+	homeParams := ytmusic.HomePreferenceParam(r.URL.Query().Get("params"))
+	if homeParams == "" {
+		homeParams = ytmusic.HomePreferenceParam(r.URL.Query().Get("mood"))
+	}
 
 	ctx := r.Context()
 	status := s.accountSync.GetStatus()
@@ -1102,10 +1106,41 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 		regionalSingles []models.TrackItem
 		publicFeed      []models.Track
 		recentEvents    []models.PlaybackEvent
+		ytHistory       []models.Track
+		ytHomeShelves   []ytmusic.HomeShelf
+		ytMixedForYou   []ytmusic.MixItem
+		historyPaused   bool
 		wg              sync.WaitGroup
 	)
 
 	wg.Add(4)
+	if status.Connected {
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			if s.ytClient != nil {
+				ytHistory, historyPaused, _ = s.ytClient.FetchWatchHistory(ctx)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if s.ytClient != nil {
+				ytHomeShelves, _ = s.ytClient.FetchPersonalizedHomeShelvesWithParams(ctx, homeParams)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if s.ytClient != nil {
+				ytMixedForYou, _ = s.ytClient.FetchMixedForYou(ctx)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if s.accountSync != nil && (account.IsPlaceholderName(status.AccountName) || status.AvatarURL == "" || (s.ytClient != nil && s.ytClient.GetPageID() == "")) {
+				s.accountSync.RefreshProfileIfNeeded(ctx)
+			}
+		}()
+	}
 	go func() {
 		defer wg.Done()
 		if s.ytExploreEng != nil {
@@ -1199,11 +1234,30 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	jumpBackMode := "guest"
+	hasWatchHistory := false
+	hasLikedMusic := false
+	jumpBackBannerTitle := ""
+	jumpBackBannerSubtitle := ""
+	jumpBackBannerAction := ""
+
 	if status.Connected {
-		// Logged-in user: recent playback history + synced YouTube library + personalized feed
+		status = s.accountSync.GetStatus()
+		likedTracks := s.accountSync.GetLikedTracks()
+		if len(likedTracks) == 0 && s.ytClient != nil {
+			if fetched, lErr := s.ytClient.FetchPureLikedTracks(ctx); lErr == nil && len(fetched) > 0 {
+				likedTracks = fetched
+			}
+		}
+		hasLikedMusic = len(likedTracks) > 0
+
+		validLocalRecent := make([]models.TrackItem, 0, len(recentEvents))
 		for _, ev := range recentEvents {
-			if ev.TrackID != "" && ev.Title != "" {
-				appendJumpItem(models.TrackItem{
+			if ev.DurationSec > 20 && ev.ListenedSec > 0 && ev.ListenedSec < 15 && ev.CompletedRatio < 0.25 {
+				continue
+			}
+			if ytmusic.IsValidYouTubeVideoID(ev.TrackID) && ev.Title != "" {
+				validLocalRecent = append(validLocalRecent, models.TrackItem{
 					ID:         ev.TrackID,
 					Title:      ev.Title,
 					Artist:     ev.Artist,
@@ -1213,14 +1267,84 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
-		for _, t := range s.accountSync.GetLikedTracks() {
-			appendJumpItem(toTrackItem(t))
+
+		// Extract tracks from FEmusic_home personal-history shelves ("Listen again", "Forgotten favorites", etc.)
+		// separately from generic discovery shelves so accounts with 0 watch history still trigger liked_fallback / preference_builder.
+		personalShelfTracks := make([]models.Track, 0, 24)
+		homePrefTracks := make([]models.Track, 0, 32)
+		for _, shelf := range ytHomeShelves {
+			homePrefTracks = append(homePrefTracks, shelf.Tracks...)
+			lowerTitle := strings.ToLower(strings.TrimSpace(shelf.Title))
+			if strings.Contains(lowerTitle, "listen again") ||
+				strings.Contains(lowerTitle, "forgotten") ||
+				strings.Contains(lowerTitle, "your daily") ||
+				strings.Contains(lowerTitle, "from your library") ||
+				strings.Contains(lowerTitle, "replay") {
+				personalShelfTracks = append(personalShelfTracks, shelf.Tracks...)
+			}
 		}
-		for _, t := range publicFeed {
-			appendJumpItem(toTrackItem(t))
-		}
-		for _, t := range regionalSingles {
-			appendJumpItem(t)
+
+		hasWatchHistory = len(ytHistory) > 0 || len(validLocalRecent) > 0 || len(personalShelfTracks) > 0
+
+		switch {
+		case !historyPaused && hasWatchHistory:
+			jumpBackMode = "history"
+			for _, t := range ytHistory {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, ev := range validLocalRecent {
+				appendJumpItem(ev)
+			}
+			for _, t := range personalShelfTracks {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, t := range homePrefTracks {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, t := range likedTracks {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, t := range publicFeed {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, t := range regionalSingles {
+				appendJumpItem(t)
+			}
+		case hasLikedMusic:
+			jumpBackMode = "liked_fallback"
+			if historyPaused {
+				jumpBackBannerTitle = "YouTube watch history is paused"
+			} else {
+				jumpBackBannerTitle = "No YouTube watch history yet"
+			}
+			jumpBackBannerSubtitle = "Showing your Liked Videos & Music instead — or tap to jump into fresh picks."
+			jumpBackBannerAction = "Jump into Fresh Picks"
+			for _, t := range likedTracks {
+				appendJumpItem(toTrackItem(t))
+			}
+			if len(jumpBackIn) < 8 {
+				for _, t := range publicFeed {
+					appendJumpItem(toTrackItem(t))
+				}
+			}
+		default:
+			jumpBackMode = "preference_builder"
+			if historyPaused {
+				jumpBackBannerTitle = "Watch history is paused & no liked music yet"
+			} else {
+				jumpBackBannerTitle = "No watch history or liked music found"
+			}
+			jumpBackBannerSubtitle = "Would you like to jump into something fresh? Play or ♥ songs below to build your preferences."
+			jumpBackBannerAction = "Jump into Fresh Picks"
+			for _, t := range publicFeed {
+				appendJumpItem(toTrackItem(t))
+			}
+			for _, t := range regionalSingles {
+				appendJumpItem(t)
+			}
+			for _, t := range globalSingles {
+				appendJumpItem(t)
+			}
 		}
 	} else {
 		// Guest user: non-fast-skipped recent plays + Guest favorites + top positive-affinity artist enrichment + public feed + charts
@@ -1292,6 +1416,22 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 	seenMixIDs := make(map[string]bool)
 
 	if status.Connected {
+		for _, m := range ytMixedForYou {
+			if m.ID != "" && m.Title != "" && !seenMixIDs[m.ID] {
+				seenMixIDs[m.ID] = true
+				mixTitle := m.Title
+				if !strings.Contains(strings.ToLower(mixTitle), "mix") {
+					mixTitle = "Mix – " + mixTitle
+				}
+				mixes = append(mixes, HomeMixPayload{
+					ID:       "mix:" + m.ID,
+					Title:    mixTitle,
+					Subtitle: m.Subtitle,
+					CoverURL: m.ThumbnailURL,
+					MixType:  "account_mix",
+				})
+			}
+		}
 		lib, _ := s.accountSync.SyncLibrary(ctx)
 		if lib != nil {
 			for _, m := range lib.Mixes {
@@ -1372,14 +1512,21 @@ func (s *Server) handleExploreHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"is_logged_in":        status.Connected,
-		"account_name":        status.AccountName,
-		"avatar_url":          status.AvatarURL,
-		"region_code":         strings.ToUpper(country),
-		"jump_back_in":        jumpBackIn,
-		"made_for_you_mixes":  mixes,
-		"trending_globally":   globalSingles,
-		"trending_regionally": regionalSingles,
+		"is_logged_in":              status.Connected,
+		"account_name":              status.AccountName,
+		"avatar_url":                status.AvatarURL,
+		"region_code":               strings.ToUpper(country),
+		"jump_back_mode":            jumpBackMode,
+		"history_paused":            historyPaused,
+		"has_watch_history":         hasWatchHistory,
+		"has_liked_music":           hasLikedMusic,
+		"jump_back_banner_title":    jumpBackBannerTitle,
+		"jump_back_banner_subtitle": jumpBackBannerSubtitle,
+		"jump_back_banner_action":   jumpBackBannerAction,
+		"jump_back_in":              jumpBackIn,
+		"made_for_you_mixes":        mixes,
+		"trending_globally":         globalSingles,
+		"trending_regionally":       regionalSingles,
 	})
 }
 

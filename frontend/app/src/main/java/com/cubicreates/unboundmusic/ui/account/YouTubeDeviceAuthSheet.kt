@@ -71,7 +71,6 @@ import com.cubicreates.unboundmusic.ui.theme.SurfaceGlass
 import com.cubicreates.unboundmusic.ui.theme.UnboundPrimary
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainer
 import com.cubicreates.unboundmusic.ui.theme.UnboundSurfaceContainerHigh
-import com.cubicreates.unboundmusic.util.UnboundToast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,7 +224,6 @@ fun YouTubeDeviceAuthSheet(
                                     .clickable {
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                         clipboard.setPrimaryClip(ClipData.newPlainText("YouTube Code", deviceData.userCode))
-                                        UnboundToast.show(context, "Code copied to clipboard!", isLong = false)
                                     }
                                     .padding(horizontal = 20.dp, vertical = 10.dp)
                             ) {
@@ -276,7 +274,6 @@ fun YouTubeDeviceAuthSheet(
                             try {
                                 context.startActivity(intent)
                             } catch (_: Exception) {
-                                UnboundToast.show(context, "No web browser found on device.", isLong = true)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = UnboundPrimary),

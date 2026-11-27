@@ -10,9 +10,13 @@ package com.cubicreates.unboundmusic.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /** Returns the provisioned Unbound/ directory tree structure. */
 suspend fun BackendClient.getStorageTree(): Pair<Int, String> = withContext(Dispatchers.IO) {
@@ -252,4 +256,125 @@ suspend fun BackendClient.getAlbumDetails(
     artist?.let { q.append("artist=").append(URLEncoder.encode(it, "UTF-8")).append("&") }
     album?.let { q.append("album=").append(URLEncoder.encode(it, "UTF-8")) }
     get(q.toString().removeSuffix("&").removeSuffix("?"))
+}
+
+data class WallpaperBackupMetaDto(
+    val hasBackup: Boolean = false,
+    val mimeType: String = "image/png",
+    val sourceFlag: String = "lock",
+    val lockWallpaperId: Long = -1L,
+    val systemWallpaperId: Long = -1L,
+    val sha256Hex: String = "",
+    val byteSize: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+fun BackendClient.parseWallpaperBackupMeta(jsonStr: String): WallpaperBackupMetaDto? {
+    if (jsonStr.isBlank()) return null
+    return try {
+        val obj = JSONObject(jsonStr)
+        WallpaperBackupMetaDto(
+            hasBackup = obj.optBoolean("has_backup", false),
+            mimeType = obj.optString("mime_type", "image/png"),
+            sourceFlag = obj.optString("source_flag", "lock"),
+            lockWallpaperId = obj.optLong("lock_wallpaper_id", -1L),
+            systemWallpaperId = obj.optLong("system_wallpaper_id", -1L),
+            sha256Hex = obj.optString("sha256_hex", ""),
+            byteSize = obj.optLong("byte_size", 0L),
+            updatedAt = obj.optLong("updated_at", 0L)
+        )
+    } catch (_: Exception) {
+        null
+    }
+}
+
+fun BackendClient.getWallpaperBackupMetaBlocking(): WallpaperBackupMetaDto? {
+    val (code, body) = get("/api/v1/system/wallpaper/backup?meta=1")
+    if (code !in 200..299) return null
+    return parseWallpaperBackupMeta(body)
+}
+
+suspend fun BackendClient.getWallpaperBackupMeta(): WallpaperBackupMetaDto? = withContext(Dispatchers.IO) {
+    getWallpaperBackupMetaBlocking()
+}
+
+fun BackendClient.uploadWallpaperBackupBlocking(
+    bytes: ByteArray,
+    mimeType: String = "image/png",
+    sourceFlag: String = "lock",
+    lockId: Long = -1L,
+    systemId: Long = -1L
+): WallpaperBackupMetaDto? {
+    if (bytes.isEmpty()) return null
+    val encodedSource = URLEncoder.encode(sourceFlag, "UTF-8")
+    val path = "/api/v1/system/wallpaper/backup?source_flag=$encodedSource&lock_id=$lockId&system_id=$systemId"
+    val mediaType = (mimeType.ifBlank { "application/octet-stream" }).toMediaTypeOrNull()
+    val body = bytes.toRequestBody(mediaType)
+
+    fun executeOn(url: String, client: okhttp3.OkHttpClient): WallpaperBackupMetaDto? {
+        val req = Request.Builder()
+            .url(url)
+            .header("X-Wallpaper-Source", sourceFlag)
+            .header("X-Lock-Wallpaper-Id", lockId.toString())
+            .header("X-System-Wallpaper-Id", systemId.toString())
+            .post(body)
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code !in 200..299) return null
+            return parseWallpaperBackupMeta(resp.body?.string() ?: "")
+        }
+    }
+
+    return try {
+        executeOn("$baseUrl$path", httpClient)
+    } catch (_: Exception) {
+        if (isUnixSocket) {
+            try {
+                executeOn("http://127.0.0.1:45731$path", BackendClient.sharedOkHttpClient)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
+}
+
+fun BackendClient.downloadWallpaperBackupBytesBlocking(timeoutMs: Long = 3000L): ByteArray? {
+    val path = "/api/v1/system/wallpaper/backup"
+
+    fun executeOn(url: String, baseClient: okhttp3.OkHttpClient): ByteArray? {
+        val client = baseClient.newBuilder()
+            .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .build()
+        val req = Request.Builder().url(url).get().build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code != 200) return null
+            val bytes = resp.body?.bytes()
+            return if (bytes != null && bytes.isNotEmpty()) bytes else null
+        }
+    }
+
+    return try {
+        executeOn("$baseUrl$path", httpClient)
+    } catch (_: Exception) {
+        if (isUnixSocket) {
+            try {
+                executeOn("http://127.0.0.1:45731$path", BackendClient.sharedOkHttpClient)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
+    }
+}
+
+fun BackendClient.updateWallpaperBackupIdsBlocking(lockId: Long, systemId: Long): Boolean {
+    val payload = JSONObject().apply {
+        put("lock_wallpaper_id", lockId)
+        put("system_wallpaper_id", systemId)
+    }.toString()
+    val (code, _) = post("/api/v1/system/wallpaper/backup/ids", payload)
+    return code in 200..299
 }

@@ -215,11 +215,6 @@ fun BackendClient.parseUserMixes(jsonStr: String): List<MixDto> {
     return list
 }
 
-/** Import playlist from Spotify URL. */
-suspend fun BackendClient.importSpotify(url: String): Pair<Int, String> = withContext(Dispatchers.IO) {
-    post("/api/v1/import/spotify", JSONObject().apply { put("url", url) }.toString())
-}
-
 /** Ingests physical listening event (skip, completion, replay) into on-device taste engine. */
 suspend fun BackendClient.recordTasteEvent(
     trackId: String,
@@ -228,7 +223,8 @@ suspend fun BackendClient.recordTasteEvent(
     artistName: String,
     durationMs: Long,
     listenedMs: Long,
-    eventType: String? = null
+    eventType: String? = null,
+    nextTrackId: String = ""
 ): Boolean = withContext(Dispatchers.IO) {
     val payload = JSONObject().apply {
         put("track_id", trackId)
@@ -238,6 +234,7 @@ suspend fun BackendClient.recordTasteEvent(
         put("duration_ms", durationMs)
         put("listened_ms", listenedMs)
         if (!eventType.isNullOrBlank()) put("event_type", eventType)
+        if (nextTrackId.isNotBlank()) put("next_track_id", nextTrackId)
     }
     val (code, _) = post("/api/v1/analytics/taste_event", payload.toString())
     code in 200..299

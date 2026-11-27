@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/f46e4a67-4ec6-4bdb-a4b8-f6e039005ce2" alt="Unbound Music Banner" width="100%">
+  <img src="assets/banner.png" alt="Unbound Music Banner" width="100%">
   
   <h1>Unbound Music</h1>
   <p><strong>A Next-Generation, Audio-Exclusive FOSS Platform Engineered with an In-Process Embedded Go Micro-Daemon, AndroidX Media3 ExoPlayer DSP Pipeline, Dynamic Lockscreen Wallpaper Artwork, VLC-Style Differential Storage Scanning, Zero-Data Stream Routing, 16kHz FFT Shazam Recognition & On-Device Edge Intelligence.</strong></p>

@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL || "https://unboundmusic.vercel.app"
+    process.env.NEXT_PUBLIC_SITE_URL || "https://unboundmusic-two.vercel.app"
   ),
   title: "Unbound Music — Pure Sound, Zero Ads, Zero Subscriptions",
   description:

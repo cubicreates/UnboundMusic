@@ -110,13 +110,13 @@ fun UpdateAvailableDialog(
 
                         Column {
                             Text(
-                                text = "Update Available",
+                                text = "New Version Available",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = OnSurface
                             )
                             Text(
-                                text = "A new version of Unbound is ready",
+                                text = "Hey! This is a new version — install the app",
                                 fontSize = 12.sp,
                                 color = OnSurfaceVariant
                             )
@@ -267,7 +267,7 @@ fun UpdateAvailableDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Install Update",
+                            text = "Install App",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )

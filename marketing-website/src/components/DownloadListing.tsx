@@ -60,7 +60,7 @@ export function DownloadListing() {
     };
   }, []);
 
-  const apkFilename = `Unbound-Music-v${appVersion}.apk`;
+  const apkFilename = `unboundmusic_V${appVersion.replace(/\./g, "")}.apk`;
 
   function handleDownloadClick() {
     setDownloadState("downloading");

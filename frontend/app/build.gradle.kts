@@ -12,8 +12,8 @@ android {
         applicationId = "com.cubicreates.unboundmusic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "2.0.1"
+        versionCode = 4
+        versionName = "1.0.27.11.26"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -113,15 +113,16 @@ dependencies {
 tasks.register<Copy>("copyApkToTestFolder") {
     val apkDir = layout.buildDirectory.dir("outputs/apk/debug")
     val destDir = rootProject.projectDir.parentFile.resolve("apk_test")
+    val targetApkName = "unboundmusic_V10271126.apk"
     from(apkDir) {
         include("app-debug.apk")
-        rename("app-debug.apk", "unbound-music-debug.apk")
+        rename("app-debug.apk", targetApkName)
     }
     into(destDir)
     doLast {
         val sourceApk = apkDir.get().file("app-debug.apk").asFile
         if (sourceApk.exists()) {
-            sourceApk.copyTo(destDir.resolve("unbound-music-debug.apk"), overwrite = true)
+            sourceApk.copyTo(destDir.resolve(targetApkName), overwrite = true)
         }
         // Remove legacy split APKs if present to avoid confusion
         destDir.listFiles { _, name -> name.startsWith("app-") && name.endsWith(".apk") }?.forEach { it.delete() }

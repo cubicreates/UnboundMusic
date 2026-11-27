@@ -1,7 +1,8 @@
 /*
  * Package: com.cubicreates.unboundmusic.updater
  * File: AppUpdateManager.kt
- * Purpose: Independent in-app auto-updater for sideloaded distribution without Google Play Store.
+ * Purpose: Independent in-app auto-updater that pings the Unbound Music marketing website
+ *          backend (https://unboundmusic-two.vercel.app/api/version) to check for newer releases.
  * Subsystem: Distribution & Lifecycle Management
  */
 
@@ -33,7 +34,9 @@ import java.util.concurrent.TimeUnit
 object AppUpdateManager {
 
     private const val TAG = "AppUpdateManager"
-    private const val MANIFEST_URL = "https://raw.githubusercontent.com/cubicreates/UnboundMusic/main/manifests/app_version.json"
+    const val FALLBACK_VERSION_NAME = "1.0.27.11.26"
+    const val VERSION_API_URL = "https://unboundmusic-two.vercel.app/api/version"
+    const val DOWNLOAD_PAGE_URL = "https://unboundmusic-two.vercel.app/download"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -54,43 +57,74 @@ object AppUpdateManager {
     }
 
     /**
-     * Queries remote release manifest to detect newer version code.
+     * Returns true strictly when remoteVersion is newer than currentVersion.
+     * Supports both standard semver (M.m.p) and 5-part date versions (M.m.DD.MM.YY).
+     */
+    fun isNewerVersion(remoteVersion: String, currentVersion: String): Boolean {
+        val rClean = remoteVersion.trim().removePrefix("v").removePrefix("V")
+        val cClean = currentVersion.trim().removePrefix("v").removePrefix("V")
+        if (rClean.isBlank() || cClean.isBlank() || rClean == cClean) return false
+
+        val rParts = rClean.split(".").map { it.trim().toIntOrNull() ?: 0 }
+        val cParts = cClean.split(".").map { it.trim().toIntOrNull() ?: 0 }
+
+        if (rParts.size == 5 && cParts.size == 5) {
+            val order = intArrayOf(0, 1, 4, 3, 2)
+            for (idx in order) {
+                if (rParts[idx] != cParts[idx]) {
+                    return rParts[idx] > cParts[idx]
+                }
+            }
+            return false
+        }
+
+        val maxLen = maxOf(rParts.size, cParts.size)
+        for (i in 0 until maxLen) {
+            val rv = rParts.getOrElse(i) { 0 }
+            val cv = cParts.getOrElse(i) { 0 }
+            if (rv != cv) return rv > cv
+        }
+        return false
+    }
+
+    /**
+     * Pings https://unboundmusic-two.vercel.app/api/version and compares against installed app version.
+     * Returns null when versions match or remote is not newer.
      */
     suspend fun checkForUpdates(context: Context, silent: Boolean = true): AppUpdateInfo? = withContext(Dispatchers.IO) {
         _isChecking.value = true
         try {
-            val req = Request.Builder().url(MANIFEST_URL).build()
-            val resp = httpClient.newCall(req).execute()
-            if (!resp.isSuccessful) {
-                Log.w(TAG, "Update manifest returned ${resp.code}")
-                return@withContext null
-            }
+            val req = Request.Builder()
+                .url(VERSION_API_URL)
+                .header("Accept", "application/json")
+                .build()
 
-            val body = resp.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
-            val remoteCode = json.optInt("version_code", 0)
-            val remoteName = json.optString("version_name", "")
-            val notes = json.optString("release_notes", "Bug fixes and performance improvements.")
-            val downloadUrl = json.optString("download_url", "")
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Log.w(TAG, "Version API returned HTTP ${resp.code}")
+                    return@withContext null
+                }
 
-            val currentCode = getCurrentVersionCode(context)
-            val currentName = getCurrentVersionName(context)
-            Log.i(TAG, "Update check: currentCode=$currentCode, remoteCode=$remoteCode")
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val remoteVersion = json.optString("version", "").trim()
+                val currentVersion = getCurrentVersionName(context)
+                Log.i(TAG, "Version check: installed=$currentVersion, remote=$remoteVersion")
 
-            if (remoteCode > currentCode && downloadUrl.isNotBlank()) {
-                val info = AppUpdateInfo(
-                    currentVersion = currentName,
-                    latestVersion = remoteName,
-                    hasUpdate = true,
-                    releaseNotes = notes,
-                    downloadUrl = downloadUrl,
-                    publishedAt = json.optString("published_at", ""),
-                    versionCode = remoteCode
-                )
-                _updateInfo.value = info
-                return@withContext info
-            } else {
-                _updateInfo.value = null
+                if (isNewerVersion(remoteVersion, currentVersion)) {
+                    val info = AppUpdateInfo(
+                        currentVersion = currentVersion,
+                        latestVersion = remoteVersion,
+                        hasUpdate = true,
+                        releaseNotes = "Hey! A new version ($remoteVersion) of Unbound Music is available. Install the latest app now.",
+                        downloadUrl = DOWNLOAD_PAGE_URL,
+                        publishedAt = ""
+                    )
+                    _updateInfo.value = info
+                    return@withContext info
+                } else {
+                    _updateInfo.value = null
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Update check failed: ${e.message}")
@@ -101,24 +135,34 @@ object AppUpdateManager {
     }
 
     /**
-     * Downloads APK using Android's DownloadManager and triggers immediate package install prompt.
+     * Opens the official download page or downloads an APK directly and prompts installation.
      */
     fun startDownloadAndInstall(context: Context, info: AppUpdateInfo) {
+        val targetUrl = info.downloadUrl.ifBlank { DOWNLOAD_PAGE_URL }
+        if (!targetUrl.endsWith(".apk", ignoreCase = true)) {
+            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+            return
+        }
+
         if (_isDownloading.value) return
         _isDownloading.value = true
 
         try {
+            val safeVer = info.latestVersion.replace(".", "")
             val destinationFile = File(
                 context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
-                "unbound-music-${info.latestVersion}.apk"
+                "unboundmusic_V$safeVer.apk"
             )
             if (destinationFile.exists()) {
                 destinationFile.delete()
             }
 
             val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val request = DownloadManager.Request(Uri.parse(info.downloadUrl))
-                .setTitle("Downloading UnboundMusic update")
+            val request = DownloadManager.Request(Uri.parse(targetUrl))
+                .setTitle("Downloading Unbound Music update")
                 .setDescription("Version ${info.latestVersion}")
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 .setDestinationUri(Uri.fromFile(destinationFile))
@@ -183,7 +227,7 @@ object AppUpdateManager {
         }
     }
 
-    private fun getCurrentVersionName(context: Context): String {
+    fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
@@ -191,28 +235,9 @@ object AppUpdateManager {
                 @Suppress("DEPRECATION")
                 context.packageManager.getPackageInfo(context.packageName, 0)
             }
-            pInfo.versionName ?: "2.0.0"
+            pInfo.versionName ?: FALLBACK_VERSION_NAME
         } catch (_: Exception) {
-            "2.0.0"
-        }
-    }
-
-    private fun getCurrentVersionCode(context: Context): Int {
-        return try {
-            val pInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pInfo.longVersionCode.toInt()
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode
-            }
-        } catch (e: Exception) {
-            3
+            FALLBACK_VERSION_NAME
         }
     }
 }

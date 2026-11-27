@@ -389,7 +389,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isCheckingUpdate.value = true
             try {
-                // First check direct GitHub OTA release manifest
+                // Ping marketing website version API: https://unboundmusic-two.vercel.app/api/version
                 val directInfo = com.cubicreates.unboundmusic.updater.AppUpdateManager.checkForUpdates(
                     getApplication(),
                     silent = !manual
@@ -399,7 +399,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                val currentVer = "2.0.1"
+                val currentVer = com.cubicreates.unboundmusic.updater.AppUpdateManager.getCurrentVersionName(getApplication())
                 val res = withContext(Dispatchers.IO) {
                     client.checkForUpdates(currentVer)
                 }

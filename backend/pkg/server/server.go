@@ -189,7 +189,7 @@ func NewServer(cfg Config) (*Server, error) {
 	ytExploreEngine := ytmusic.NewExploreEngine(repo)
 	artistEngine := artist.NewEngine(ytClient)
 	sleepTimerMgr := sleeptimer.NewTimer()
-	appUpdater := updater.NewUpdater("2.0.0")
+	appUpdater := updater.NewUpdater("1.0.27.11.26")
 
 	indexer := storage.NewIndexer(repo)
 	downloadDir := os.TempDir()

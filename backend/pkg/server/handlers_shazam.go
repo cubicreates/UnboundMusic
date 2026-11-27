@@ -17,12 +17,14 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/cubicreates/unbound-engine/pkg/ai"
 	"github.com/cubicreates/unbound-engine/pkg/shazam"
+	"github.com/cubicreates/unbound-engine/pkg/ytmusic"
 )
 
 // handleLyricsRecognize handles multi-candidate song recognition from typed or sung lyrics.
@@ -191,13 +193,27 @@ func (s *Server) handleShazamFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Synthesize audio buffer and query Shazam recognition
-	dummySamples := make([]float32, 16000*4)
-	for i := range dummySamples {
-		dummySamples[i] = 1000.0
+	// 2. Read real 16-bit PCM/WAV audio samples from file if supported
+	rawBytes, readErr := os.ReadFile(req.FilePath)
+	if readErr != nil || len(rawBytes) < 3200 {
+		writeJSON(w, http.StatusOK, offlineRes)
+		return
+	}
+	if len(rawBytes) > 44 && string(rawBytes[0:4]) == "RIFF" && string(rawBytes[8:12]) == "WAVE" {
+		rawBytes = rawBytes[44:]
+	}
+	maxBytes := 16000 * 2 * 12 // Cap at 12 seconds of 16kHz 16-bit mono PCM
+	if len(rawBytes) > maxBytes {
+		rawBytes = rawBytes[:maxBytes]
+	}
+	numSamples := len(rawBytes) / 2
+	samples := make([]float32, numSamples)
+	for i := 0; i < numSamples; i++ {
+		raw := int16(binary.LittleEndian.Uint16(rawBytes[i*2 : i*2+2]))
+		samples[i] = float32(raw)
 	}
 
-	cmap, err := shazam.ExtractConstellationMap(dummySamples, 16000)
+	cmap, err := shazam.ExtractConstellationMap(samples, 16000)
 	if err != nil {
 		writeJSON(w, http.StatusOK, offlineRes)
 		return
@@ -386,10 +402,16 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 
 	var variants []map[string]any
 	confidence := 0.0
+	resolvedID := res.TrackID
 	if res.Matched {
 		confidence = 0.96
 		variants = s.resolveAcousticVariants(r.Context(), res.Title, res.Artist, res.Album, res.CoverArtURL, res.TrackID)
-		log.Printf("[SHAZAM] Recognition success: matched=true, title=%s, artist=%s", res.Title, res.Artist)
+		if len(variants) > 0 {
+			if topID, ok := variants[0]["id"].(string); ok && ytmusic.IsValidYouTubeVideoID(topID) {
+				resolvedID = topID
+			}
+		}
+		log.Printf("[SHAZAM] Recognition success: matched=true, title=%s, artist=%s, resolvedID=%s", res.Title, res.Artist, resolvedID)
 	} else {
 		log.Printf("[SHAZAM] No match found on Shazam discovery gateway")
 	}
@@ -399,8 +421,9 @@ func (s *Server) handleShazamIdentify(w http.ResponseWriter, r *http.Request) {
 		"early_exit":      res.Matched && cmap.DurationMs < 6000,
 		"duration_ms":     cmap.DurationMs,
 		"confidence":      confidence,
-		"track_id":        res.TrackID,
-		"id":              res.TrackID,
+		"track_id":        resolvedID,
+		"id":              resolvedID,
+		"shazam_key":      res.TrackID,
 		"title":           res.Title,
 		"artist":          res.Artist,
 		"album":           res.Album,
@@ -484,16 +507,25 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 	}
 	variants = append(variants, radarVariant)
 
-	// 2. If the detected track was a remix, search catalog for the canonical original and additional candidates!
-	if s.ytClient != nil && resolution.CanonicalTitle != "" {
-		searchQuery := fmt.Sprintf("%s %s", resolution.CanonicalTitle, resolution.CanonicalArtist)
-		tracks, err := s.ytClient.SearchWithCategory(ctx, searchQuery, "music")
+	// 2. Always resolve a playable 11-char YouTube Music videoId (for both original songs and remixes)
+	// so instant playback works on both Home and Search without stream-resolution retries.
+	if s.ytClient != nil && (resolution.CanonicalTitle != "" || title != "") {
+		searchQuery := strings.TrimSpace(fmt.Sprintf("%s %s", resolution.CanonicalTitle, resolution.CanonicalArtist))
+		if searchQuery == "" {
+			searchQuery = strings.TrimSpace(fmt.Sprintf("%s %s", title, artist))
+		}
+		tracks, err := s.ytClient.SearchMusic(ctx, searchQuery, "songs")
+		if err != nil || len(tracks) == 0 {
+			tracks, err = s.ytClient.SearchWithCategory(ctx, searchQuery, "music")
+		}
 		if err == nil && len(tracks) > 0 {
 			var origFound bool
+			var radarIDAssigned bool
 			seenIDs := map[string]bool{trackID: true}
 			for _, t := range tracks {
 				if t.ItemType == "album" || t.ItemType == "artist" || t.ItemType == "playlist" ||
-					strings.HasPrefix(t.ID, "UC") || strings.HasPrefix(t.ID, "MPREb_") {
+					strings.HasPrefix(t.ID, "UC") || strings.HasPrefix(t.ID, "MPREb_") ||
+					!ytmusic.IsValidYouTubeVideoID(t.ID) {
 					continue
 				}
 				if seenIDs[t.ID] {
@@ -503,7 +535,20 @@ func (s *Server) resolveAcousticVariants(ctx context.Context, title, artist, alb
 
 				candidateIsRemix := ai.IsCandidateRemixOrVariant(t.Title)
 
-				// If detected track was a remix, we specifically search for and attach the CANONICAL ORIGINAL!
+				// Assign playable YouTube ID to the primary Radar Match when it matches the detected song
+				if !radarIDAssigned && (!isDetectedRemix || candidateIsRemix) {
+					variants[len(variants)-1]["id"] = t.ID
+					if t.DurationMs > 0 {
+						variants[len(variants)-1]["duration_ms"] = t.DurationMs
+					}
+					if coverURL == "" && t.ThumbnailURL != "" {
+						variants[len(variants)-1]["cover_url"] = t.ThumbnailURL
+						variants[len(variants)-1]["thumbnail_url"] = t.ThumbnailURL
+					}
+					radarIDAssigned = true
+				}
+
+				// If detected track was a remix, also attach the CANONICAL ORIGINAL at the top!
 				if isDetectedRemix && !origFound && !candidateIsRemix {
 					origVariant := map[string]any{
 						"id":              t.ID,

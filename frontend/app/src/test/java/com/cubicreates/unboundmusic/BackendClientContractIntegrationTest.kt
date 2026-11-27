@@ -330,4 +330,29 @@ class BackendClientContractIntegrationTest {
         assertEquals(900000L, lib.savedEpisodes[0].resumePosMs)
         assertEquals(1, lib.inProgressEpisodes.size)
     }
+
+    @Test
+    fun testWallpaperBackupMetaContract() {
+        val payload = """
+            {
+                "has_backup": true,
+                "mime_type": "image/png",
+                "source_flag": "system_shared",
+                "lock_wallpaper_id": -1,
+                "system_wallpaper_id": 42,
+                "sha256_hex": "deadbeef",
+                "byte_size": 204800,
+                "updated_at": 1700000000000
+            }
+        """.trimIndent()
+
+        val meta = client.parseWallpaperBackupMeta(payload)
+        assertNotNull(meta)
+        assertTrue(meta!!.hasBackup)
+        assertEquals("image/png", meta.mimeType)
+        assertEquals("system_shared", meta.sourceFlag)
+        assertEquals(-1L, meta.lockWallpaperId)
+        assertEquals(42L, meta.systemWallpaperId)
+        assertEquals(204800L, meta.byteSize)
+    }
 }

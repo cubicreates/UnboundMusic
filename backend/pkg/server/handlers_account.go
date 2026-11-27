@@ -16,18 +16,22 @@ import (
 	"github.com/cubicreates/unbound-engine/pkg/account"
 )
 
-// handleAccountSync syncs personal YouTube library.
+// handleAccountSync syncs personal YouTube library and profile metadata.
 func (s *Server) handleAccountSync(w http.ResponseWriter, r *http.Request) {
 	type SyncReq struct {
-		Cookie string `json:"cookie"`
+		Cookie      string `json:"cookie"`
+		AccountName string `json:"account_name"`
+		AvatarURL   string `json:"avatar_url"`
 	}
 	var req SyncReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if req.Cookie != "" {
-		if err := s.accountSync.ConnectAccount(r.Context(), req.Cookie); err != nil {
+		if err := s.accountSync.ConnectAccountWithHints(r.Context(), req.Cookie, req.AccountName, req.AvatarURL); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+	} else if s.accountSync.GetStatus().Connected {
+		_, _ = s.accountSync.SyncLibrary(r.Context())
 	}
 
 	status := s.accountSync.GetStatus()
@@ -42,6 +46,7 @@ func (s *Server) handleAccountSync(w http.ResponseWriter, r *http.Request) {
 
 // handleAccountStatus returns the current YouTube connection state, user account name, avatar URL, and synced track count.
 func (s *Server) handleAccountStatus(w http.ResponseWriter, r *http.Request) {
+	s.accountSync.RefreshProfileIfNeeded(r.Context())
 	status := s.accountSync.GetStatus()
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"connected":           status.Connected,
@@ -57,6 +62,9 @@ func (s *Server) handleAccountDisconnect(w http.ResponseWriter, r *http.Request)
 	if err := s.accountSync.DisconnectAccount(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.algoEngine != nil {
+		s.algoEngine.InvalidateCache()
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "disconnected"})
 }

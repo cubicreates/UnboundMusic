@@ -15,8 +15,16 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 /** Authenticates YouTube cookies with local Go engine and triggers library synchronization. */
-suspend fun BackendClient.syncAccount(cookie: String): Pair<Int, String> = withContext(Dispatchers.IO) {
-    val payload = JSONObject().put("cookie", cookie).toString()
+suspend fun BackendClient.syncAccount(
+    cookie: String,
+    accountName: String = "",
+    avatarUrl: String = ""
+): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("cookie", cookie)
+        if (accountName.isNotBlank()) put("account_name", accountName)
+        if (avatarUrl.isNotBlank()) put("avatar_url", avatarUrl)
+    }.toString()
     post("/api/v1/account/sync", payload)
 }
 
@@ -80,8 +88,22 @@ suspend fun BackendClient.getLikedTracks(): Pair<Int, String> = withContext(Disp
 suspend fun BackendClient.getAccountLiked(): Pair<Int, String> = getLikedTracks()
 
 /** Dispatches a like or unlike mutation for a video ID directly to YouTube Music InnerTube. */
-suspend fun BackendClient.toggleTrackLike(videoId: String, isLiked: Boolean): Pair<Int, String> = withContext(Dispatchers.IO) {
-    val payload = JSONObject().put("video_id", videoId).put("like", isLiked).toString()
+suspend fun BackendClient.toggleTrackLike(
+    videoId: String,
+    isLiked: Boolean,
+    track: TrackItem? = null
+): Pair<Int, String> = withContext(Dispatchers.IO) {
+    val payload = JSONObject().apply {
+        put("video_id", videoId)
+        put("like", isLiked)
+        if (track != null) {
+            put("title", track.title)
+            put("artist", track.artist)
+            put("album", track.album)
+            put("duration_ms", track.durationMs)
+            put("cover_url", track.coverUrl)
+        }
+    }.toString()
     post("/api/v1/track/like", payload)
 }
 

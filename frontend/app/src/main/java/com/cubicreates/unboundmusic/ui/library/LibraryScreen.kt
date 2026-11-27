@@ -139,7 +139,9 @@ fun LibraryScreen(
     }
     val combinedFavorites = remember(favoriteTracks, syncedYouTubeTracks, isCloudActive) {
         if (isCloudActive) {
-            (favoriteTracks + syncedYouTubeTracks.filter { it in favoriteTracks }).distinctBy { it.id }.ifEmpty { favoriteTracks }
+            (favoriteTracks + syncedYouTubeTracks).distinctBy {
+                it.id.ifBlank { "${it.title.lowercase()}|${it.artist.lowercase()}" }
+            }
         } else {
             favoriteTracks
         }

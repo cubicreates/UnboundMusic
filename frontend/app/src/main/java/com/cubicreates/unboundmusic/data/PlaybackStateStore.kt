@@ -40,6 +40,7 @@ object PlaybackStateStore {
     private const val KEY_STREAMING_QUALITY = "key_streaming_quality"
     private const val KEY_DOWNLOAD_QUALITY = "key_download_quality"
     private const val KEY_FAVORITE_TRACK_IDS = "key_favorite_track_ids"
+    private const val KEY_LLM_PROMPT_DISMISSED = "key_llm_prompt_dismissed"
 
     private const val KEY_HAS_SAVED_STATE = "key_has_saved_state"
     private const val KEY_SAVED_TRACK = "key_saved_track"
@@ -68,6 +69,16 @@ object PlaybackStateStore {
 
     fun setDownloadQuality(context: Context, quality: AudioQuality) {
         getPrefs(context).edit().putString(KEY_DOWNLOAD_QUALITY, quality.id).apply()
+    }
+
+    // ==================== On-Device LLM Prompt Dismissal ====================
+
+    fun isLlmPromptDismissed(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_LLM_PROMPT_DISMISSED, false)
+    }
+
+    fun setLlmPromptDismissed(context: Context, dismissed: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_LLM_PROMPT_DISMISSED, dismissed).apply()
     }
 
     // ==================== Favorites Persistence ====================

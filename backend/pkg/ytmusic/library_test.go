@@ -511,3 +511,63 @@ func TestClient_WithDisableAuth(t *testing.T) {
 		t.Errorf("expected search to be unauthenticated by default")
 	}
 }
+
+func TestExtractMixedForYouItemsAndContinuation(t *testing.T) {
+	root := map[string]interface{}{
+		"contents": map[string]interface{}{
+			"singleColumnBrowseResultsRenderer": map[string]interface{}{
+				"tabs": []interface{}{
+					map[string]interface{}{
+						"tabRenderer": map[string]interface{}{
+							"content": map[string]interface{}{
+								"sectionListRenderer": map[string]interface{}{
+									"continuations": []interface{}{
+										map[string]interface{}{
+											"nextContinuationData": map[string]interface{}{
+												"continuation": "cont_token_xyz",
+											},
+										},
+									},
+									"contents": []interface{}{
+										map[string]interface{}{
+											"gridRenderer": map[string]interface{}{
+												"items": []interface{}{
+													map[string]interface{}{
+														"musicTwoRowItemRenderer": map[string]interface{}{
+															"title": map[string]interface{}{
+																"runs": []interface{}{map[string]interface{}{"text": "My Supermix"}},
+															},
+															"subtitle": map[string]interface{}{
+																"runs": []interface{}{map[string]interface{}{"text": "Endless personalized mix"}},
+															},
+															"navigationEndpoint": map[string]interface{}{
+																"watchPlaylistEndpoint": map[string]interface{}{
+																	"playlistId": "RDTMAK5uy_supermix",
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if tok := extractContinuationToken(root); tok != "cont_token_xyz" {
+		t.Fatalf("expected continuation 'cont_token_xyz', got %q", tok)
+	}
+	mixes := extractMixedForYouItems(root)
+	if len(mixes) != 1 || mixes[0].ID != "RDTMAK5uy_supermix" || mixes[0].Title != "My Supermix" {
+		t.Fatalf("unexpected extracted mixes: %+v", mixes)
+	}
+	if p := HomePreferenceParam("Relax"); !strings.HasPrefix(p, "ggM8") {
+		t.Fatalf("expected FEmusic_home mood param for Relax, got %q", p)
+	}
+}

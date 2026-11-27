@@ -19,7 +19,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import com.cubicreates.unboundmusic.util.UnboundToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -157,11 +156,6 @@ class BackendClient(baseUrlInput: String = "http://127.0.0.1:45731") {
                         stream502Timestamps.clear()
                         targetContext?.let { ctx ->
                             Handler(Looper.getMainLooper()).post {
-                                UnboundToast.show(
-                                    ctx.applicationContext,
-                                    "Streaming source temporarily adapting. Local offline tracks remain accessible.",
-                                    isLong = true
-                                )
                             }
                         }
                     }

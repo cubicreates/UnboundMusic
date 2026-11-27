@@ -40,6 +40,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.ChevronRight
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -59,6 +61,7 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
@@ -138,6 +141,13 @@ fun SettingsScreen(
     onOpenDownloadsHub: () -> Unit = {},
     onExportBackupClick: () -> Unit = {},
     onRestoreBackupClick: () -> Unit = {},
+    isLlmInstalled: Boolean = false,
+    isLlmDownloading: Boolean = false,
+    llmDownloadProgress: Float = 0f,
+    llmStatusMessage: String? = null,
+    onDownloadLlmClick: () -> Unit = {},
+    onCancelLlmDownloadClick: () -> Unit = {},
+    onDeleteLlmClick: () -> Unit = {},
     enableBackHandler: Boolean = true
 ) {
     var showStreamingQualityDialog by remember { mutableStateOf(false) }
@@ -326,6 +336,106 @@ fun SettingsScreen(
                 }
             }
 
+            // ==================== 5.5 On-Device Smart AI (LLM) ====================
+            item(key = "profile_llm_section") {
+                SettingsSectionBlock(
+                    title = "On-Device Smart AI",
+                    trailingCaption = when {
+                        isLlmInstalled -> "LLM Active"
+                        isLlmDownloading -> "Downloading ${(llmDownloadProgress * 100).toInt()}%"
+                        else -> "Not downloaded"
+                    }
+                ) {
+                    SettingsGroupCard {
+                        if (isLlmDownloading) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(UnboundSurfaceContainerHigh),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AutoAwesome,
+                                            contentDescription = "On-Device LLM",
+                                            tint = UnboundPrimary,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Downloading Smart LLM",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = OnSurface
+                                        )
+                                        Text(
+                                            text = "SmolLM2-135M • ${(llmDownloadProgress * 100).toInt()}%",
+                                            fontSize = 11.5.sp,
+                                            color = UnboundPrimary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Surface(
+                                        onClick = onCancelLlmDownloadClick,
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = UnboundSurfaceContainerHigh
+                                    ) {
+                                        Text(
+                                            text = "Cancel",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFFFB4AB),
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                        )
+                                    }
+                                }
+                                LinearProgressIndicator(
+                                    progress = { llmDownloadProgress.coerceIn(0f, 1f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(50)),
+                                    color = UnboundPrimary,
+                                    trackColor = UnboundSurfaceContainerHigh
+                                )
+                            }
+                        } else {
+                            SettingsActionButtonRow(
+                                icon = Icons.Default.AutoAwesome,
+                                title = "Smart LLM Engine",
+                                subtitle = when {
+                                    isLlmInstalled -> "LLM Active • SmolLM2-135M ready"
+                                    llmStatusMessage != null -> llmStatusMessage
+                                    else -> "Not downloaded • Keeps APK lightweight"
+                                },
+                                iconTint = if (isLlmInstalled) UnboundSecondary else UnboundPrimary,
+                                subtitleColor = when {
+                                    isLlmInstalled -> UnboundSecondary
+                                    llmStatusMessage != null -> Color(0xFFFFB4AB)
+                                    else -> OnSurfaceVariant
+                                },
+                                showSubtitleDot = isLlmInstalled,
+                                buttonText = if (isLlmInstalled) "Remove" else "Download LLM",
+                                isPrimaryButton = !isLlmInstalled,
+                                buttonTextColor = if (isLlmInstalled) Color(0xFFFFB4AB) else null,
+                                onButtonClick = {
+                                    if (isLlmInstalled) onDeleteLlmClick() else onDownloadLlmClick()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             // ==================== 6. Connected Accounts ====================
             item(key = "profile_accounts_section") {
                 SettingsSectionBlock(
@@ -345,6 +455,19 @@ fun SettingsScreen(
                                 if (isYouTubeConnected) onYouTubeResyncClick() else onYouTubeSyncClick()
                             }
                         )
+                        if (isYouTubeConnected) {
+                            SettingsRowDivider()
+                            SettingsActionButtonRow(
+                                icon = Icons.Default.LinkOff,
+                                title = "Sign Out of YouTube",
+                                subtitle = "Clear session, cookies & synced cache",
+                                iconTint = Color(0xFFFFB4AB),
+                                buttonText = "Disconnect",
+                                isPrimaryButton = false,
+                                buttonTextColor = Color(0xFFFFB4AB),
+                                onButtonClick = onDisconnectYouTubeClick
+                            )
+                        }
                         SettingsRowDivider()
                         SettingsBadgeRow(
                             icon = Icons.Default.BatteryChargingFull,
@@ -504,8 +627,10 @@ private fun IdentityHeroCard(
     streamingQuality: AudioQuality,
     onConnectOrDisconnect: () -> Unit
 ) {
-    val displayName = if (isYouTubeConnected && accountName.isNotBlank() && accountName != "Local User") {
-        accountName
+    val displayName = if (isYouTubeConnected && !com.cubicreates.unboundmusic.viewmodel.isPlaceholderAccountName(accountName)) {
+        accountName.trim()
+    } else if (isYouTubeConnected) {
+        "YouTube Listener"
     } else {
         "Guest Listener"
     }
@@ -646,18 +771,16 @@ private fun IdentityHeroCard(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     Surface(
+                        onClick = onConnectOrDisconnect,
                         shape = RoundedCornerShape(10.dp),
-                        color = if (isYouTubeConnected) UnboundSurfaceContainerHigh else UnboundPrimary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(onClick = onConnectOrDisconnect)
+                        color = if (isYouTubeConnected) Color(0xFF93000A).copy(alpha = 0.45f) else UnboundPrimary
                     ) {
                         Text(
                             text = if (isYouTubeConnected) "Disconnect" else "Connect",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (isYouTubeConnected) UnboundPrimary else OnPrimary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            color = if (isYouTubeConnected) Color(0xFFFFB4AB) else OnPrimary,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)
                         )
                     }
                 }
@@ -933,6 +1056,7 @@ private fun SettingsActionButtonRow(
     iconTint: Color = UnboundPrimary,
     subtitleColor: Color = OnSurfaceVariant,
     showSubtitleDot: Boolean = false,
+    buttonTextColor: Color? = null,
     onButtonClick: () -> Unit
 ) {
     Row(
@@ -988,18 +1112,16 @@ private fun SettingsActionButtonRow(
         }
         Spacer(modifier = Modifier.width(8.dp))
         Surface(
+            onClick = onButtonClick,
             shape = RoundedCornerShape(10.dp),
-            color = if (isPrimaryButton) UnboundPrimary else UnboundSurfaceContainer,
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onButtonClick)
+            color = if (isPrimaryButton) UnboundPrimary else UnboundSurfaceContainer
         ) {
             Text(
                 text = buttonText,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (isPrimaryButton) OnPrimary else UnboundPrimary,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                color = buttonTextColor ?: if (isPrimaryButton) OnPrimary else UnboundPrimary,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
             )
         }
     }

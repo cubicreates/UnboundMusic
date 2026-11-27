@@ -167,19 +167,9 @@ fun MainViewModel.launchGoogleSoundSearch(context: Context): Boolean {
         try {
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
             context.startActivity(intent)
-            com.cubicreates.unboundmusic.util.UnboundToast.show(
-                context,
-                "Opening Google Sound Search for hummed melody...",
-                isLong = false
-            )
             return true
         } catch (_: Exception) {}
     }
-    com.cubicreates.unboundmusic.util.UnboundToast.show(
-        context,
-        "Google Sound Search not available on this device",
-        isLong = false
-    )
     return false
 }
 
@@ -323,10 +313,6 @@ internal fun MainViewModel.executeAmbientShazamCapture(
                     }
                     _recognizedMessage.value = reasonMsg
                     withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            reasonMsg
-                        )
                     }
                 } else {
                     _recognizedMessage.value = if (_shazamMode.value == ShazamMode.HUMMING) {
@@ -355,10 +341,6 @@ internal fun MainViewModel.executeAmbientShazamCapture(
             _recognizedMessage.value = "Could not recognize audio. Try again."
             setRecognitionState(surface, RecognitionUiState.Error("Could not recognize audio. Try again."))
             withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                    getApplication(),
-                    "Could not recognize audio. Try again."
-                )
             }
         } finally {
             _isListeningShazam.value = false
@@ -529,11 +511,6 @@ internal suspend fun MainViewModel.parseAndSetShazamResult(
             }
             _recognizedMessage.value = displayMsg
             withContext(Dispatchers.Main) {
-                com.cubicreates.unboundmusic.util.UnboundToast.show(
-                    getApplication(),
-                    displayMsg,
-                    isLong = true
-                )
             }
             true
         } else {
@@ -601,11 +578,6 @@ fun MainViewModel.triggerFallbackSearch(title: String, artist: String = "", forc
                 _fallbackStatus.value = status
                 if (status != null && status.stage == "STREAMING") {
                     withContext(Dispatchers.Main) {
-                        com.cubicreates.unboundmusic.util.UnboundToast.show(
-                            getApplication(),
-                            "Fallback stream found via P2P (${status.sourceFormat ?: "Audio"})",
-                            isLong = true
-                        )
                     }
                 }
             } else {

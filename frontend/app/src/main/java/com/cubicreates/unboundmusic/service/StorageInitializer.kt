@@ -12,22 +12,45 @@ package com.cubicreates.unboundmusic.service
 import android.content.Context
 import android.util.Log
 import com.cubicreates.unboundmusic.data.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 object StorageInitializer {
 
     private const val TAG = "StorageInitializer"
 
+    // Exact public zero-token HuggingFace endpoints used by scripts/fetch_ai_payload.ps1
+    const val SMOLLLM2_GGUF_URL =
+        "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf"
+    const val MINILM_ONNX_URL =
+        "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"
+
+    private const val MIN_GGUF_SIZE_BYTES = 80_000_000L
+    private const val MIN_ONNX_SIZE_BYTES = 18_000_000L
+
+    private val activeDownloadCall = AtomicReference<okhttp3.Call?>(null)
+    private val cancelRequested = AtomicBoolean(false)
+
     /**
-     * Initializes internal app storage on first boot:
-     * 1. Extracts fpcalc and llama-cli from assets/bin/arm64-v8a/ to files/bin/ and marks them executable.
-     * 2. Verifies presence of AI models in files/models/; if missing, unpacks models.zst.
+     * Immediately aborts any active OkHttp model download to save battery and mobile data.
+     */
+    fun cancelActiveDownload() {
+        cancelRequested.set(true)
+        activeDownloadCall.getAndSet(null)?.cancel()
+    }
+
+    /**
+     * Initializes internal app storage on first boot without bundling heavy LLM weights in the APK.
      */
     suspend fun initialize(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
@@ -48,22 +71,20 @@ object StorageInitializer {
             // 2. Pure in-process Go engine provides all acoustic DSP and fingerprinting
             Log.i(TAG, "Storage directories initialized. Native DSP & Shazam engine active via in-process Go daemon.")
 
-            // 3. Check for presence of on-device AI model weights
+            // 3. Clean up any incomplete/corrupt on-demand AI model downloads from aborted transfers
             val primaryModel = File(modelsDir, "smollm2_135m.gguf")
             val onnxModel = File(modelsDir, "model_quantized.onnx")
+            File(modelsDir, "smollm2_135m.gguf.tmp").takeIf { it.exists() }?.delete()
+            File(modelsDir, "model_quantized.onnx.tmp").takeIf { it.exists() }?.delete()
 
-            // Clean up any incomplete/corrupt model payload from aborted transfers
-            if (primaryModel.exists() && primaryModel.length() < 100_000_000L) {
+            if (primaryModel.exists() && primaryModel.length() < MIN_GGUF_SIZE_BYTES) {
                 Log.w(TAG, "Detected incomplete/corrupt model payload (${primaryModel.length()} bytes). Purging...")
                 primaryModel.delete()
             }
-            if (onnxModel.exists() && onnxModel.length() < 20_000_000L) {
+            if (onnxModel.exists() && onnxModel.length() < MIN_ONNX_SIZE_BYTES) {
                 Log.w(TAG, "Detected incomplete/corrupt ONNX payload (${onnxModel.length()} bytes). Purging...")
                 onnxModel.delete()
             }
-
-            // Launch non-blocking background model extractor so cold start is < 15ms
-            extractTestingModelsAsync(context)
 
             Log.i(TAG, "Storage initialization completed successfully.")
             true
@@ -74,140 +95,188 @@ object StorageInitializer {
     }
 
     /**
-     * Extracts bundled testing models in background without blocking startup or risking timeouts.
-     */
-    fun extractTestingModelsAsync(context: Context) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
-                val modelsDir = File(backendRoot, "models")
-                if (!modelsDir.exists()) modelsDir.mkdirs()
-
-                val primaryModel = File(modelsDir, "smollm2_135m.gguf")
-                if (!primaryModel.exists() || primaryModel.length() < 100_000_000L) {
-                    val hasAssetGguf = try {
-                        context.assets.list("payload")?.contains("smollm2_135m.gguf") == true
-                    } catch (_: Exception) { false }
-
-                    if (hasAssetGguf) {
-                        Log.i(TAG, "Testing phase: Extracting bundled smollm2_135m.gguf from APK assets in background...")
-                        val tempModel = File(modelsDir, "smollm2_135m.gguf.tmp")
-                        context.assets.open("payload/smollm2_135m.gguf").use { input ->
-                            FileOutputStream(tempModel).use { output ->
-                                val buffer = ByteArray(64 * 1024)
-                                var bytesRead: Int
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                }
-                            }
-                        }
-                        if (tempModel.length() >= 100_000_000L) {
-                            tempModel.renameTo(primaryModel)
-                            Log.i(TAG, "Bundled test model extracted (${primaryModel.length()} bytes).")
-                        } else {
-                            tempModel.delete()
-                        }
-                    }
-                }
-
-                val onnxModel = File(modelsDir, "model_quantized.onnx")
-                if (!onnxModel.exists() || onnxModel.length() < 20_000_000L) {
-                    val hasAssetOnnx = try {
-                        context.assets.list("payload")?.contains("model_quantized.onnx") == true
-                    } catch (_: Exception) { false }
-
-                    if (hasAssetOnnx) {
-                        Log.i(TAG, "Testing phase: Extracting bundled model_quantized.onnx from APK assets in background...")
-                        val tempOnnx = File(modelsDir, "model_quantized.onnx.tmp")
-                        context.assets.open("payload/model_quantized.onnx").use { input ->
-                            FileOutputStream(tempOnnx).use { output ->
-                                val buffer = ByteArray(64 * 1024)
-                                var bytesRead: Int
-                                while (input.read(buffer).also { bytesRead = it } != -1) {
-                                    output.write(buffer, 0, bytesRead)
-                                }
-                            }
-                        }
-                        if (tempOnnx.length() >= 20_000_000L) {
-                            tempOnnx.renameTo(onnxModel)
-                            Log.i(TAG, "Bundled ONNX model extracted (${onnxModel.length()} bytes).")
-                        } else {
-                            tempOnnx.delete()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Background model extraction error: ${e.message}")
-            }
-        }
-    }
-
-    /**
      * Checks if the on-device AI model weights are downloaded and available.
      */
     fun isAiModelInstalled(context: Context): Boolean {
         val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
         val primaryModel = File(File(backendRoot, "models"), "smollm2_135m.gguf")
-        return primaryModel.exists() && primaryModel.length() > 0L
+        return primaryModel.exists() && primaryModel.length() >= MIN_GGUF_SIZE_BYTES
     }
 
     /**
-     * Downloads models.zst on-demand from remote URL and unpacks via Go daemon.
+     * Deletes downloaded on-device LLM/ONNX weights so users can reclaim storage cleanly.
      */
-    suspend fun downloadAndInstallModel(
-        context: Context,
-        downloadUrl: String = "https://github.com/cubicreates/UnboundMusic/releases/download/v1.0.0-assets/models.zst",
-        onProgress: (Float) -> Unit = {}
-    ): Boolean = withContext(Dispatchers.IO) {
+    suspend fun deleteAiModel(context: Context): Boolean = withContext(Dispatchers.IO) {
         try {
             val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
             val modelsDir = File(backendRoot, "models")
-            if (!modelsDir.exists()) modelsDir.mkdirs()
-            val zstFile = File(modelsDir, "models.zst")
+            listOf(
+                "smollm2_135m.gguf",
+                "smollm2_135m.gguf.tmp",
+                "model_quantized.onnx",
+                "model_quantized.onnx.tmp",
+                "models.zst",
+                "models.zst.tmp"
+            ).forEach { name ->
+                File(modelsDir, name).takeIf { it.exists() }?.delete()
+            }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting AI model weights: ${e.message}", e)
+            false
+        }
+    }
 
-            Log.i(TAG, "Starting on-demand download of AI model weights from $downloadUrl")
-            val request = okhttp3.Request.Builder().url(downloadUrl).build()
-            val client = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
+    private suspend fun downloadFileWithProgress(
+        client: okhttp3.OkHttpClient,
+        url: String,
+        destFile: File,
+        onFraction: (Float) -> Unit
+    ): Boolean {
+        val tempFile = File(destFile.parentFile, "${destFile.name}.tmp")
+        if (tempFile.exists()) tempFile.delete()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Failed downloading AI model payload: HTTP ${response.code}")
-                return@withContext false
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .header("User-Agent", "UnboundMusic/1.0 (Android)")
+            .build()
+
+        val call = client.newCall(request)
+        activeDownloadCall.set(call)
+        try {
+            if (cancelRequested.get() || !currentCoroutineContext().isActive) {
+                call.cancel()
+                throw CancellationException("LLM download cancelled")
             }
 
-            val body = response.body ?: return@withContext false
-            val contentLength = body.contentLength()
-            var downloadedBytes = 0L
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Failed downloading $url: HTTP ${response.code}")
+                    return false
+                }
+                val body = response.body ?: return false
+                val contentLength = body.contentLength()
+                var downloadedBytes = 0L
 
-            body.byteStream().use { input ->
-                FileOutputStream(zstFile).use { output ->
-                    val buffer = ByteArray(32 * 1024)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        output.write(buffer, 0, read)
-                        downloadedBytes += read
-                        if (contentLength > 0) {
-                            val progress = downloadedBytes.toFloat() / contentLength.toFloat()
-                            onProgress(progress.coerceIn(0f, 1f))
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            if (cancelRequested.get() || !currentCoroutineContext().isActive) {
+                                throw CancellationException("LLM download cancelled")
+                            }
+                            output.write(buffer, 0, read)
+                            downloadedBytes += read
+                            if (contentLength > 0) {
+                                onFraction((downloadedBytes.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f))
+                            }
                         }
                     }
                 }
             }
 
-            Log.i(TAG, "Model payload downloaded (${zstFile.length()} bytes). Unpacking via Go engine...")
-            val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(context).client
-            val unpacked = daemonClient.unpackPayload(zstFile.absolutePath, modelsDir.absolutePath)
-            if (unpacked) {
-                if (zstFile.exists()) zstFile.delete()
-                Log.i(TAG, "On-demand AI model installation complete.")
-                true
-            } else {
-                Log.e(TAG, "Failed unpacking AI model payload via daemon.")
-                false
+            if (cancelRequested.get() || !currentCoroutineContext().isActive) {
+                throw CancellationException("LLM download cancelled")
             }
+            if (destFile.exists()) destFile.delete()
+            return tempFile.renameTo(destFile)
+        } catch (ce: CancellationException) {
+            if (tempFile.exists()) tempFile.delete()
+            throw ce
+        } catch (e: Exception) {
+            if (tempFile.exists()) tempFile.delete()
+            if (cancelRequested.get() || !currentCoroutineContext().isActive) {
+                throw CancellationException("LLM download cancelled")
+            }
+            throw e
+        } finally {
+            activeDownloadCall.compareAndSet(call, null)
+        }
+    }
+
+    /**
+     * Downloads the on-device LLM directly from HuggingFace (or unpacks a .zst archive URL) on demand.
+     */
+    suspend fun downloadAndInstallModel(
+        context: Context,
+        downloadUrl: String = SMOLLLM2_GGUF_URL,
+        onProgress: (Float) -> Unit = {}
+    ): Boolean = withContext(Dispatchers.IO) {
+        cancelRequested.set(false)
+        val backendRoot = UnboundStorageManager.getBackendStorageRoot(context)
+        val modelsDir = File(backendRoot, "models")
+        try {
+            if (!modelsDir.exists()) modelsDir.mkdirs()
+
+            val client = okhttp3.OkHttpClient.Builder()
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            if (downloadUrl.endsWith(".zst", ignoreCase = true)) {
+                val zstFile = File(modelsDir, "models.zst")
+                Log.i(TAG, "Starting on-demand Zstd model download from $downloadUrl")
+                val ok = downloadFileWithProgress(client, downloadUrl, zstFile) { frac ->
+                    onProgress((frac * 0.9f).coerceIn(0f, 0.9f))
+                }
+                if (!ok) return@withContext false
+
+                Log.i(TAG, "Model archive downloaded (${zstFile.length()} bytes). Unpacking via Go engine...")
+                val daemonClient = com.cubicreates.unboundmusic.daemon.DaemonManager.getInstance(context).client
+                val unpacked = daemonClient.unpackPayload(zstFile.absolutePath, modelsDir.absolutePath)
+                if (zstFile.exists()) zstFile.delete()
+                if (unpacked && isAiModelInstalled(context)) {
+                    onProgress(1.0f)
+                    Log.i(TAG, "On-demand AI model installation complete.")
+                    return@withContext true
+                }
+                Log.e(TAG, "Failed unpacking AI model payload via daemon.")
+                return@withContext false
+            }
+
+            // Direct download of SmolLM2-135M GGUF + optional MiniLM ONNX embeddings
+            val primaryModel = File(modelsDir, "smollm2_135m.gguf")
+            Log.i(TAG, "Starting direct download of SmolLM2-135M from $downloadUrl")
+            onProgress(0.01f)
+            val ggufOk = downloadFileWithProgress(client, downloadUrl, primaryModel) { frac ->
+                onProgress((frac * 0.85f).coerceIn(0.01f, 0.85f))
+            }
+            if (!ggufOk || primaryModel.length() < MIN_GGUF_SIZE_BYTES) {
+                Log.e(TAG, "Primary GGUF download incomplete or invalid (${primaryModel.length()} bytes)")
+                if (primaryModel.exists()) primaryModel.delete()
+                return@withContext false
+            }
+
+            // Also fetch lightweight MiniLM embeddings ONNX (non-fatal if already present or skipped)
+            val onnxModel = File(modelsDir, "model_quantized.onnx")
+            if (!onnxModel.exists() || onnxModel.length() < MIN_ONNX_SIZE_BYTES) {
+                Log.i(TAG, "Downloading companion embeddings ONNX from $MINILM_ONNX_URL")
+                val onnxOk = downloadFileWithProgress(client, MINILM_ONNX_URL, onnxModel) { frac ->
+                    onProgress((0.85f + frac * 0.15f).coerceIn(0.85f, 1.0f))
+                }
+                if (!onnxOk || onnxModel.length() < MIN_ONNX_SIZE_BYTES) {
+                    Log.w(TAG, "Companion ONNX download did not complete; core SmolLM2 GGUF remains installed.")
+                    if (onnxModel.exists() && onnxModel.length() < MIN_ONNX_SIZE_BYTES) {
+                        onnxModel.delete()
+                    }
+                }
+            }
+
+            onProgress(1.0f)
+            Log.i(TAG, "On-demand SmolLM2-135M installation complete (${primaryModel.length()} bytes).")
+            true
+        } catch (ce: CancellationException) {
+            Log.i(TAG, "AI model download cancelled by user; cleaning partial files.")
+            listOf(
+                "smollm2_135m.gguf.tmp",
+                "model_quantized.onnx.tmp",
+                "models.zst",
+                "models.zst.tmp"
+            ).forEach { File(modelsDir, it).takeIf { f -> f.exists() }?.delete() }
+            throw ce
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading and installing AI model: ${e.message}", e)
             false
